@@ -181,7 +181,7 @@ export async function streamChatTurn(
     if (!r.ok) {
       // 4xx is a real client/terminal error — surface it, don't retry for the whole hard cap. A 5xx
       // (transient gateway/upstream) is resumable → reconnect from the cursor.
-      if (r.status < 500) { terminal = true; cb.onError(`Chat request failed (${r.status})`); return "terminal"; }
+      if (r.status < 500) { terminal = true; cb.onError(`Sohbet isteği başarısız oldu (${r.status})`); return "terminal"; }
       return "closed";
     }
     const reader = r.body?.getReader();
@@ -248,7 +248,7 @@ export async function streamChatTurn(
           // it (do NOT treat as a cold-start close to resume).
           case "error":
           case "stream-error":
-            terminal = true; sawVisibleOutput = true; cb.onError(ev.message || "Chat request failed.");
+            terminal = true; sawVisibleOutput = true; cb.onError(ev.message || "Sohbet isteği başarısız oldu.");
             break;
           default:
             break;

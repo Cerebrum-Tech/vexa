@@ -41,7 +41,7 @@ type AnyNode = {
 };
 
 function location(node: AnyNode): string {
-  return node.loc ? `line ${node.loc.start.line}, column ${node.loc.start.column + 1}` : `offset ${node.start}`;
+  return node.loc ? `satır ${node.loc.start.line}, sütun ${node.loc.start.column + 1}` : `konum ${node.start}`;
 }
 
 function add(errors: Map<string, string>, node: AnyNode, message: string): void {
@@ -67,64 +67,64 @@ export function validateViewSource(source: string): ValidationResult {
     code = transpileForParse(source);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    return { ok: false, errors: [`Sucrase could not transpile this view: ${msg}`] };
+    return { ok: false, errors: [`Sucrase bu görünümü dönüştüremedi: ${msg}`] };
   }
   try {
     ast = parse(code, { ecmaVersion: "latest", sourceType: "module", locations: true, ranges: true }) as unknown as AnyNode;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    return { ok: false, errors: [`Acorn could not parse the transpiled view: ${msg}`] };
+    return { ok: false, errors: [`Acorn dönüştürülen görünümü ayrıştıramadı: ${msg}`] };
   }
 
   walk.ancestor(ast as never, {
     ImportDeclaration(node: AnyNode) {
       const src = typeof node.source?.value === "string" ? node.source.value : "";
-      if (!ALLOWED_IMPORTS.has(src)) add(errors, node, `Import from "${src}" is not allowed. Use only the harness globals: React, ui, useMeeting, useTranscript, useSpeakers, useEntities, useSignals, useMeetingDocs, useActions, actions, useState, useMemo, useEffect.`);
+      if (!ALLOWED_IMPORTS.has(src)) add(errors, node, `"${src}" içe aktarılamaz. Yalnızca sağlanan genel değerleri kullanın: React, ui, useMeeting, useTranscript, useSpeakers, useEntities, useSignals, useMeetingDocs, useActions, actions, useState, useMemo, useEffect.`);
     },
     ExportNamedDeclaration(node: AnyNode) {
-      add(errors, node, "Named exports are not allowed. Export one default React component.");
+      add(errors, node, "Adlandırılmış dışa aktarımlar kullanılamaz. Tek bir varsayılan React bileşeni dışa aktarın.");
     },
     ExportAllDeclaration(node: AnyNode) {
-      add(errors, node, "Export-all declarations are not allowed. Export one default React component.");
+      add(errors, node, "Tümünü dışa aktarma bildirimleri kullanılamaz. Tek bir varsayılan React bileşeni dışa aktarın.");
     },
     ImportExpression(node: AnyNode) {
-      add(errors, node, "Dynamic import() is not allowed in Meeting Canvas views.");
+      add(errors, node, "Toplantı görünümlerinde dinamik import() kullanılamaz.");
     },
     CallExpression(node: AnyNode) {
       const callee = node.callee as AnyNode | undefined;
-      if (callee?.type === "Import") add(errors, node, "Dynamic import() is not allowed in Meeting Canvas views.");
-      if (callee?.type === "Identifier" && (callee.name === "eval" || callee.name === "Function")) add(errors, node, `${callee.name}() is not allowed in Meeting Canvas views.`);
+      if (callee?.type === "Import") add(errors, node, "Toplantı görünümlerinde dinamik import() kullanılamaz.");
+      if (callee?.type === "Identifier" && (callee.name === "eval" || callee.name === "Function")) add(errors, node, `Toplantı görünümlerinde ${callee.name}() kullanılamaz.`);
       const member = callee?.type === "MemberExpression" ? callee : null;
       const object = member?.object as AnyNode | undefined;
       const property = member?.property as AnyNode | undefined;
       const firstArg = (node.arguments as AnyNode[] | undefined)?.[0];
       if (object?.type === "Identifier" && object.name === "React" && property?.type === "Identifier" && property.name === "createElement" && firstArg?.type === "Literal" && typeof firstArg.value === "string") {
-        add(errors, node, "Raw DOM elements are not allowed. Use ui.* components only.");
+        add(errors, node, "Ham DOM öğeleri kullanılamaz. Yalnızca ui.* bileşenlerini kullanın.");
       }
     },
     NewExpression(node: AnyNode) {
       const callee = node.callee as AnyNode | undefined;
-      if (callee?.type === "Identifier" && callee.name === "Function") add(errors, node, "new Function is not allowed in Meeting Canvas views.");
-      if (callee?.type === "Identifier" && (callee.name === "XMLHttpRequest" || callee.name === "WebSocket")) add(errors, node, `new ${callee.name} is not allowed. Use harness actions and meeting data only.`);
+      if (callee?.type === "Identifier" && callee.name === "Function") add(errors, node, "Toplantı görünümlerinde new Function kullanılamaz.");
+      if (callee?.type === "Identifier" && (callee.name === "XMLHttpRequest" || callee.name === "WebSocket")) add(errors, node, `new ${callee.name} kullanılamaz. Yalnızca sağlanan eylemleri ve toplantı verilerini kullanın.`);
     },
     Property(node: AnyNode) {
       const key = node.key as AnyNode | undefined;
-      if (key?.type === "Identifier" && key.name === "dangerouslySetInnerHTML") add(errors, key, "dangerouslySetInnerHTML is not allowed.");
-      if (key?.type === "Literal" && key.value === "dangerouslySetInnerHTML") add(errors, key, "dangerouslySetInnerHTML is not allowed.");
-      if (key?.type === "Identifier" && (key.name === "style" || key.name === "className")) add(errors, key, `${key.name} is not allowed. Use kit tone/size/align props only.`);
-      if (key?.type === "Literal" && (key.value === "style" || key.value === "className")) add(errors, key, `${String(key.value)} is not allowed. Use kit tone/size/align props only.`);
+      if (key?.type === "Identifier" && key.name === "dangerouslySetInnerHTML") add(errors, key, "dangerouslySetInnerHTML kullanılamaz.");
+      if (key?.type === "Literal" && key.value === "dangerouslySetInnerHTML") add(errors, key, "dangerouslySetInnerHTML kullanılamaz.");
+      if (key?.type === "Identifier" && (key.name === "style" || key.name === "className")) add(errors, key, `${key.name} kullanılamaz. Yalnızca kit'in tone/size/align özelliklerini kullanın.`);
+      if (key?.type === "Literal" && (key.value === "style" || key.value === "className")) add(errors, key, `${String(key.value)} kullanılamaz. Yalnızca kit'in tone/size/align özelliklerini kullanın.`);
     },
     Identifier(node: AnyNode, ancestors: AnyNode[]) {
       const parent = ancestors[ancestors.length - 2];
       if (node.name === "dangerouslySetInnerHTML") {
-        add(errors, node, "dangerouslySetInnerHTML is not allowed.");
+        add(errors, node, "dangerouslySetInnerHTML kullanılamaz.");
         return;
       }
       if (isNonComputedPropertyKey(node, parent)) return;
-      if (node.name && FORBIDDEN_IDENTIFIERS.has(node.name)) add(errors, node, `${node.name} is not available in Meeting Canvas views.`);
+      if (node.name && FORBIDDEN_IDENTIFIERS.has(node.name)) add(errors, node, `${node.name} toplantı görünümlerinde kullanılamaz.`);
     },
     Literal(node: AnyNode) {
-      if (node.value === "dangerouslySetInnerHTML") add(errors, node, "dangerouslySetInnerHTML is not allowed.");
+      if (node.value === "dangerouslySetInnerHTML") add(errors, node, "dangerouslySetInnerHTML kullanılamaz.");
     },
   } as never);
 

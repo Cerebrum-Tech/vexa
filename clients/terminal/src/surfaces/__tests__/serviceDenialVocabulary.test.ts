@@ -22,6 +22,11 @@
  *  NOTE FOR THE MERGER: the two older pins' failure messages still name only FOUR places, because
  *  they predate this module. Reconcile all three message lists at merge time.
  *
+ *  What is shared across the six places is the REASON SET and the kind/action mapping — not the
+ *  words. This deployment ships a Turkish terminal, so the copy pinned below is Turkish while the
+ *  dashboard and webapp twins stay English; the sentences are pinned here because a customer
+ *  screenshots them, not because they are byte-identical to another surface.
+ *
  *  Narrowing `reason` to an enum in the contract is the deeper fix, and it is a BREAKING change to
  *  a frozen `.vN`: it needs a `service-authority.v2` on a `lane:contract` human-reviewed PR
  *  (gate:contract-version), not an edit to v1.
@@ -76,9 +81,11 @@ describe("service-authority denial-reason vocabulary (Vexa-ai/vexa-platform#291)
       for (const reason of PINNED_REASON_VOCABULARY) {
         const view = serviceDenialPresentation(reason);
         expect(view.body, `${reason}\n${CROSS_REPO_FIXUP}`).not.toContain(
-          `service not allowed: ${reason}. If this keeps happening`,
+          `Hizmet izni verilmedi: ${reason}. Bu durum tekrarlanırsa`,
         );
-        expect(view.body).not.toMatch(/access denied/i);
+        // Never flattened into the generic 403 line the presenter seam would otherwise give
+        // ("Anahtarınızın buna erişim yetkisi yok." — apiClient.presentError).
+        expect(view.body).not.toMatch(/erişim yetkisi yok/i);
         expect(view.title.length).toBeGreaterThan(0);
       }
       // Not one of them fell through to the unmapped branch.
@@ -95,23 +102,23 @@ describe("service-authority denial-reason vocabulary (Vexa-ai/vexa-platform#291)
     expect(serviceDenialPresentation("allowed").action).toBeNull();
   });
 
-  it("says the same sentence the dashboard says, word for word", () => {
-    // The byte-alignment claim in serviceDenial.ts's header, made checkable for the two lines a
-    // customer is most likely to screenshot at us.
+  it("pins the two sentences a customer is most likely to screenshot at us", () => {
+    // The `kind`/`action` mapping is the cross-surface contract; the words are this terminal's
+    // Turkish. Both are pinned, so neither a retitled panel nor a re-kinded reason lands silently.
     expect(serviceDenialPresentation("insufficient_balance")).toMatchObject({
       kind: "paywall",
-      title: "Out of credit",
+      title: "Bakiyeniz tükendi",
       body:
-        "Your prepaid balance is empty. Add funds and the bot joins immediately — " +
-        "nothing else about your account needs changing.",
-      action: { label: "Add funds", href: "/account?tab=bots" },
+        "Ön ödemeli bakiyeniz boş. Bakiye yüklediğinizde bot toplantıya " +
+        "hemen katılır — hesabınızda başka hiçbir şeyi değiştirmeniz gerekmez.",
+      action: { label: "Bakiye yükle", href: "/account?tab=bots" },
     });
     expect(serviceDenialPresentation("billing_unavailable")).toMatchObject({
       kind: "retryable",
-      title: "Billing system temporarily unavailable",
+      title: "Faturalandırma sistemi geçici olarak kullanılamıyor",
       body:
-        "Your account is fine — we could not reach the billing ledger just now. " +
-        "Try again shortly.",
+        "Hesabınızda bir sorun yok — şu anda faturalandırma kayıtlarına " +
+        "ulaşamadık. Lütfen kısa bir süre sonra yeniden deneyin.",
       retryable: true,
     });
   });
@@ -119,13 +126,15 @@ describe("service-authority denial-reason vocabulary (Vexa-ai/vexa-platform#291)
   it("puts the caller's numbers in the copy when it has them", () => {
     expect(serviceDenialPresentation("insufficient_balance", {
       balanceCents: 250, planLabel: "Pay-as-you-go",
-    }).body).toContain("Your prepaid balance on Pay-as-you-go is $2.50.");
+    }).body).toContain("Pay-as-you-go planındaki ön ödemeli bakiyeniz $2.50.");
+    // Turkish keeps the counted noun singular ("1 bot", "3 bot"), so the pair pins the ceiling
+    // reaching the copy, not an English plural rule.
     expect(serviceDenialPresentation("concurrency_limit_reached", {
       concurrencyCeiling: 1,
-    }).body).toContain("Your plan runs 1 bot at once");
+    }).body).toContain("Planınız aynı anda 1 bot çalıştırıyor");
     expect(serviceDenialPresentation("concurrency_limit_reached", {
       concurrencyCeiling: 3,
-    }).body).toContain("Your plan runs 3 bots at once");
+    }).body).toContain("Planınız aynı anda 3 bot çalıştırıyor");
   });
 });
 
@@ -158,7 +167,7 @@ describe("access failures are never dressed as a paywall", () => {
     const state = resolveJoinError(error);
     expect(state.kind).toBe("message");
     if (state.kind !== "message") throw new Error("unreachable");
-    expect(state.headline).not.toMatch(/credit|balance|billing|payment/i);
+    expect(state.headline).not.toMatch(/bakiye|kredi|fatura|ödeme|credit|balance|billing|payment/i);
     expect(isAccessError(error)).toBe(true);
   });
 
@@ -172,13 +181,13 @@ describe("access failures are never dressed as a paywall", () => {
 
   it("still routes a real 403 denial to the paywall panel", () => {
     // The positive control for the three negatives above, and the regression this PR exists for:
-    // before it, this error rendered as "Your key doesn't have access to this."
+    // before it, this error rendered as "Anahtarınızın buna erişim yetkisi yok."
     const error = denial(403, "insufficient_balance");
     const state = resolveJoinError(error);
     expect(state.kind).toBe("denial");
     if (state.kind !== "denial") throw new Error("unreachable");
     expect(state.presentation.kind).toBe("paywall");
-    expect(state.presentation.title).toBe("Out of credit");
+    expect(state.presentation.title).toBe("Bakiyeniz tükendi");
     expect(isAccessError(error)).toBe(false);
   });
 
@@ -196,7 +205,7 @@ describe("access failures are never dressed as a paywall", () => {
 
   it("recovers a denial whose body only survived as the flattened detail string", () => {
     // `ApiError.detail` is the operator string. A call site built before `ApiError.body` existed
-    // still produces a transparent panel rather than "Your key doesn't have access to this."
+    // still produces a transparent panel rather than "Anahtarınızın buna erişim yetkisi yok."
     const error = new ApiError(
       403,
       '{"code":"service_not_allowed","reason":"payment_past_due"}',
@@ -205,7 +214,7 @@ describe("access failures are never dressed as a paywall", () => {
     const state = resolveJoinError(error);
     expect(state.kind).toBe("denial");
     if (state.kind !== "denial") throw new Error("unreachable");
-    expect(state.presentation.title).toBe("Payment past due");
+    expect(state.presentation.title).toBe("Ödemeniz gecikti");
   });
 
   it("logs an unmapped reason in a production build so the net can see it", () => {
@@ -214,9 +223,10 @@ describe("access failures are never dressed as a paywall", () => {
       const state = resolveJoinError(denial(403, "region_unsupported"));
       expect(state.kind).toBe("denial");
       if (state.kind !== "denial") throw new Error("unreachable");
-      // Verbatim in front of the customer — never flattened to "Access denied".
+      // The raw code stays verbatim in front of the customer — never flattened away. Only the
+      // sentence around it is Turkish; the logged line below stays English (operator channel).
       expect(state.presentation.kind).toBe("unknown");
-      expect(state.presentation.body).toContain("service not allowed: region_unsupported");
+      expect(state.presentation.body).toContain("Hizmet izni verilmedi: region_unsupported");
       expect(consoleError).toHaveBeenCalledWith(
         expect.stringContaining("unmapped service-authority reason: region_unsupported"),
       );

@@ -77,17 +77,17 @@ export async function POST(req: NextRequest) {
     if (!upstream.ok) {
       const detail = (await upstream.text().catch(() => "")).trim().replace(/\s+/g, " ");
       req.signal.removeEventListener("abort", onClientGone);
-      return sseError(detail || `agent-api chat returned ${upstream.status}`, upstream.status);
+      return sseError(detail || `Asistan yanıt veremedi (${upstream.status}).`, upstream.status);
     }
     if (!upstream.body) {
       req.signal.removeEventListener("abort", onClientGone);
-      return sseError("agent-api chat returned no body", 502);
+      return sseError("Asistan boş bir yanıt döndürdü.", 502);
     }
     return new Response(proxyStream(upstream.body, abort), { status: upstream.status, headers: SSE_HEADERS });
   } catch (err) {
     req.signal.removeEventListener("abort", onClientGone);
     console.error("[terminal-api] chat proxy failed", err);
-    const message = err instanceof Error && err.message ? err.message : "upstream unavailable";
+    const message = err instanceof Error && err.message ? err.message : "Asistan hizmetine şu anda ulaşılamıyor.";
     return sseError(message, 502);
   }
 }

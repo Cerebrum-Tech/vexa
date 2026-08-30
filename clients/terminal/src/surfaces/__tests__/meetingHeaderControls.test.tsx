@@ -38,18 +38,18 @@ describe("meetingHeaderState — pure (row, connected) → header", () => {
 describe("BotControls — enabled-ness follows WS connectivity", () => {
   it("connected + active → 'Stop bot' enabled", () => {
     render(<BotControls m={row("active")} connected={true} />);
-    const btn = screen.getByRole("button", { name: "Stop bot" });
+    const btn = screen.getByRole("button", { name: "Botu durdur" });
     expect((btn as HTMLButtonElement).disabled).toBe(false);
   });
   it("disconnected + (stale) active → 'Stop bot' DISABLED with the reconnect hint", () => {
     render(<BotControls m={row("active")} connected={false} />);
-    const btn = screen.getByRole("button", { name: "Stop bot" });
+    const btn = screen.getByRole("button", { name: "Botu durdur" });
     expect((btn as HTMLButtonElement).disabled).toBe(true);
-    expect(btn.getAttribute("title")).toMatch(/reconnecting/i);
+    expect(btn.getAttribute("title")).toMatch(/yeniden bağlan/i);
   });
   it("no active meeting (terminal row) → the send-again control, not Stop", () => {
     render(<BotControls m={row("completed")} connected={true} />);
-    expect(screen.queryByRole("button", { name: "Stop bot" })).toBeNull();
-    expect(screen.getByRole("button", { name: "Send bot again" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Botu durdur" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Botu yeniden gönder" })).toBeTruthy();
   });
 });

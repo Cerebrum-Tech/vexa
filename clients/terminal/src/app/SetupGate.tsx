@@ -47,7 +47,7 @@ const label: CSSProperties = {
 };
 
 function TestLine({ res, err, busy }: { res: ConfigTestResult | null; err: string | null; busy: boolean }) {
-  if (busy) return <span style={{ fontSize: 11.5, color: "var(--t3)" }}>Testing…</span>;
+  if (busy) return <span style={{ fontSize: 11.5, color: "var(--t3)" }}>Test ediliyor…</span>;
   if (err) return <span role="alert" style={{ fontSize: 11.5, color: "var(--danger)" }}>⚠ {err}</span>;
   if (!res) return null;
   return (
@@ -101,34 +101,32 @@ function ModelsStep({ onNext }: { onNext: (state: StepState) => void }) {
 
   return (
     <>
-      <div style={{ fontSize: 19, fontWeight: 650, color: "var(--t1)" }}>How should the agent think?</div>
+      <div style={{ fontSize: 19, fontWeight: 650, color: "var(--t1)" }}>Asistan hangi modeli kullansın?</div>
       <div style={{ fontSize: 12, color: "var(--t3)", lineHeight: 1.5 }}>
-        Pick the model provider for chat, briefs, and meeting notes. You can change this anytime in
-        Settings → Models.
+        Sohbet, hazırlık notları ve toplantı raporları için model sağlayıcısını seçin. Bu ayarı
+        Ayarlar → Modeller bölümünden değiştirebilirsiniz.
       </div>
 
       <div style={choice === "subscription" ? cardSel : card} onClick={() => setChoice("subscription")}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 600, color: "var(--t1)" }}>
-          <Radio on={choice === "subscription"} /> Claude subscription on this machine
+          <Radio on={choice === "subscription"} /> Bu makinedeki Claude aboneliği
           {detecting
-            ? <Badge tone="muted">checking…</Badge>
-            : detected ? <Badge tone="ok">detected</Badge> : <Badge tone="warn">not detected</Badge>}
+            ? <Badge tone="muted">kontrol ediliyor…</Badge>
+            : detected ? <Badge tone="ok">bulundu</Badge> : <Badge tone="warn">bulunamadı</Badge>}
         </div>
         <div style={{ fontSize: 11.5, color: "var(--t3)", lineHeight: 1.5, marginLeft: 22 }}>
-          Uses the Claude Code credentials already on this computer. No API key needed.
+          Bu bilgisayardaki Claude Code kimlik bilgilerini kullanır. API anahtarı gerekmez.
         </div>
         {!detecting && !detected && (
           <div style={{ marginLeft: 22, display: "flex", flexDirection: "column", gap: 7 }}>
             <div style={{ fontSize: 11.5, color: "var(--t2)", lineHeight: 1.5 }}>
-              No Claude credentials detected in the deployment environment. Set up a model
-              provider via <code style={{ fontSize: 11, fontFamily: "var(--mono)", background: "var(--panel2)", padding: "1px 4px", borderRadius: 3 }}>HOST_CLAUDE_CREDENTIALS</code>{" "}
-              in deployment settings or select the "OpenRouter or custom endpoint" option above
-              — see the <a href="https://docs.vexa.ai/configuration" target="_blank" rel="noreferrer" style={{ color: "var(--t2)", textDecoration: "underline" }}>configuration docs</a>{" "}
-              for all setup options.
+              Dağıtım ortamında Claude kimlik bilgisi bulunamadı. Dağıtım ayarlarında
+              <code style={{ fontSize: 11, fontFamily: "var(--mono)", background: "var(--panel2)", padding: "1px 4px", borderRadius: 3 }}>HOST_CLAUDE_CREDENTIALS</code>{" "}
+              değerini tanımlayın veya yukarıdaki yerel model/özel uç nokta seçeneğini kullanın.
             </div>
             {detect && !detect.ok && <TestLine res={detect} err={null} busy={false} />}
             <button style={{ ...quietBtn, alignSelf: "flex-start" }} onClick={(e) => { e.stopPropagation(); recheck(); }}>
-              Re-check
+              Yeniden kontrol et
             </button>
           </div>
         )}
@@ -139,16 +137,16 @@ function ModelsStep({ onNext }: { onNext: (state: StepState) => void }) {
 
       <div style={choice === "custom" ? cardSel : card} onClick={() => setChoice("custom")}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 600, color: "var(--t1)" }}>
-          <Radio on={choice === "custom"} /> OpenRouter or custom endpoint
+          <Radio on={choice === "custom"} /> Yerel model veya özel uç nokta
         </div>
         <div style={{ fontSize: 11.5, color: "var(--t3)", lineHeight: 1.5, marginLeft: 22 }}>
-          Any Anthropic/OpenAI-compatible endpoint. Bring your own key.
+          Anthropic/OpenAI uyumlu herhangi bir uç nokta. Kendi anahtarınızı kullanın.
         </div>
         {choice === "custom" && (
           <div style={{ marginLeft: 22, display: "flex", flexDirection: "column", gap: 7 }}>
             <input style={field} placeholder="https://openrouter.ai/api/v1" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} />
-            <input style={field} placeholder="API key" type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} />
-            <input style={field} placeholder="Model — e.g. anthropic/claude-sonnet-4.5" value={model} onChange={(e) => setModel(e.target.value)} />
+            <input style={field} placeholder="API anahtarı" type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} />
+            <input style={field} placeholder="Model — ör. gemma4:12b" value={model} onChange={(e) => setModel(e.target.value)} />
           </div>
         )}
       </div>
@@ -157,7 +155,7 @@ function ModelsStep({ onNext }: { onNext: (state: StepState) => void }) {
         {choice === "custom" && (
           <button style={{ ...quietBtn, opacity: busy || !baseUrl.trim() ? 0.5 : 1 }} disabled={busy || !baseUrl.trim()}
             onClick={() => void saveAndTest()}>
-            {busy ? "Testing…" : "Save & test"}
+            {busy ? "Test ediliyor…" : "Kaydet ve test et"}
           </button>
         )}
         <TestLine res={res} err={err} busy={false} />
@@ -174,7 +172,7 @@ function ModelsStep({ onNext }: { onNext: (state: StepState) => void }) {
               }
               onNext("done");
             }}>
-            Continue
+            Devam et
           </button>
         }
       />
@@ -182,7 +180,7 @@ function ModelsStep({ onNext }: { onNext: (state: StepState) => void }) {
   );
 }
 
-/** Step 2 — transcription: hosted Vexa token (vexa.ai/account) or any OpenAI-compatible STT. */
+/** Step 2 — transcription: hosted token or any OpenAI-compatible STT. */
 function TranscriptionStep({ onNext }: { onNext: (state: StepState) => void }) {
   const [choice, setChoice] = useState<"vexa" | "custom">("vexa");
   const [token, setToken] = useState("");
@@ -192,7 +190,7 @@ function TranscriptionStep({ onNext }: { onNext: (state: StepState) => void }) {
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  // The deployment env may already carry a working backend (e.g. hosted Vexa baked into .env) —
+  // The deployment env may already carry a working backend (e.g. a hosted service baked into .env) —
   // surface that: a green pre-test means "you can just continue".
   useEffect(() => {
     testTranscription().then(setRes).catch(() => undefined);
@@ -218,39 +216,35 @@ function TranscriptionStep({ onNext }: { onNext: (state: StepState) => void }) {
 
   return (
     <>
-      <div style={{ fontSize: 19, fontWeight: 650, color: "var(--t1)" }}>Who turns speech into text?</div>
+      <div style={{ fontSize: 19, fontWeight: 650, color: "var(--t1)" }}>Transkripsiyon hizmeti</div>
       <div style={{ fontSize: 12, color: "var(--t3)", lineHeight: 1.5 }}>
-        Meeting bots stream audio to a transcription service. Hosted Vexa is the zero-setup path.
+        Toplantı botları sesi transkripsiyon hizmetine aktarır. Yerel Whisper uç noktanızı kullanabilirsiniz.
       </div>
 
       <div style={choice === "vexa" ? cardSel : card} onClick={() => setChoice("vexa")}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 600, color: "var(--t1)" }}>
-          <Radio on={choice === "vexa"} /> Vexa hosted transcription
+          <Radio on={choice === "vexa"} /> Barındırılan transkripsiyon
         </div>
         <div style={{ fontSize: 11.5, color: "var(--t3)", lineHeight: 1.5, marginLeft: 22 }}>
-          Get your token at{" "}
-          <a href="https://www.vexa.ai/account" target="_blank" rel="noreferrer" style={{ color: "var(--accent)" }}>
-            www.vexa.ai/account
-          </a>{" "}
-          — free tier included. Paste it here.
+          Erişim belirtecinizi dağıtım yöneticinizden alın ve buraya yapıştırın.
         </div>
         {choice === "vexa" && (
-          <input style={{ ...field, marginLeft: 22, width: "calc(100% - 22px)" }} placeholder="Transcription token"
+          <input style={{ ...field, marginLeft: 22, width: "calc(100% - 22px)" }} placeholder="Transkripsiyon belirteci"
             type="password" value={token} onChange={(e) => setToken(e.target.value)} />
         )}
       </div>
 
       <div style={choice === "custom" ? cardSel : card} onClick={() => setChoice("custom")}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 600, color: "var(--t1)" }}>
-          <Radio on={choice === "custom"} /> OpenAI-compatible endpoint
+          <Radio on={choice === "custom"} /> OpenAI uyumlu transkripsiyon uç noktası
         </div>
         <div style={{ fontSize: 11.5, color: "var(--t3)", lineHeight: 1.5, marginLeft: 22 }}>
-          Any service speaking the OpenAI transcription API (Whisper-compatible).
+          OpenAI transkripsiyon API&rsquo;sini destekleyen herhangi bir Whisper uyumlu hizmet.
         </div>
         {choice === "custom" && (
           <div style={{ marginLeft: 22, display: "flex", flexDirection: "column", gap: 7 }}>
             <input style={field} placeholder="https://your-stt.example.com" value={url} onChange={(e) => setUrl(e.target.value)} />
-            <input style={field} placeholder="API key (optional)" type="password" value={customToken} onChange={(e) => setCustomToken(e.target.value)} />
+            <input style={field} placeholder="API anahtarı (isteğe bağlı)" type="password" value={customToken} onChange={(e) => setCustomToken(e.target.value)} />
           </div>
         )}
       </div>
@@ -258,7 +252,7 @@ function TranscriptionStep({ onNext }: { onNext: (state: StepState) => void }) {
       <div style={{ display: "flex", alignItems: "center", gap: 10, minHeight: 24 }}>
         <button style={{ ...quietBtn, opacity: busy || !dirty ? 0.5 : 1 }} disabled={busy || !dirty}
           onClick={() => void saveAndTest()}>
-          {busy ? "Testing…" : "Save & test"}
+          {busy ? "Test ediliyor…" : "Bağlantıyı test et"}
         </button>
         <TestLine res={res} err={err} busy={busy} />
       </div>
@@ -267,7 +261,7 @@ function TranscriptionStep({ onNext }: { onNext: (state: StepState) => void }) {
         onSkip={() => onNext("skipped")}
         next={
           <button style={{ ...primaryBtn, opacity: res?.ok ? 1 : 0.5 }} disabled={!res?.ok} onClick={() => onNext("done")}>
-            Finish setup
+            Kurulumu tamamla
           </button>
         }
       />
@@ -300,7 +294,7 @@ function Foot({ onSkip, next }: { onSkip: () => void; next: React.ReactNode }) {
       marginTop: 10, paddingTop: 14, borderTop: "1px dashed var(--line2)" }}>
       <button onClick={onSkip}
         style={{ background: "none", border: "none", color: "var(--t3)", fontSize: 12, cursor: "pointer", textDecoration: "underline", padding: 0 }}>
-        Skip for now
+        Şimdilik atla
       </button>
       {next}
     </div>
@@ -324,9 +318,9 @@ function Steps({ at }: { at: 1 | 2 }) {
   };
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-      {dot(1, "Agent model")}
+      {dot(1, "Asistan modeli")}
       <span style={{ width: 24, height: 1, background: "var(--line2)" }} />
-      {dot(2, "Transcription")}
+      {dot(2, "Transkripsiyon")}
     </div>
   );
 }
@@ -371,28 +365,29 @@ export function SetupGate({ children }: { children: React.ReactNode }) {
       <div style={{ width: 520, maxWidth: "94vw", background: "var(--panel)", border: "1px solid var(--line2)",
         borderRadius: 12, padding: 26, display: "flex", flexDirection: "column", gap: 14, boxShadow: "0 8px 32px rgba(0,0,0,.3)" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <span style={label}>Set up your instance</span>
+          <span style={label}>Kurulumu tamamlayın</span>
           {step < 3 && <Steps at={step as 1 | 2} />}
         </div>
         {step === 1 && <ModelsStep onNext={(s) => advance("models", s)} />}
         {step === 2 && <TranscriptionStep onNext={(s) => advance("transcription", s)} />}
         {step === 3 && (
           <>
-            <div style={{ fontSize: 19, fontWeight: 650, color: "var(--t1)" }}>You&rsquo;re set ✓</div>
+            <div style={{ fontSize: 19, fontWeight: 650, color: "var(--t1)" }}>Kurulum tamamlandı ✓</div>
             <div style={{ fontSize: 12.5, color: "var(--t2)", lineHeight: 1.8 }}>
               <div style={{ color: states.models === "done" ? "var(--green)" : "var(--t3)" }}>
-                {states.models === "done" ? "✓ Agent model configured and tested" : "○ Agent model skipped — finish it in Settings → Models"}
+                {states.models === "done" ? "✓ Asistan modeli yapılandırıldı ve test edildi" : "○ Asistan modeli atlandı — Ayarlar → Modeller bölümünden tamamlayın"}
               </div>
               <div style={{ color: states.transcription === "done" ? "var(--green)" : "var(--t3)" }}>
-                {states.transcription === "done" ? "✓ Transcription configured and tested" : "○ Transcription skipped — finish it in Settings → Models"}
+                {states.transcription === "done" ? "✓ Transkripsiyon yapılandırıldı ve test edildi" : "○ Transkripsiyon atlandı — Ayarlar → Modeller bölümünden tamamlayın"}
               </div>
             </div>
             <div style={{ fontSize: 12, color: "var(--t3)", lineHeight: 1.5 }}>
-              Everything a meeting needs is wired up. Next: get a meeting in front of a bot — connect
-              your calendar, plan a meeting, or drop a bot on a running Meet.
+              Bir toplantı için gereken her şey hazır. Sıradaki adım botu bir toplantıya göndermek —
+              takviminizi bağlayın, bir toplantı planlayın veya devam eden bir Google Meet toplantısına
+              bot ekleyin.
             </div>
             <div>
-              <button style={primaryBtn} onClick={finish}>Go to Meetings</button>
+              <button style={primaryBtn} onClick={finish}>Toplantılara git</button>
             </div>
           </>
         )}

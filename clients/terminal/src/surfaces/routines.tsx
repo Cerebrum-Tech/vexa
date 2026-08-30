@@ -14,13 +14,13 @@ import { usePreviewPinTab } from "./previewPinTab";
 import { listRoutines, deleteRoutine, setRoutineEnabled, type Routine } from "./routinesApi";
 import { presentError } from "./apiClient";
 
-const BOARD: TabDescriptor = { id: "board:routines", title: "Routines", kind: "routines", params: {}, context: null };
+const BOARD: TabDescriptor = { id: "board:routines", title: "Rutinler", kind: "routines", params: {}, context: null };
 
 function RoutinesBoardNav() {
   const nav = usePreviewPinTab<HTMLButtonElement>(BOARD);
   return (
     <button onClick={nav.onClick} onDoubleClick={nav.onDoubleClick} style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "8px 9px", borderRadius: 7, border: "1px solid var(--line2)", background: "var(--panel)", color: "var(--t1)", fontSize: 13, cursor: "pointer", marginBottom: 8 }}>
-      <Icon name="zap" size={14} />Routines board
+      <Icon name="zap" size={14} />Rutin panosu
     </button>
   );
 }
@@ -61,21 +61,21 @@ function RoutinesBoard() {
   return (
     <div style={{ height: "100%", overflowY: "auto", background: "var(--bg)" }}>
       <div style={{ maxWidth: 760, margin: "0 auto", padding: "24px" }}>
-        <div style={{ fontSize: 18, color: "var(--t1)", fontWeight: 500, marginBottom: 4 }}>Routines</div>
-        <div style={{ fontSize: 13, color: "var(--t3)", marginBottom: 20 }}>Scheduled agents. Create one in Chat with <code style={{ fontFamily: "var(--mono)", color: "var(--accent)" }}>/routine</code>; manage them here.</div>
-        {error && <div role="alert" style={{ fontSize: 12.5, color: "var(--danger)", background: "var(--panel)", border: "1px solid var(--danger)", borderRadius: 8, padding: "8px 11px", marginBottom: 14 }}>⚠ Couldn’t load routines — {error}</div>}
+        <div style={{ fontSize: 18, color: "var(--t1)", fontWeight: 500, marginBottom: 4 }}>Rutinler</div>
+        <div style={{ fontSize: 13, color: "var(--t3)", marginBottom: 20 }}>Zamanlanmış asistanlar. Sohbet bölümünde <code style={{ fontFamily: "var(--mono)", color: "var(--accent)" }}>/routine</code> ile oluşturun, buradan yönetin.</div>
+        {error && <div role="alert" style={{ fontSize: 12.5, color: "var(--danger)", background: "var(--panel)", border: "1px solid var(--danger)", borderRadius: 8, padding: "8px 11px", marginBottom: 14 }}>⚠ Rutinler yüklenemedi — {error}</div>}
         {routines.map((r) => (
           <div key={r.id} style={{ border: "1px solid var(--line)", borderRadius: 12, background: "var(--panel)", padding: "14px 16px", marginBottom: 12, opacity: r.enabled ? 1 : 0.55 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
               {editing === r.id
                 ? <input style={{ ...inp, flex: 1, fontSize: 14 }} value={r.name} onChange={(e) => patch(r.id, "name", e.target.value)} />
                 : <span style={{ fontSize: 14.5, color: "var(--t1)", fontWeight: 500, flex: 1 }}>{r.name}</span>}
-              <div style={sw(!!r.enabled)} onClick={() => void toggle(r)} title={r.enabled ? "Enabled" : "Disabled"}><div style={knob(!!r.enabled)} /></div>
-              <button onClick={() => setEditing(editing === r.id ? null : r.id)} title="Edit" style={{ background: "none", border: "none", color: "var(--t3)", cursor: "pointer", display: "flex" }}><Icon name="panel" size={14} /></button>
-              <button onClick={() => void del(r.id)} title="Delete" style={{ background: "none", border: "none", color: "var(--t3)", cursor: "pointer", display: "flex" }}><Icon name="x" size={14} /></button>
+              <div style={sw(!!r.enabled)} onClick={() => void toggle(r)} title={r.enabled ? "Etkin" : "Devre dışı"}><div style={knob(!!r.enabled)} /></div>
+              <button onClick={() => setEditing(editing === r.id ? null : r.id)} title="Düzenle" style={{ background: "none", border: "none", color: "var(--t3)", cursor: "pointer", display: "flex" }}><Icon name="panel" size={14} /></button>
+              <button onClick={() => void del(r.id)} title="Sil" style={{ background: "none", border: "none", color: "var(--t3)", cursor: "pointer", display: "flex" }}><Icon name="x" size={14} /></button>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 9 }}>
-              <span style={{ fontSize: 11, color: "var(--t3)" }}>schedule</span>
+              <span style={{ fontSize: 11, color: "var(--t3)" }}>zamanlama</span>
               {editing === r.id
                 ? <input style={{ ...inp, fontFamily: "var(--mono)", width: 160 }} value={r.cron} onChange={(e) => patch(r.id, "cron", e.target.value)} />
                 : <span style={{ fontFamily: "var(--mono)", fontSize: 11.5, borderRadius: 5, padding: "1px 7px", background: "var(--panel2)", color: "var(--accent)" }}>{r.cron}</span>}
@@ -83,7 +83,7 @@ function RoutinesBoard() {
             {r.plan_summary && <div style={{ fontSize: 12.5, color: "var(--t2)", marginTop: 9, lineHeight: 1.5 }}>{r.plan_summary}</div>}
           </div>
         ))}
-        {routines.length === 0 && <div style={{ color: "var(--t3)", fontSize: 13, padding: "20px 0" }}>No routines yet — open Chat and try <code style={{ fontFamily: "var(--mono)", color: "var(--accent)" }}>/routine</code>.</div>}
+        {routines.length === 0 && <div style={{ color: "var(--t3)", fontSize: 13, padding: "20px 0" }}>Henüz rutin yok — Sohbet bölümünde <code style={{ fontFamily: "var(--mono)", color: "var(--accent)" }}>/routine</code> komutunu deneyin.</div>}
       </div>
     </div>
   );
@@ -97,9 +97,9 @@ function RoutinesLeft() {
   return (
     <div style={{ padding: "8px" }}>
       <RoutinesBoardNav />
-      <div style={{ fontSize: 11, color: "var(--t3)", textTransform: "uppercase", letterSpacing: ".04em", padding: "6px 4px 4px" }}>scheduled agents</div>
+      <div style={{ fontSize: 11, color: "var(--t3)", textTransform: "uppercase", letterSpacing: ".04em", padding: "6px 4px 4px" }}>zamanlanmış asistanlar</div>
       {routines.map((r) => <RoutineNavRow key={r.id} routine={r} />)}
-      {routines.length === 0 && <div style={{ padding: "8px 4px", color: "var(--t3)", fontSize: 12 }}>None yet — create with <code style={{ fontFamily: "var(--mono)", color: "var(--accent)" }}>/routine</code> in Chat.</div>}
+      {routines.length === 0 && <div style={{ padding: "8px 4px", color: "var(--t3)", fontSize: 12 }}>Henüz yok — Sohbet bölümünde <code style={{ fontFamily: "var(--mono)", color: "var(--accent)" }}>/routine</code> ile oluşturun.</div>}
     </div>
   );
 }
@@ -107,5 +107,5 @@ function RoutinesLeft() {
 // Agent surface — absent in meetings-only mode (NEXT_PUBLIC_TERMINAL_MODE=meetings).
 if (!meetingsOnly()) {
   registerTab("routines", RoutinesBoard);
-  registerList({ id: "routines", label: "Routines", icon: "zap", order: 40, component: RoutinesLeft });
+  registerList({ id: "routines", label: "Rutinler", icon: "zap", order: 40, component: RoutinesLeft });
 }

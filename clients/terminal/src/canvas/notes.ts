@@ -46,7 +46,7 @@ function formatTs(ts: number | string | undefined): string {
 
 function speakerOf(segment: Pick<TranscriptSegment, "speaker"> | undefined): string {
   const speaker = (segment?.speaker ?? "").trim();
-  return speaker || "Speaker";
+  return speaker || "Konuşmacı";
 }
 
 /** Absolute wall-clock (epoch ms) for a segment, if it carries one. */

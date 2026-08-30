@@ -14,7 +14,7 @@ const POLL_MS = 4000;
 
 export const FALLBACK_SOURCE = `
 export default function Component() {
-  return React.createElement(ui.Empty, { title: "No canvas view", body: "Create views/meeting.tsx in the workspace." });
+  return React.createElement(ui.Empty, { title: "Görünüm yok", body: "Çalışma alanında views/meeting.tsx dosyasını oluşturun." });
 }
 `;
 

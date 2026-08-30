@@ -19,7 +19,7 @@ import { SetupGate } from "./SetupGate";
 import { acceptInvite, acceptTranscriptShare, previewInvite, type InvitePreview } from "../surfaces/workspaceApi";
 import "../surfaces";
 
-const roleLabel = (role: string) => (role === "viewer" ? "read-only" : "read & write");
+const roleLabel = (role: string) => (role === "viewer" ? "yalnızca okuma" : "okuma ve yazma");
 
 /** Post-auth invite handling (Lane M/A + M0), rendered INSIDE AuthGate's authed subtree so the preview /
  *  redeem calls carry the user's real API key — the fail-closed gateway rejects anonymous calls, so a
@@ -75,7 +75,7 @@ function InviteConsent({ token, onProceed, onDecline, busy = false }: { token: s
     let live = true;
     previewInvite(token)
       .then((p) => { if (live) setPv(p); })
-      .catch(() => { if (live) setErr("This invite link is invalid or has expired."); });
+      .catch(() => { if (live) setErr("Bu davet bağlantısı geçersiz veya süresi dolmuş."); });
     return () => { live = false; };
   }, [token]);
 
@@ -92,29 +92,30 @@ function InviteConsent({ token, onProceed, onDecline, busy = false }: { token: s
   return (
     <div style={wrap}>
       <div style={card}>
-        <div style={{ fontSize: 11.5, textTransform: "uppercase", letterSpacing: ".08em", color: "var(--t3)", marginBottom: 12 }}>You've been invited to a workspace</div>
-        {!pv && !err && <div style={{ color: "var(--t3)", fontSize: 13 }}>Loading invite…</div>}
+        <div style={{ fontSize: 11.5, textTransform: "uppercase", letterSpacing: ".08em", color: "var(--t3)", marginBottom: 12 }}>Bir çalışma alanına davet edildiniz</div>
+        {!pv && !err && <div style={{ color: "var(--t3)", fontSize: 13 }}>Davet yükleniyor…</div>}
         {invalid && (
           <>
-            <div style={{ fontSize: 16, color: "var(--t1)", marginBottom: 6 }}>Invite unavailable</div>
-            <div style={{ fontSize: 13, color: "var(--t3)", marginBottom: 20 }}>{err || "This invite is no longer valid — it may have been revoked, expired, or already used."}</div>
-            <button onClick={onDecline} style={btnGhost}>Continue to Vexa</button>
+            <div style={{ fontSize: 16, color: "var(--t1)", marginBottom: 6 }}>Davet kullanılamıyor</div>
+            <div style={{ fontSize: 13, color: "var(--t3)", marginBottom: 20 }}>{err || "Bu davet artık geçerli değil — iptal edilmiş, süresi dolmuş veya daha önce kullanılmış olabilir."}</div>
+            <button onClick={onDecline} style={btnGhost}>Innova Toplantı Asistanı&rsquo;na devam et</button>
           </>
         )}
         {pv && pv.valid && (
           <>
             <div style={{ fontSize: 21, fontWeight: 600, color: "var(--t1)", marginBottom: 5, wordBreak: "break-word" }}>{pv.name}</div>
             <div style={{ fontSize: 13.5, color: "var(--t2)", lineHeight: 1.5, marginBottom: 18 }}>
-              {pv.purpose || <span style={{ color: "var(--t3)" }}>A shared knowledge workspace.</span>}
+              {pv.purpose || <span style={{ color: "var(--t3)" }}>Paylaşılan bir bilgi çalışma alanı.</span>}
             </div>
-            <div style={termRow}><span style={termK}>Your access</span><span style={termV}>{roleLabel(pv.role)}</span></div>
-            {pv.shared_by && <div style={termRow}><span style={termK}>Shared by</span><span style={termV}>{pv.shared_by}</span></div>}
+            <div style={termRow}><span style={termK}>Erişiminiz</span><span style={termV}>{roleLabel(pv.role)}</span></div>
+            {pv.shared_by && <div style={termRow}><span style={termK}>Paylaşan</span><span style={termV}>{pv.shared_by}</span></div>}
             <div style={{ fontSize: 12, color: "var(--t3)", lineHeight: 1.5, margin: "16px 0 20px", paddingTop: 14, borderTop: "1px solid var(--line)" }}>
-              Joining adds this workspace to your set and mounts it into the agent. You can switch it off or leave any time.
+              Katıldığınızda bu çalışma alanı sizin listenize eklenir ve asistana bağlanır. İstediğiniz zaman
+              kapatabilir veya çalışma alanından ayrılabilirsiniz.
             </div>
             <div style={{ display: "flex", gap: 10 }}>
-              <button onClick={onProceed} disabled={busy} style={{ ...btnPrimary, opacity: busy ? 0.6 : 1, cursor: busy ? "default" : "pointer" }}>{busy ? "Joining…" : "Continue to join"}</button>
-              <button onClick={onDecline} disabled={busy} style={btnGhost}>Not now</button>
+              <button onClick={onProceed} disabled={busy} style={{ ...btnPrimary, opacity: busy ? 0.6 : 1, cursor: busy ? "default" : "pointer" }}>{busy ? "Katılım sağlanıyor…" : "Katıl ve devam et"}</button>
+              <button onClick={onDecline} disabled={busy} style={btnGhost}>Şimdi değil</button>
             </div>
           </>
         )}

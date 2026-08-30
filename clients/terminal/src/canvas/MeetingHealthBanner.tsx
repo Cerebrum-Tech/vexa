@@ -21,9 +21,9 @@ const TONE: Record<Exclude<MeetingHealthKind, "ok">, { color: string; bg: string
 };
 
 function issueLabel(kind: "stream" | "model" | "parse"): string {
-  if (kind === "model") return "Model inference error";
-  if (kind === "parse") return "Transcript parse error";
-  return "Stream error";
+  if (kind === "model") return "Model çıkarım hatası";
+  if (kind === "parse") return "Transkript ayrıştırma hatası";
+  return "Akış hatası";
 }
 
 export function MeetingHealthBanner() {
@@ -60,18 +60,18 @@ export function MeetingHealthBanner() {
   let dot = true;
   switch (health.kind) {
     case "ended":
-      headline = "Meeting ended";
+      headline = "Toplantı sona erdi";
       dot = false;
       break;
     case "disconnected":
-      headline = "Reconnecting to live stream…";
+      headline = "Canlı bağlantı kesildi — yeniden bağlanıyor…";
       break;
     case "stalled":
-      headline = `Waiting for transcript${elapsed ? ` — no new lines for ${elapsed}` : ""}`;
+      headline = `Transkript bekleniyor${elapsed ? ` — ${elapsed} boyunca yeni satır gelmedi` : ""}`;
       break;
     case "error":
     default:
-      headline = issue ? `${issueLabel(issue.kind)}${issue.status ? ` (${issue.status})` : ""}` : "Meeting feed error";
+      headline = issue ? `${issueLabel(issue.kind)}${issue.status ? ` (${issue.status})` : ""}` : "Toplantı akışı hatası";
       break;
   }
 
@@ -105,10 +105,10 @@ export function MeetingHealthBanner() {
           <button
             type="button"
             onClick={() => setDismissedAt(issue.at)}
-            title="Dismiss"
+            title="Kapat"
             style={{ flex: "none", background: "transparent", border: `1px solid ${tone.color}`, color: tone.color, borderRadius: 6, padding: "1px 7px", fontSize: 11, cursor: "pointer", fontWeight: 600 }}
           >
-            Dismiss
+            Kapat
           </button>
         </div>
       )}

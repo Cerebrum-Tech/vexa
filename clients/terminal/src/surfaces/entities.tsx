@@ -9,10 +9,10 @@ import { type Entity, type EntityType } from "./meetingModel";
 
 // ── type → visual language ───────────────────────────────────────────────────────
 const TYPE: Record<EntityType, { icon: string; color: string; bg: string; label: string }> = {
-  person: { icon: "user", color: "var(--blue)", bg: "var(--bluebg)", label: "Person" },
-  company: { icon: "building", color: "var(--accent)", bg: "var(--accentbg)", label: "Company" },
-  topic: { icon: "tag", color: "var(--violet)", bg: "var(--violetbg)", label: "Topic" },
-  task: { icon: "tasks", color: "var(--green)", bg: "var(--greenbg)", label: "Task" },
+  person: { icon: "user", color: "var(--blue)", bg: "var(--bluebg)", label: "Kişi" },
+  company: { icon: "building", color: "var(--accent)", bg: "var(--accentbg)", label: "Şirket" },
+  topic: { icon: "tag", color: "var(--violet)", bg: "var(--violetbg)", label: "Konu" },
+  task: { icon: "tasks", color: "var(--green)", bg: "var(--greenbg)", label: "Görev" },
 };
 const initials = (name: string) => name.split(/\s+/).map((w) => w[0]).slice(0, 2).join("").toUpperCase();
 
@@ -55,11 +55,11 @@ function EntityRow({ e, onOpen, onResearch }: { e: Entity; onOpen: (e: Entity) =
         <span style={{ fontSize: 11.5, color: "var(--t3)", lineHeight: 1.25, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: "1 1 auto" }}>{e.subtitle}</span>
       </div>
       {!e.exists && (
-        <span title="not yet in your workspace" style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 10, fontWeight: 600, color: t.color, letterSpacing: ".04em", textTransform: "uppercase", flex: "none" }}>
-          <span style={{ width: 5, height: 5, borderRadius: "50%", background: t.color }} />new
+        <span title="henüz çalışma alanınızda yok" style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 10, fontWeight: 600, color: t.color, letterSpacing: ".04em", textTransform: "uppercase", flex: "none" }}>
+          <span style={{ width: 5, height: 5, borderRadius: "50%", background: t.color }} />yeni
         </span>
       )}
-      <button className="vx-row-act" onClick={(ev) => { ev.stopPropagation(); onResearch(e); }} title={`Research ${e.title}`} aria-label={`Research ${e.title}`}
+      <button className="vx-row-act" onClick={(ev) => { ev.stopPropagation(); onResearch(e); }} title={`${e.title} hakkında araştırma yap`} aria-label={`${e.title} hakkında araştırma yap`}
         style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 26, height: 26, border: "1px solid var(--line2)", borderRadius: 7, background: "var(--panel2)", color: "var(--accent)", cursor: "pointer", flex: "none" }}>
         <Icon name="spark" size={14} />
       </button>
@@ -83,8 +83,8 @@ function Section({ label, count, children }: { label: string; count: number; chi
 export function EntityList({ present, detected, onOpen, onResearch }: { present: Entity[]; detected: Entity[]; onOpen: (e: Entity) => void; onResearch: (e: Entity) => void }) {
   return (
     <div>
-      {present.length > 0 && <Section label="In the room" count={present.length}>{present.map((e) => <EntityRow key={e.title} e={e} onOpen={onOpen} onResearch={onResearch} />)}</Section>}
-      {detected.length > 0 && <Section label="Detected" count={detected.length}>{detected.map((e) => <EntityRow key={e.title} e={e} onOpen={onOpen} onResearch={onResearch} />)}</Section>}
+      {present.length > 0 && <Section label="Odada" count={present.length}>{present.map((e) => <EntityRow key={e.title} e={e} onOpen={onOpen} onResearch={onResearch} />)}</Section>}
+      {detected.length > 0 && <Section label="Algılananlar" count={detected.length}>{detected.map((e) => <EntityRow key={e.title} e={e} onOpen={onOpen} onResearch={onResearch} />)}</Section>}
     </div>
   );
 }

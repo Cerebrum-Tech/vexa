@@ -1,7 +1,7 @@
 /** Smoke tests for the Workspace PAGE (workspaceManage.tsx) — the center tab a WORKSPACES row opens.
  *  Locks the README-first shape: the workspace README is the page body; management is a compact header
- *  (Share primary action + ⋯ menu with Archive/Delete) and the deeper sections (Purpose · GitHub ·
- *  Participants) fold behind one "Manage workspace" toggle.
+ *  ("Paylaş" primary action + ⋯ menu with Arşivle/Sil) and the deeper sections (Amaç · GitHub ·
+ *  Üyeler) fold behind one "Çalışma alanını yönet" toggle.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup, waitFor, within } from "@testing-library/react";
@@ -33,7 +33,7 @@ const renderPanel = (params: Record<string, unknown>) => {
   const Comp = registry.tabComponent("workspace")!;  // the panel registered as the "workspace" tab-kind
   return render(<ServicesProvider container={container()}><Comp id="workspace:x" params={params} active /></ServicesProvider>);
 };
-const expandManage = async () => fireEvent.click(await screen.findByText("Manage workspace"));
+const expandManage = async () => fireEvent.click(await screen.findByText("Çalışma alanını yönet"));
 
 beforeEach(() => {
   // seed slot is a different workspace, so `acme-1234` is a NON-seed own slot (archive/delete allowed).
@@ -62,38 +62,38 @@ describe("WorkspaceManagePanel — own workspace with a GitHub home", () => {
     expect(await screen.findByText("ACME deal")).toBeTruthy();                    // header name
     expect(await screen.findByText(/The deal dashboard body/)).toBeTruthy();      // README = the body
     expect(screen.getByText("↑2")).toBeTruthy();                                  // sync state in the meta row
-    expect(screen.getByText("Share")).toBeTruthy();                               // primary header action
-    expect(screen.queryByText("Purpose")).toBeNull();                             // sections folded by default
+    expect(screen.getByText("Paylaş")).toBeTruthy();                              // primary header action
+    expect(screen.queryByText("Amaç")).toBeNull();                                // sections folded by default
     expect(screen.queryByText("GitHub")).toBeNull();
   });
 
-  it("Manage workspace unfolds Purpose, GitHub (push/pull), participants CTA", async () => {
+  it("the manage fold unfolds Amaç, GitHub (Gönder/Çek), participants CTA", async () => {
     renderPanel({ slug: "acme-1234", shared: false, name: "ACME deal" });
     await expandManage();
     expect(await screen.findByText("The ACME deal room.")).toBeTruthy();  // purpose loaded
-    expect(screen.getByText("Purpose")).toBeTruthy();
+    expect(screen.getByText("Amaç")).toBeTruthy();
     expect(screen.getByText("GitHub")).toBeTruthy();
-    await waitFor(() => expect(screen.getByText(/Push/)).toBeTruthy());   // has_home → push/pull
-    expect(screen.getByText(/Pull/)).toBeTruthy();
-    expect(screen.getByText("Share this workspace")).toBeTruthy();        // not shared yet → CTA
+    await waitFor(() => expect(screen.getByText(/Gönder/)).toBeTruthy()); // has_home → push/pull
+    expect(screen.getByText(/Çek/)).toBeTruthy();
+    expect(screen.getByText("Bu çalışma alanını paylaş")).toBeTruthy();   // not shared yet → CTA
   });
 
   it("⋯ menu carries Rename / Manage / Archive / Delete (the old Danger zone)", async () => {
     renderPanel({ slug: "acme-1234", shared: false, name: "ACME deal" });
     await screen.findByText("ACME deal");
-    fireEvent.click(screen.getByTitle("Rename · Manage · Archive · Delete"));
-    expect(screen.getByText("Rename")).toBeTruthy();
-    expect(screen.getByText("Archive")).toBeTruthy();
-    expect(screen.getByText("Delete")).toBeTruthy();
+    fireEvent.click(screen.getByTitle("Yeniden adlandır · Yönet · Arşivle · Sil"));
+    expect(screen.getByText("Yeniden adlandır")).toBeTruthy();
+    expect(screen.getByText("Arşivle")).toBeTruthy();
+    expect(screen.getByText("Sil")).toBeTruthy();
   });
 
   it("Push reveals a token field and pushes with the entered token", async () => {
     vi.mocked(api.pushWorkspace).mockResolvedValue({ remote: "origin", url: "u", branch: "main", head_sha: "abc" } as never);
     renderPanel({ slug: "acme-1234", shared: false, name: "ACME deal" });
     await expandManage();
-    await waitFor(() => screen.getByText(/Push/));
-    fireEvent.click(screen.getByText(/Push/).closest("button")!);
-    const tok = await screen.findByPlaceholderText(/GitHub token/);
+    await waitFor(() => screen.getByText(/Gönder/));
+    fireEvent.click(screen.getByText(/Gönder/).closest("button")!);
+    const tok = await screen.findByPlaceholderText(/GitHub belirteci/);
     fireEvent.change(tok, { target: { value: "ghp_test" } });
     fireEvent.keyDown(tok, { key: "Enter" });
     await waitFor(() => expect(api.pushWorkspace).toHaveBeenCalledWith({ slug: "acme-1234", token: "ghp_test" }));
@@ -104,10 +104,10 @@ describe("WorkspaceManagePanel — own workspace with a GitHub home", () => {
     vi.mocked(api.publishWorkspace).mockResolvedValue({ repo_url: "https://github.com/me/acme", pushed_ref: "master", head_sha: "abc", created: true } as never);
     renderPanel({ slug: "acme-1234", shared: false, name: "ACME deal" });
     await expandManage();
-    fireEvent.click(await screen.findByText("Publish to GitHub…"));
-    const tok = screen.getByPlaceholderText(/GitHub token/);
+    fireEvent.click(await screen.findByText("GitHub’da yayımla…"));
+    const tok = screen.getByPlaceholderText(/GitHub belirteci/);
     fireEvent.change(tok, { target: { value: "ghp_x" } });
-    fireEvent.click(screen.getByText("Publish"));
+    fireEvent.click(screen.getByText("Yayımla"));
     // slug rides along so the backend publishes THIS workspace, not the seed
     await waitFor(() => expect(api.publishWorkspace).toHaveBeenCalledWith("acme-deal", true, "ghp_x", undefined, "acme-1234"));
   });
@@ -117,10 +117,10 @@ describe("WorkspaceManagePanel — own workspace with a GitHub home", () => {
     vi.mocked(api.mintInvite).mockResolvedValue({ token: "tok123" } as never);
     renderPanel({ slug: "acme-1234", shared: false, name: "ACME deal" });
     await screen.findByText("ACME deal");
-    fireEvent.click(screen.getByText("Share").closest("button")!);
+    fireEvent.click(screen.getByText("Paylaş").closest("button")!);
     await waitFor(() => expect(api.shareEnableWorkspace).toHaveBeenCalledWith("acme-1234"));
     const dialog = await screen.findByRole("dialog");                     // a real modal, not an inline row
-    fireEvent.click(within(dialog).getByText("Create link"));
+    fireEvent.click(within(dialog).getByText("Bağlantı oluştur"));
     await waitFor(() => expect(api.mintInvite).toHaveBeenCalledWith(expect.objectContaining({ workspace_id: "acme-ws-1", mode: "open" })));
     expect((within(dialog).getByDisplayValue(/invite=tok123/) as HTMLInputElement).value).toContain("tok123");  // copyable link minted in place
   });
@@ -134,12 +134,12 @@ describe("WorkspaceManagePanel — a shared workspace (member view)", () => {
       { subject: "u_owner", role: "owner" }, { subject: "u_me", role: "contributor" },
     ] as never);
     renderPanel({ slug: "deal-9", shared: true, name: "deal-9" });
-    expect(await screen.findByText("2 members")).toBeTruthy();               // header meta row
-    expect(screen.getByText(/shared · contributor/)).toBeTruthy();
+    expect(await screen.findByText("2 üye")).toBeTruthy();                   // header meta row
+    expect(screen.getByText(/paylaşılan · üye/)).toBeTruthy();
     await expandManage();
-    expect(await screen.findByText("Participants")).toBeTruthy();
-    await waitFor(() => expect(screen.getByText("creator")).toBeTruthy());   // owner role → "creator" badge
-    expect(screen.getByText("member")).toBeTruthy();                         // contributor → "member"
-    expect(screen.getByText("Leave")).toBeTruthy();
+    expect(await screen.findByText("Üyeler")).toBeTruthy();
+    await waitFor(() => expect(screen.getByText("oluşturan")).toBeTruthy()); // owner role → "oluşturan" badge
+    expect(screen.getByText("üye")).toBeTruthy();                            // contributor → "üye"
+    expect(screen.getByText("Ayrıl")).toBeTruthy();
   });
 });

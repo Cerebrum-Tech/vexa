@@ -29,13 +29,13 @@ import { prepDraftTabDescriptor } from "./meetingPrep";
 
 /** The success line after a connect: lead with what the sync actually FOUND. */
 export function connectOutcome(stamp: CalendarSyncStamp): { ok: boolean; text: string } {
-  if (stamp.last_error) return { ok: false, text: `Feed connected but the first sync failed: ${stamp.last_error}` };
+  if (stamp.last_error) return { ok: false, text: `Takvim bağlandı ancak ilk eşitleme başarısız oldu: ${stamp.last_error}` };
   const found = (stamp.counts?.created ?? 0) + (stamp.counts?.updated ?? 0);
   return {
     ok: true,
     text: found > 0
-      ? `Feed connected — ${found} upcoming meeting${found === 1 ? "" : "s"} imported.`
-      : "Feed connected — no upcoming meetings with joinable links found yet.",
+      ? `Takvim bağlandı — ${found} yaklaşan toplantı içe aktarıldı.`
+      : "Takvim bağlandı — katılınabilir bağlantısı olan yaklaşan bir toplantı henüz bulunamadı.",
   };
 }
 
@@ -66,7 +66,7 @@ function useCalendarConnected(): [boolean | null, () => void] {
 /** The frame-5 connect modal: numbered secret-address walkthrough + paste + instant verdict.
  *  This is FIRST-connect only, so it creates connection #1 with a sensible default name; renaming
  *  it, adding more, and per-calendar policy all live in Settings → Calendar. */
-const DEFAULT_CALENDAR_NAME = "My calendar";
+const DEFAULT_CALENDAR_NAME = "Takvimim";
 
 function ConnectCalendarModal({ onClose, onConnected }: { onClose: () => void; onConnected: () => void }) {
   const [url, setUrl] = useState("");
@@ -102,36 +102,36 @@ function ConnectCalendarModal({ onClose, onConnected }: { onClose: () => void; o
   const num: CSSProperties = { flex: "none", width: 18, height: 18, borderRadius: "50%", background: "var(--panel2)", color: "var(--accent)", fontSize: 10.5, fontWeight: 700, display: "grid", placeItems: "center", marginTop: 1 };
 
   return (
-    <div role="dialog" aria-label="Connect your calendar"
+    <div role="dialog" aria-label="Takviminizi bağlayın"
       style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200 }}
       onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div style={{ width: 520, maxWidth: "92vw", maxHeight: "88vh", overflowY: "auto", background: "var(--panel)", border: "1px solid var(--line2)", borderRadius: 12, padding: "20px 22px", boxShadow: "0 18px 40px rgba(0,0,0,.5)", display: "flex", flexDirection: "column", gap: 10 }}>
         <div style={{ display: "flex", alignItems: "center" }}>
-          <span style={{ fontSize: 15, fontWeight: 650, color: "var(--t1)", flex: 1 }}>Connect your calendar</span>
-          <button aria-label="close" onClick={onClose} style={{ background: "none", border: "none", color: "var(--t3)", fontSize: 16, cursor: "pointer", padding: 2 }}>×</button>
+          <span style={{ fontSize: 15, fontWeight: 650, color: "var(--t1)", flex: 1 }}>Takviminizi bağlayın</span>
+          <button aria-label="kapat" onClick={onClose} style={{ background: "none", border: "none", color: "var(--t3)", fontSize: 16, cursor: "pointer", padding: 2 }}>×</button>
         </div>
         <div style={{ fontSize: 12, color: "var(--t3)", lineHeight: 1.5 }}>
-          Vexa reads your calendar through its <b style={{ color: "var(--t2)" }}>secret iCal address</b> — a
-          private URL only you can see. No Google sign-in needed. Outlook and Apple Calendar ICS feeds work
-          through the same box.
+          Innova Toplantı Asistanı takviminizi <b style={{ color: "var(--t2)" }}>gizli iCal adresi</b> üzerinden okur — bu,
+          yalnızca sizin görebildiğiniz özel bir adrestir. Google ile giriş yapmanız gerekmez. Outlook ve
+          Apple Calendar ICS akışları da aynı kutudan çalışır.
         </div>
         <div>
-          <div style={li}><span style={num}>1</span><span>Open <b>Google Calendar</b> on the web → ⚙ <b>Settings</b>.</span></div>
-          <div style={li}><span style={num}>2</span><span>In the left list under <b>Settings for my calendars</b>, click your calendar.</span></div>
-          <div style={li}><span style={num}>3</span><span>Scroll to <b>Integrate calendar</b> → copy <b>Secret address in iCal format</b>. <span style={{ color: "var(--t3)" }}>Not the public address — the secret one ends in a long token.</span></span></div>
-          <div style={{ ...li, borderBottom: "none", color: "var(--t3)" }}><span style={num}>4</span><span>Don&rsquo;t see the secret field? Your Google Workspace admin has it locked — ask them to enable &ldquo;Secret address&rdquo; sharing, or use a personal calendar.</span></div>
+          <div style={li}><span style={num}>1</span><span>Tarayıcınızda <b>Google Calendar</b> uygulamasını açın → ⚙ <b>Ayarlar</b>.</span></div>
+          <div style={li}><span style={num}>2</span><span>Soldaki listede <b>Takvimlerimin ayarları</b> bölümünden takviminize tıklayın.</span></div>
+          <div style={li}><span style={num}>3</span><span><b>Takvimi entegre et</b> bölümüne inin → <b>iCal biçimindeki gizli adres</b> alanını kopyalayın. <span style={{ color: "var(--t3)" }}>Herkese açık adresi değil — gizli adres uzun bir belirteçle biter.</span></span></div>
+          <div style={{ ...li, borderBottom: "none", color: "var(--t3)" }}><span style={num}>4</span><span>Gizli adres alanını göremiyor musunuz? Google Workspace yöneticiniz bu ayarı kilitlemiştir — &ldquo;Gizli adres&rdquo; paylaşımını açmasını isteyin veya kişisel bir takvim kullanın.</span></div>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
           <input value={name} onChange={(e) => setName(e.target.value)} disabled={busy} maxLength={100}
-            aria-label="Calendar name" placeholder="Calendar name"
+            aria-label="Takvim adı" placeholder="Takvim adı"
             style={{ ...fieldStyle, flex: "none", width: 130 }} />
           <input value={url} onChange={(e) => setUrl(e.target.value)} disabled={busy}
-            type="password" autoComplete="off" aria-label="Secret ICS address"
+            type="password" autoComplete="off" aria-label="Gizli ICS adresi"
             onKeyDown={(e) => { if (e.key === "Enter") void connect(); }}
-            placeholder="https://calendar.google.com/…/basic.ics (secret address)" style={fieldStyle} />
+            placeholder="https://calendar.google.com/…/basic.ics (gizli adres)" style={fieldStyle} />
           <button onClick={() => void connect()} disabled={busy || !url.trim()}
             style={{ flex: "none", background: url.trim() ? "var(--accent)" : "var(--panel2)", color: url.trim() ? "var(--on-accent)" : "var(--t3)", border: "none", borderRadius: 7, padding: "0 14px", fontSize: 12.5, fontWeight: 600, cursor: url.trim() && !busy ? "pointer" : "default" }}>
-            {busy ? "Connecting…" : "Connect"}
+            {busy ? "Bağlanıyor…" : "Bağlan"}
           </button>
         </div>
         {err && <div role="alert" style={{ fontSize: 11.5, color: "var(--danger)", lineHeight: 1.5 }}>⚠ {err}</div>}
@@ -141,8 +141,8 @@ function ConnectCalendarModal({ onClose, onConnected }: { onClose: () => void; o
           </div>
         )}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <span style={{ fontSize: 11, color: "var(--t3)" }}>Synced every few minutes · add more calendars, rename or disconnect in Settings → Calendar</span>
-          {done?.ok && <button onClick={onClose} style={{ background: "var(--accent)", color: "var(--on-accent)", border: "none", borderRadius: 7, padding: "7px 16px", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Done</button>}
+          <span style={{ fontSize: 11, color: "var(--t3)" }}>Birkaç dakikada bir eşitlenir · Ayarlar → Takvim bölümünden takvim ekleyebilir, yeniden adlandırabilir veya bağlantıyı kesebilirsiniz</span>
+          {done?.ok && <button onClick={onClose} style={{ background: "var(--accent)", color: "var(--on-accent)", border: "none", borderRadius: 7, padding: "7px 16px", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Tamam</button>}
         </div>
       </div>
     </div>
@@ -159,7 +159,7 @@ function DropBotInline() {
     const u = url.trim();
     if (!u || sent === "sending") return;
     const parsed = parseMeetingInput(u, await getJitsiHosts());
-    if (!parsed) { setSent("err"); setMsg("That doesn't look like a Meet / Zoom / Teams / Jitsi link."); setDenial(null); return; }
+    if (!parsed) { setSent("err"); setMsg("Bu, bir Meet / Zoom / Teams / Jitsi bağlantısına benzemiyor."); setDenial(null); return; }
     setSent("sending"); setMsg(null); setDenial(null);
     try {
       const r = await fetch("/api/bots", {
@@ -172,9 +172,9 @@ function DropBotInline() {
         refreshMeetings(); setTimeout(refreshMeetings, 2000); setTimeout(refreshMeetings, 6000);
       } else {
         setSent("err");
-        if (r.status === 429) setMsg("You're at your meeting limit — stop one first.");
-        else if (r.status === 409) setMsg("That meeting already has a bot.");
-        else if (r.status === 401) setMsg("Not signed in — sign in and retry.");
+        if (r.status === 429) setMsg("Toplantı sınırınıza ulaştınız — önce birini durdurun.");
+        else if (r.status === 409) setMsg("Bu toplantıda zaten bir bot var.");
+        else if (r.status === 401) setMsg("Giriş yapılmadı — giriş yapıp yeniden deneyin.");
         else {
           // Everything else used to land as `Couldn't send (403): {"code":"service_not_allowed",…}`
           // — the raw denial payload, in the user's face. A service-authority refusal now gets its
@@ -184,19 +184,19 @@ function DropBotInline() {
           else setMsg(state.headline);
         }
       }
-    } catch { setSent("err"); setMsg("Couldn't reach the server."); }
+    } catch { setSent("err"); setMsg("Sunucuya ulaşılamadı."); }
   };
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
       <div style={{ display: "flex", gap: 6 }}>
         <input value={url} onChange={(e) => setUrl(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") void send(); }}
-          placeholder="Paste a meeting link (Meet / Zoom / Teams / Jitsi)…" style={fieldStyle} />
+          placeholder="Toplantı bağlantısını yapıştırın (Meet / Zoom / Teams / Jitsi)…" style={fieldStyle} />
         <button onClick={() => void send()} disabled={!url.trim() || sent === "sending"}
           style={{ flex: "none", background: url.trim() ? "var(--accent)" : "var(--panel2)", color: url.trim() ? "var(--on-accent)" : "var(--t3)", border: "none", borderRadius: 7, padding: "0 10px", fontSize: 12, fontWeight: 600, cursor: url.trim() ? "pointer" : "default" }}>
-          {sent === "sending" ? "…" : "Send bot"}
+          {sent === "sending" ? "…" : "Botu gönder"}
         </button>
       </div>
-      {sent === "ok" && <div style={{ fontSize: 11, color: "var(--green)", lineHeight: 1.4 }}>Bot sent — admit it in the meeting.</div>}
+      {sent === "ok" && <div style={{ fontSize: 11, color: "var(--green)", lineHeight: 1.4 }}>Bot gönderildi — toplantıda kabul edin.</div>}
       {denial
         ? <ServiceDenialPanel presentation={denial} onRetry={() => void send()} />
         : sent === "err" && msg && <div role="alert" style={{ fontSize: 11, color: "var(--danger)", lineHeight: 1.4 }}>⚠ {msg}</div>}
@@ -222,17 +222,17 @@ export function MeetingsOnboarding({ variant }: { variant: "full" | "slim" }) {
           <div style={{ ...cardBase, flexDirection: "row", alignItems: "center", gap: 10, marginTop: 12 }}>
             <Icon name="cal" size={15} style={{ color: "var(--t3)", flex: "none" }} />
             <span style={{ ...cardBody, flex: 1 }}>
-              <b style={{ color: "var(--t2)" }}>No calendar connected</b> — connect your calendar&rsquo;s secret
-              ICS feed and scheduled meetings appear here by themselves; with auto-join on, the bot joins when
-              they start.
+              <b style={{ color: "var(--t2)" }}>Bağlı takvim yok</b> — takviminizin gizli ICS akışını bağlayın;
+              zamanlanmış toplantılar burada kendiliğinden görünsün. Otomatik katılım açıkken bot, toplantı
+              başladığında katılır.
             </span>
-            <button style={{ ...cta, flex: "none" }} onClick={() => setModal(true)}>Connect calendar →</button>
+            <button style={{ ...cta, flex: "none" }} onClick={() => setModal(true)}>Takvimi bağla →</button>
           </div>
         )}
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
           <button onClick={() => plan()}
             style={{ flex: "none", background: "transparent", border: "1px dashed var(--line2)", color: "var(--t2)", borderRadius: 7, padding: "7px 11px", fontSize: 12, cursor: "pointer" }}>
-            + Plan a meeting
+            + Toplantı planla
           </button>
           <div style={{ flex: 1, minWidth: 220 }}><DropBotInline /></div>
         </div>
@@ -245,33 +245,33 @@ export function MeetingsOnboarding({ variant }: { variant: "full" | "slim" }) {
   return (
     <>
       <div style={{ marginTop: 14, fontSize: 12.5, color: "var(--t3)" }}>
-        Nothing here yet — pick how meetings should arrive.
+        Burada henüz bir şey yok — toplantıların buraya nasıl geleceğini seçin.
       </div>
       <div style={{ marginTop: 12, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}>
         {connected !== true && (
           <div style={{ ...cardBase, border: "1px solid var(--accent)", background: "var(--panel)" }}>
-            <span style={cardTitle}><Icon name="cal" size={14} /> Connect your calendar</span>
+            <span style={cardTitle}><Icon name="cal" size={14} /> Takviminizi bağlayın</span>
             <span style={cardBody}>
-              One-time setup. Scheduled meetings appear here by themselves; with auto-join on, the bot joins
-              when they start.
+              Tek seferlik kurulum. Zamanlanmış toplantılar burada kendiliğinden görünür; otomatik katılım
+              açıkken bot, toplantı başladığında katılır.
             </span>
-            <button style={cta} onClick={() => setModal(true)}>Connect calendar →</button>
+            <button style={cta} onClick={() => setModal(true)}>Takvimi bağla →</button>
           </div>
         )}
         <div style={cardBase}>
-          <span style={cardTitle}><Icon name="plus" size={14} /> Plan a meeting</span>
-          <span style={cardBody}>Create one meeting by hand — title, time, Meet link. Good for a first trial run.</span>
-          <button style={cta} onClick={() => plan()}>+ Plan a meeting</button>
+          <span style={cardTitle}><Icon name="plus" size={14} /> Toplantı planla</span>
+          <span style={cardBody}>Tek bir toplantıyı elle oluşturun — başlık, saat, Meet bağlantısı. İlk deneme için ideal.</span>
+          <button style={cta} onClick={() => plan()}>+ Toplantı planla</button>
         </div>
         <div style={cardBase}>
-          <span style={cardTitle}><Icon name="send" size={14} /> Drop a bot in now</span>
-          <span style={cardBody}>Send the notetaker into a meeting that&rsquo;s already running.</span>
+          <span style={cardTitle}><Icon name="send" size={14} /> Hemen bot gönder</span>
+          <span style={cardBody}>Hâlihazırda devam eden bir toplantıya botu gönderin.</span>
           <DropBotInline />
         </div>
       </div>
       {connected === true && (
         <div style={{ marginTop: 10, fontSize: 11.5, color: "var(--t3)" }}>
-          ✓ Calendar connected — scheduled meetings appear here as they sync. Add more calendars in Settings → Calendar.
+          ✓ Takvim bağlandı — zamanlanmış toplantılar eşitlendikçe burada görünür. Ayarlar → Takvim bölümünden başka takvimler ekleyebilirsiniz.
         </div>
       )}
       {modal && <ConnectCalendarModal onClose={() => setModal(false)} onConnected={reprobe} />}

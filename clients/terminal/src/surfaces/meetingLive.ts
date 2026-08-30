@@ -107,7 +107,7 @@ function connect(e: Entry, meetingId: string, sessionUid: string): void {
     e.watchdog = window.setInterval(() => {
       if (e.es !== es || e.state.ended) { clearWatchdog(e); return; }
       if (shouldForceReconnect(e.state.lastEventAt, Date.now())) {
-        forceReconnect("Meeting stream went silent (no events); reconnecting");
+        forceReconnect("Toplantı akışı sessizleşti (olay gelmiyor) — yeniden bağlanıyor");
       }
     }, WATCHDOG_TICK_MS);
   };
@@ -122,7 +122,7 @@ function connect(e: Entry, meetingId: string, sessionUid: string): void {
   es.onmessage = (m) => {
     let ev: { type?: string; speaker?: string; text?: string; t?: number; tsMs?: number; id?: string; completed?: boolean; card?: LiveCard; note?: LiveNote; error?: LiveModelError | string; message?: string; status?: number; segment_ids?: string[] };
     try { ev = JSON.parse(m.data); } catch {
-      addIssue({ kind: "parse", message: "Could not parse meeting stream event" });
+      addIssue({ kind: "parse", message: "Toplantı akışındaki bir olay çözümlenemedi" });
       emit();
       return;
     }
@@ -145,13 +145,13 @@ function connect(e: Entry, meetingId: string, sessionUid: string): void {
       const raw = ev.error;
       const err: LiveModelError = typeof raw === "string"
         ? { message: raw }
-        : { stage: raw?.stage, model: raw?.model, message: raw?.message || "Model inference failed", t: ev.t };
+        : { stage: raw?.stage, model: raw?.model, message: raw?.message || "Model çıkarımı başarısız oldu", t: ev.t };
       s.errors.push(err);
       if (s.errors.length > 20) s.errors.splice(0, s.errors.length - 20);
       addIssue({ kind: "model", model: err.model, stage: err.stage, message: err.message });
       s.cards.push({
         kind: "warning",
-        title: "Model inference error",
+        title: "Model çıkarım hatası",
         body: [err.model, err.stage, err.message].filter(Boolean).join(" · "),
       });
     }
@@ -169,14 +169,14 @@ function connect(e: Entry, meetingId: string, sessionUid: string): void {
       if (kept.length !== s.transcript.length) s.transcript = kept; else return; // nothing here → don't churn
     }
     else if (ev.type === "message-delta" && ev.text) s.note = ev.text;
-    else if (ev.type === "stream-error") addIssue({ kind: "stream", message: ev.message || "Meeting stream error", status: ev.status });
+    else if (ev.type === "stream-error") addIssue({ kind: "stream", message: ev.message || "Toplantı akışı hatası", status: ev.status });
     else if (ev.type === "meeting-end") { s.ended = true; clearWatchdog(e); es.close(); e.es = undefined; }
     else return; // ping / tool-call / etc. — ignore for now
     emit();
   };
   es.onerror = () => {
     // Transient drop (agent-api restart / ECONNRESET on the proxy): reconnect while anyone still cares.
-    forceReconnect("Meeting stream disconnected; reconnecting");
+    forceReconnect("Toplantı akışı kesildi — yeniden bağlanıyor");
   };
 }
 

@@ -14,11 +14,11 @@ import { getModelPrefs, setModelPrefs, getTranscriptionPrefs, setTranscriptionPr
 
 type SectionId = "calendar" | "models" | "tokens" | "github" | "account";
 const SECTIONS: Array<{ id: SectionId; label: string; icon: string }> = [
-  { id: "calendar", label: "Calendar", icon: "cal" },
-  { id: "models", label: "Models", icon: "spark" },
-  { id: "tokens", label: "API tokens", icon: "key" },
+  { id: "calendar", label: "Takvim", icon: "cal" },
+  { id: "models", label: "Modeller", icon: "spark" },
+  { id: "tokens", label: "API anahtarları", icon: "key" },
   { id: "github", label: "GitHub", icon: "github" },
-  { id: "account", label: "Account", icon: "user" },
+  { id: "account", label: "Hesap", icon: "user" },
 ];
 
 const field: CSSProperties = { width: "100%", boxSizing: "border-box", fontSize: 12, padding: "6px 9px", borderRadius: 6, border: "1px solid var(--line)", background: "var(--panel2)", color: "var(--t1)" };
@@ -85,13 +85,19 @@ function ConfigForm({ fields, load, save, note }: {
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
         <button disabled={busy || !dirty} onClick={() => void doSave()}
           style={{ ...btn, background: dirty ? "var(--accent)" : "var(--panel2)", color: dirty ? "var(--on-accent)" : "var(--t3)", border: dirty ? "none" : btn.border, opacity: busy ? 0.5 : 1 }}>
-          {busy ? "Saving…" : "Save"}
+          {busy ? "Kaydediliyor…" : "Kaydet"}
         </button>
-        {saved && <span style={{ fontSize: 11.5, color: "var(--green)" }}>Saved — next agent turn uses it</span>}
+        {saved && <span style={{ fontSize: 11.5, color: "var(--green)" }}>Kaydedildi — asistanın bir sonraki yanıtında kullanılacak</span>}
       </div>
     </div>
   );
 }
+
+/** The verdict badge names WHAT was tested in the reader’s own vocabulary: `mode` and `source`
+ *  are protocol tokens, mapped to the same words the provider select offers before they reach the
+ *  screen. An unmapped token still renders — never swallow a value the backend added. */
+const MODE_LABELS: Record<string, string> = { subscription: "Claude aboneliği", custom: "özel uç nokta" };
+const SOURCE_LABELS: Record<string, string> = { settings: "ayarlardan", env: "ortam değişkeninden", global: "genel ayarlardan" };
 
 /** On-demand credential test row (fail-loud surface): runs the EFFECTIVE config — the same
  *  user > global > env resolution a chat turn / bot spawn applies — against the real backend
@@ -106,13 +112,16 @@ function TestRow({ label, run }: { label: string; run: () => Promise<ConfigTestR
     catch (e: unknown) { setErr(presentError(e).headline); }
     finally { setBusy(false); }
   };
-  const provenance = res ? [res.mode, res.source && `via ${res.source}`].filter(Boolean).join(" · ") : "";
+  const provenance = res
+    ? [res.mode && (MODE_LABELS[res.mode] ?? res.mode),
+       res.source && (SOURCE_LABELS[res.source] ?? `${res.source} üzerinden`)].filter(Boolean).join(" · ")
+    : "";
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 4, maxWidth: 460, marginTop: 6 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
         <button disabled={busy} onClick={() => void doTest()}
           style={{ ...btn, opacity: busy ? 0.5 : 1 }}>
-          {busy ? "Testing…" : label}
+          {busy ? "Test ediliyor…" : label}
         </button>
         {res && (
           <span style={{ fontSize: 11.5, color: res.ok ? "var(--green)" : "var(--danger)" }}>
@@ -120,7 +129,7 @@ function TestRow({ label, run }: { label: string; run: () => Promise<ConfigTestR
             {res.summary}
           </span>
         )}
-        {err && <span role="alert" style={{ fontSize: 11.5, color: "var(--danger)" }}>⚠ test failed: {err}</span>}
+        {err && <span role="alert" style={{ fontSize: 11.5, color: "var(--danger)" }}>⚠ test başarısız: {err}</span>}
       </div>
     </div>
   );
@@ -139,19 +148,19 @@ function ModelsSection() {
   }, []);
 
   const modelFields = [
-    { key: "mode", label: "Provider", options: [
-      { value: "", label: "Deployment default" },
-      { value: "subscription", label: "Claude subscription (deployment credentials)" },
-      { value: "custom", label: "Custom endpoint (open-source / gateway)" },
+    { key: "mode", label: "Sağlayıcı", options: [
+      { value: "", label: "Dağıtım varsayılanı" },
+      { value: "subscription", label: "Claude aboneliği (dağıtım kimlik bilgileri)" },
+      { value: "custom", label: "Yerel model / özel uç nokta" },
     ] },
-    { key: "base_url", label: "Base URL", placeholder: "https://… (Anthropic/OpenAI-compatible gateway)", showIf: (v: Record<string, string>) => v.mode === "custom" },
-    { key: "api_key", label: "API key", placeholder: "unchanged unless typed", secret: true, showIf: (v: Record<string, string>) => v.mode === "custom" },
-    { key: "model", label: "Chat model", placeholder: "deployment default (e.g. sonnet)" },
-    { key: "meeting_model", label: "Meeting model", placeholder: "defaults to chat model" },
+    { key: "base_url", label: "Temel adres", placeholder: "https://… (Anthropic/OpenAI uyumlu ağ geçidi)", showIf: (v: Record<string, string>) => v.mode === "custom" },
+    { key: "api_key", label: "API anahtarı", placeholder: "yazmadıkça değişmez", secret: true, showIf: (v: Record<string, string>) => v.mode === "custom" },
+    { key: "model", label: "Sohbet modeli", placeholder: "dağıtım varsayılanı (ör. sonnet)" },
+    { key: "meeting_model", label: "Toplantı modeli", placeholder: "varsayılan olarak sohbet modeli" },
   ];
   const transcriptionFields = [
-    { key: "url", label: "Service URL", placeholder: "deployment default" },
-    { key: "token", label: "Token", placeholder: "unchanged unless typed", secret: true },
+    { key: "url", label: "Hizmet adresi", placeholder: "kurulum varsayılanı" },
+    { key: "token", label: "Belirteç", placeholder: "yazmadıkça değişmez", secret: true },
   ];
   const asStrings = (v: Record<string, unknown>): Record<string, string> => {
     const out: Record<string, string> = {};
@@ -163,24 +172,25 @@ function ModelsSection() {
   return (
     <div>
       <div style={{ fontSize: 11, color: "var(--t3)", lineHeight: 1.5, marginBottom: 12, maxWidth: 460 }}>
-        Which model the agent runs on, and which transcription service meeting bots use. Provider
-        &ldquo;subscription&rdquo; rides the deployment&rsquo;s Claude credentials; &ldquo;custom&rdquo; points at your own
-        Anthropic/OpenAI-compatible endpoint (a LiteLLM/OpenRouter gateway serves open-source
-        models). Empty fields inherit the deployment defaults.
+        Asistanın hangi model üzerinde çalıştığını ve toplantı botlarının hangi transkripsiyon
+        hizmetini kullandığını burada belirlersiniz. &ldquo;Claude aboneliği&rdquo; sağlayıcısı dağıtımın
+        Claude kimlik bilgilerini kullanır; &ldquo;Yerel model / özel uç nokta&rdquo; kendi
+        Anthropic/OpenAI uyumlu uç noktanızı işaret eder (bir LiteLLM/OpenRouter ağ geçidi açık
+        kaynak modelleri sunar). Boş bırakılan alanlar dağıtım varsayılanlarını devralır.
       </div>
-      <div style={head}>Your models</div>
+      <div style={head}>Modelleriniz</div>
       <ConfigForm fields={modelFields} load={async () => asStrings(await getModelPrefs())}
         save={async (u) => asStrings(await setModelPrefs(u))} />
-      <TestRow label="Test model credentials" run={testModels} />
-      <div style={head}>Your transcription backend</div>
+      <TestRow label="Bağlantıyı test et" run={testModels} />
+      <div style={head}>Transkripsiyon arka ucunuz</div>
       <ConfigForm fields={transcriptionFields} load={async () => asStrings(await getTranscriptionPrefs())}
         save={async (u) => asStrings(await setTranscriptionPrefs(u))} />
-      <TestRow label="Test transcription backend" run={testTranscription} />
+      <TestRow label="Transkripsiyon bağlantısını test et" run={testTranscription} />
       {globalAdmin && <>
-        <div style={{ ...head, marginTop: 22, color: "var(--accent)" }}>Global defaults (admin — every user without own settings)</div>
+        <div style={{ ...head, marginTop: 22, color: "var(--accent)" }}>Genel varsayılanlar (yönetici — kendi ayarı olmayan tüm kullanıcılar)</div>
         <ConfigForm fields={modelFields} load={async () => (await getGlobalSetting("models")) ?? {}}
           save={(u) => setGlobalSetting("models", u)} />
-        <div style={head}>Global transcription backend</div>
+        <div style={head}>Genel transkripsiyon arka ucu</div>
         <ConfigForm fields={transcriptionFields} load={async () => (await getGlobalSetting("transcription")) ?? {}}
           save={(u) => setGlobalSetting("transcription", u)} />
       </>}
@@ -200,9 +210,9 @@ function AccountSection() {
   }, []);
   return (
     <div style={{ fontSize: 12.5, color: "var(--t2)", lineHeight: 1.9 }}>
-      <div><span style={{ color: "var(--t3)" }}>Signed in as</span> <span style={{ color: "var(--t1)" }}>{user?.name || user?.email || "…"}</span></div>
-      {user?.email && <div><span style={{ color: "var(--t3)" }}>Email</span> <span style={{ fontFamily: "var(--mono)" }}>{user.email}</span></div>}
-      <div style={{ color: "var(--t3)", marginTop: 6 }}>Theme and sign-out live next to your name in the footer.</div>
+      <div><span style={{ color: "var(--t3)" }}>Giriş yapılan hesap</span> <span style={{ color: "var(--t1)" }}>{user?.name || user?.email || "…"}</span></div>
+      {user?.email && <div><span style={{ color: "var(--t3)" }}>E-posta</span> <span style={{ fontFamily: "var(--mono)" }}>{user.email}</span></div>}
+      <div style={{ color: "var(--t3)", marginTop: 6 }}>Tema ve çıkış yap seçenekleri alt çubukta, adınızın yanında yer alır.</div>
     </div>
   );
 }
@@ -219,7 +229,7 @@ function SettingsView() {
   return (
     <div style={{ height: "100%", display: "flex", minHeight: 0 }}>
       <div style={{ width: 160, flex: "none", borderRight: "1px solid var(--line)", padding: "14px 8px", background: "var(--sidebar)" }}>
-        <div style={{ fontSize: 15, fontWeight: 700, color: "var(--t1)", padding: "0 8px 10px" }}>Settings</div>
+        <div style={{ fontSize: 15, fontWeight: 700, color: "var(--t1)", padding: "0 8px 10px" }}>Ayarlar</div>
         {SECTIONS.map((s) => (
           <button key={s.id} onClick={() => setSection(s.id)}
             style={{ display: "flex", alignItems: "center", gap: 7, width: "100%", textAlign: "left", fontSize: 12.5,

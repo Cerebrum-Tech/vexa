@@ -1,7 +1,7 @@
 /** Draft "+ Plan a meeting" — no empty backend row is created until the user fills something in.
  *  Clicking "+ Plan a meeting" opens a DRAFT prep tab; the planned-meeting row is created LAZILY on
  *  the first real input (here: the title blur), then the tab hands off to the canonical prep:<id>
- *  tab. Abandoning a draft leaves no empty "Untitled meeting" behind. */
+ *  tab. Abandoning a draft leaves no empty "Yeni toplantı" behind. */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import React from "react";
@@ -42,13 +42,13 @@ describe("meetingPrep draft — lazy row creation", () => {
 
   it("opening a draft creates NO backend row", async () => {
     renderDraft();
-    await screen.findByPlaceholderText("What's this meeting about?");
+    await screen.findByPlaceholderText("Bu toplantı ne hakkında?");
     expect(planned.createPlannedMeeting).not.toHaveBeenCalled();
   });
 
   it("the first real input (title blur) creates the row, then hands off to prep:<id>", async () => {
     renderDraft();
-    const titleInput = await screen.findByPlaceholderText("What's this meeting about?");
+    const titleInput = await screen.findByPlaceholderText("Bu toplantı ne hakkında?");
     fireEvent.change(titleInput, { target: { value: "Acme sync" } });
     fireEvent.blur(titleInput);
     await waitFor(() => expect(planned.createPlannedMeeting).toHaveBeenCalledTimes(1));
@@ -61,7 +61,7 @@ describe("meetingPrep draft — lazy row creation", () => {
 
   it("blurring an empty title creates nothing (no phantom row)", async () => {
     renderDraft();
-    const titleInput = await screen.findByPlaceholderText("What's this meeting about?");
+    const titleInput = await screen.findByPlaceholderText("Bu toplantı ne hakkında?");
     fireEvent.blur(titleInput);
     // an unchanged empty title is not a real input → no create
     await new Promise((r) => setTimeout(r, 0));

@@ -20,7 +20,7 @@ export async function GET() {
 
   const listed = await listUserTokens(me.userId);
   if (!listed.ok) {
-    return NextResponse.json({ error: listed.error || "Failed to list tokens" }, { status: listed.status || 502, headers: NO_STORE });
+    return NextResponse.json({ error: listed.error || "API anahtarları alınamadı." }, { status: listed.status || 502, headers: NO_STORE });
   }
   return NextResponse.json({ tokens: listed.data ?? [] }, { headers: NO_STORE });
 }
@@ -33,12 +33,12 @@ export async function POST(request: NextRequest) {
   try {
     body = await request.json();
   } catch {
-    return NextResponse.json({ error: "Invalid request body" }, { status: 400, headers: NO_STORE });
+    return NextResponse.json({ error: "İstek okunamadı — lütfen tekrar deneyin." }, { status: 400, headers: NO_STORE });
   }
 
   const scopes = Array.isArray(body.scopes) ? body.scopes.filter((s): s is string => typeof s === "string") : [];
   if (scopes.length === 0 || scopes.some((s) => !VALID_SCOPES.has(s))) {
-    return NextResponse.json({ error: `Scopes must be a non-empty subset of ${[...VALID_SCOPES].join(", ")}` }, { status: 400, headers: NO_STORE });
+    return NextResponse.json({ error: `Kapsamlar şunların boş olmayan bir alt kümesi olmalıdır: ${[...VALID_SCOPES].join(", ")}` }, { status: 400, headers: NO_STORE });
   }
   const name = typeof body.name === "string" && body.name.trim() ? body.name.trim().slice(0, 255) : undefined;
   const expiresIn = typeof body.expiresIn === "number" && Number.isFinite(body.expiresIn) && body.expiresIn > 0
@@ -47,7 +47,7 @@ export async function POST(request: NextRequest) {
 
   const minted = await mintUserToken(me.userId, { scopes, name, expiresIn });
   if (!minted.ok || !minted.data?.token) {
-    return NextResponse.json({ error: minted.error || "Failed to mint token" }, { status: minted.status || 502, headers: NO_STORE });
+    return NextResponse.json({ error: minted.error || "API anahtarı oluşturulamadı." }, { status: minted.status || 502, headers: NO_STORE });
   }
   // The one and only time the secret crosses to the client.
   return NextResponse.json({ token: minted.data }, { status: 201, headers: NO_STORE });

@@ -88,11 +88,11 @@ export async function GET(req: NextRequest) {
     if (!upstream.ok) {
       const detail = (await upstream.text().catch(() => "")).trim().replace(/\s+/g, " ");
       req.signal.removeEventListener("abort", onClientGone);
-      return sseError(detail || `agent-api stream returned ${upstream.status}`, upstream.status);
+      return sseError(detail || `Toplantı akışı hata döndürdü (${upstream.status}).`, upstream.status);
     }
     if (!upstream.body) {
       req.signal.removeEventListener("abort", onClientGone);
-      return sseError("agent-api stream returned no body", 502);
+      return sseError("Toplantı akışı boş bir yanıt döndürdü.", 502);
     }
     return new Response(proxyStream(upstream.body, abort), {
       status: upstream.status,
@@ -101,7 +101,7 @@ export async function GET(req: NextRequest) {
   } catch (err) {
     req.signal.removeEventListener("abort", onClientGone);
     console.error("[terminal-api] meeting stream proxy failed", err);
-    const message = err instanceof Error && err.message ? err.message : "upstream unavailable";
+    const message = err instanceof Error && err.message ? err.message : "Toplantı akışı hizmetine ulaşılamıyor.";
     return sseError(message, 502);
   }
 }

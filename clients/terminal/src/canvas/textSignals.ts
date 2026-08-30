@@ -37,7 +37,36 @@ export function cleanTranscriptText(text: string): string {
   return out.replace(/\s+([,.!?;:])/g, "$1").replace(/([^\d])([.!?])(?=\S)/g, "$1$2 ");
 }
 
+const TR_REPORTS = "(?:söylüyor|belirtiyor|ifade ediyor|dile getiriyor|aktarıyor|anlatıyor|açıklıyor|vurguluyor|not ediyor|bildiriyor|duyuruyor|paylaşıyor|diyor)";
+
+/** Whitespace is already collapsed by cleanTranscriptText, so a literal space is enough here. */
+function trRewrite(body: string, replacement: string): [RegExp, string] {
+  return [new RegExp(`^Konuşmacı${body}`, "i"), replacement];
+}
+
+/** Observer boilerplate the assistant is told not to write, undone defensively at render time.
+ *  Both language sets turn a reported frame into the first person the note should have carried, so
+ *  a note stays in the speaker's own language whichever one they spoke. */
 const SPEAKER_NOTE_REWRITES: [RegExp, string][] = [
+  trRewrite(` (.+?) kullandığını ve (.+?) (?:beğendiğini|çekici bulduğunu) ${TR_REPORTS}\\.?$`, "$1 kullanıyorum ve $2 beğeniyorum."),
+  trRewrite(` (.+?) kullandığını ve (.+?) hoşuna gittiğini ${TR_REPORTS}\\.?$`, "$1 kullanıyorum ve $2 hoşuma gidiyor."),
+  trRewrite(` (.+?) (?:hakkında|konusunda) daha (?:fazlasını|fazla) (?:okuduğunu|okumuş olduğunu) ${TR_REPORTS}\\.?$`, "$1 hakkında daha fazlasını okudum."),
+  trRewrite(` (.+?) (?:endişesini|korkusunu|kaygısını) (?:dile getiriyor|paylaşıyor|belirtiyor|ifade ediyor)\\.?$`, "Endişem şu ki $1."),
+  trRewrite(` (?:başlangıçta|ilk başta|önce) (.+?) diye (?:düşündüğünü|sandığını) ${TR_REPORTS}\\.?$`, "Başlangıçta $1 diye düşünmüştüm."),
+  trRewrite(` (?:başlangıçta|ilk başta|önce) (.+?) (?:düşündüğünü|sandığını) ${TR_REPORTS}\\.?$`, "Başlangıçta $1 düşünmüştüm."),
+  trRewrite(` (.+?)acağını ${TR_REPORTS}\\.?$`, "$1acağım."),
+  trRewrite(` (.+?)eceğini ${TR_REPORTS}\\.?$`, "$1eceğim."),
+  trRewrite(` (.+?) (?:istediğini ${TR_REPORTS}|istiyor)\\.?$`, "$1 istiyorum."),
+  trRewrite(`(?:nın)? (.+?) (?:ihtiyaç duyduğunu ${TR_REPORTS}|ihtiyaç duyuyor|ihtiyacı (?:olduğunu ${TR_REPORTS}|var))\\.?$`, "$1 ihtiyacım var."),
+  trRewrite(` (.+?) (?:planladığını ${TR_REPORTS}|planlıyor)\\.?$`, "$1 planlıyorum."),
+  trRewrite(` (.+?) (?:sorduğunu ${TR_REPORTS}|soruyor)\\.?$`, "$1 soruyorum."),
+  trRewrite(` (.+?) (?:olduğunu|olduğuna) (?:düşünüyor|inanıyor|savunuyor|${TR_REPORTS})\\.?$`, "$1."),
+  trRewrite(` (\\S+)'(?:nın|nin|nun|nün|ın|in|un|ün) (.+?)([dt][ıiuü])(?:ğını|ğini|ğunu|ğünü) ${TR_REPORTS}\\.?$`, "$1 $2$3."),
+  trRewrite(` (.+?)([dt][ıiuü])(?:ğını|ğini|ğunu|ğünü) ${TR_REPORTS}\\.?$`, "$1$2."),
+  trRewrite(` (.+?)([dt][ıu])klarını ${TR_REPORTS}\\.?$`, "$1$2lar."),
+  trRewrite(` (.+?)([dt][iü])klerini ${TR_REPORTS}\\.?$`, "$1$2ler."),
+  trRewrite(` (?:diyor ki|şunu söylüyor|şunları söylüyor) ?[:,]? ?`, ""),
+  trRewrite(`:? `, ""),
   [/^Speaker\s+mentions\s+using\s+(.+?)\s+and\s+finding\s+(.+?)\s+appealing\.?$/i, "I use $1 and find $2 appealing."],
   [/^Speaker\s+(?:describes|frames)\s+(.+?)\s+as\s+/i, "$1 is "],
   [/^Speaker\s+read\s+more\s+about\s+/i, "I read more about "],
@@ -73,15 +102,15 @@ function valueOf(label: string): number | undefined {
 
 function contextFor(label: string): string {
   const lower = label.toLowerCase();
-  if (/[$€£]/.test(label)) return "Money";
-  if (/%/.test(label)) return "Rate";
-  if (/^q[1-4]/i.test(label)) return "Timeline";
-  if (/^(?:19|20)\d{2}$/.test(label)) return "Year";
-  if (/seats?|licenses?|users?|customers?/.test(lower)) return "Seats";
-  if (/ms|mb|gb|tb/.test(lower)) return "Technical";
-  if (/billion|million|thousand|\bbn\b|\bmm\b|\b[kmb]\b|employees?|companies?|teams?|repos?|issues?|tickets?/.test(lower)) return "Scale";
-  if (/\bx\b/.test(lower)) return "Multiple";
-  return "Number";
+  if (/[$€£]/.test(label)) return "Para";
+  if (/%/.test(label)) return "Oran";
+  if (/^q[1-4]/i.test(label)) return "Çeyrek";
+  if (/^(?:19|20)\d{2}$/.test(label)) return "Yıl";
+  if (/seats?|licenses?|users?|customers?/.test(lower)) return "Koltuk";
+  if (/ms|mb|gb|tb/.test(lower)) return "Teknik";
+  if (/billion|million|thousand|\bbn\b|\bmm\b|\b[kmb]\b|employees?|companies?|teams?|repos?|issues?|tickets?/.test(lower)) return "Ölçek";
+  if (/\bx\b/.test(lower)) return "Kat";
+  return "Sayı";
 }
 
 function addSignal(acc: NumberSignal[], seen: Set<string>, text: string, at: number): void {

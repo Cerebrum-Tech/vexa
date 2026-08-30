@@ -26,18 +26,18 @@ export function CommandPalette() {
   return (
     <div style={overlay} onClick={palette.close}>
       <div style={panel} onClick={(e) => e.stopPropagation()} onKeyDown={onKeyDown}>
-        <Command label="Command palette">
-          <Command.Input autoFocus placeholder="Search commands, or go to a surface…" />
+        <Command label="Komut paleti">
+          <Command.Input autoFocus placeholder="Komut arayın veya bir bölüme gidin…" />
           <Command.List>
-            <Command.Empty>No matches.</Command.Empty>
-            <Command.Group heading="Lists">
+            <Command.Empty>Eşleşme yok.</Command.Empty>
+            <Command.Group heading="Listeler">
               {lists.map((l) => (
-                <Command.Item key={l.id} value={`list ${l.label}`} onSelect={() => { layout.setActiveList(l.id); palette.close(); }}>
+                <Command.Item key={l.id} value={`liste ${l.label}`} onSelect={() => { layout.setActiveList(l.id); palette.close(); }}>
                   {l.label}
                 </Command.Item>
               ))}
             </Command.Group>
-            <Command.Group heading="Commands">
+            <Command.Group heading="Komutlar">
               {cmds.map((c) => (
                 <Command.Item key={c.id} value={c.title + (c.skill ?? "")} onSelect={() => { void commands.execute(c.id); palette.close(); }}>
                   {c.title}

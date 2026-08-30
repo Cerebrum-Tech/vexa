@@ -11,7 +11,7 @@ const truncateSessionId = (session: string) => session.length > 18 ? `${session.
 
 function meetingLabel(value: string): string {
   const meeting = (value.split("·").pop()?.trim() || value.trim()).replace(/^["'\\]+|["'\\.)]+$/g, "");
-  return meeting ? `Meeting ${meeting}` : "Meeting";
+  return meeting ? `Toplantı ${meeting}` : "Toplantı";
 }
 
 function compactTitle(title: string): string {

@@ -33,6 +33,16 @@ const field = {
   borderRadius: 7, color: "var(--t1)", outline: "none",
 } as const;
 const label = { fontSize: 10.5, color: "var(--t3)", textTransform: "uppercase", letterSpacing: ".06em", fontWeight: 600 } as const;
+// Calendar PARTSTAT arrives as an iCal slug (accepted · declined · tentative · needs-action ·
+// delegated); the attendee tooltip names it in Turkish while the code keeps comparing the slug.
+const PARTSTAT_LABEL: Record<string, string> = {
+  accepted: "kabul etti",
+  declined: "reddetti",
+  tentative: "kararsız",
+  "needs-action": "yanıt vermedi",
+  delegated: "devretti",
+};
+const partstatLabel = (partstat: string) => PARTSTAT_LABEL[partstat] ?? partstat;
 
 /** THE BRIEF (prep-v3, owner-locked): the workspace README rendered as the page's stage — ONE doc,
  *  team-facing, always the next occurrence's brief. A SEEDED stub never renders as content (bloat
@@ -42,7 +52,7 @@ const label = { fontSize: 10.5, color: "var(--t3)", textTransform: "uppercase", 
 const wsDocTab = (slug: string, path: string, title?: string) =>
   ({ id: `doc:${slug}:${path}`, title: title ?? (path.split("/").pop() ?? path), kind: "doc", params: { path, slug } });
 
-const SEED_README_MARK = "This is your **Personal workspace**";
+const SEED_README_MARK = "Kişisel çalışma alanınızdır";
 
 function Brief({ slug, title }: { slug: string; title: string }) {
   const layout = useService(LayoutServiceId);
@@ -62,15 +72,15 @@ function Brief({ slug, title }: { slug: string; title: string }) {
     return () => { alive = false; };
   }, [slug]);
   const askForBrief = () => window.dispatchEvent(new CustomEvent(ASK_CHAT_EVENT, {
-    detail: { prompt: `Prepare the brief for "${title}" in the ${slug} workspace README — who's attending (research them in our records), what happened last time, open follow-ups, and a suggested agenda. Ask me what you can't know from records.` },
+    detail: { prompt: `"${title}" toplantısının hazırlık notunu ${slug} çalışma alanının README dosyasına hazırla — kimler katılıyor (kayıtlarımızda araştır), geçen sefer ne konuşulmuştu, açık takip işleri ve önerilen bir gündem. Kayıtlardan bilemeyeceklerini bana sor.` },
   }));
   if (state === "loading") return null;
   if (state === "none" || !text) {
     return (
       <div style={{ margin: "18px 0 0", padding: "12px 14px", border: "1px dashed var(--line2)", borderRadius: 10, fontSize: 12.5, color: "var(--t3)", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-        <span style={{ flex: 1, minWidth: 200 }}>No brief yet.</span>
+        <span style={{ flex: 1, minWidth: 200 }}>Henüz hazırlık notu yok.</span>
         <button onClick={askForBrief} style={{ background: "var(--accentbg)", color: "var(--accent)", border: "none", borderRadius: 7, padding: "5px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer", flex: "none" }}>
-          Draft the brief — attendees, last time, open items, agenda
+          Hazırlık notunu oluştur — katılımcılar, geçen sefer, açık maddeler, gündem
         </button>
       </div>
     );
@@ -80,16 +90,16 @@ function Brief({ slug, title }: { slug: string; title: string }) {
       <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 14px 0" }}>
         <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--green)", flex: "none" }} />
         <span style={{ fontSize: 10, color: "var(--t3)", letterSpacing: ".08em", fontFamily: "var(--mono)" }}>
-          team brief · workspace README
+          ekip hazırlık notu · çalışma alanı README
         </span>
         <span style={{ flex: 1 }} />
         <button onClick={() => layout.openTab(wsDocTab(slug, "README.md"))}
-          title="Open as a document" style={{ background: "none", border: "none", color: "var(--t3)", fontSize: 11, cursor: "pointer", padding: 0 }}>
-          open
+          title="Belge olarak aç" style={{ background: "none", border: "none", color: "var(--t3)", fontSize: 11, cursor: "pointer", padding: 0 }}>
+          aç
         </button>
-        <button onClick={askForBrief} title="Steer the brief in chat"
+        <button onClick={askForBrief} title="Hazırlık notunu sohbet üzerinden yönlendirin"
           style={{ background: "none", border: "none", color: "var(--t3)", fontSize: 11, cursor: "pointer", padding: 0 }}>
-          update via chat
+          sohbetten güncelle
         </button>
       </div>
       <div style={{ padding: "4px 16px 12px", maxHeight: 460, overflow: "auto" }}>
@@ -135,16 +145,16 @@ function OwnBrief({ note, onSteer }: { note: { path: string; text: string }; onS
       <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 14px 0" }}>
         <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--green)", flex: "none" }} />
         <span style={{ fontSize: 10, color: "var(--t3)", letterSpacing: ".08em", fontFamily: "var(--mono)" }}>
-          your brief · this meeting&rsquo;s note
+          hazırlık notunuz · bu toplantının notu
         </span>
         <span style={{ flex: 1 }} />
         <button onClick={() => layout.openTab({ id: `doc:${note.path}`, title: note.path.split("/").pop() ?? note.path, kind: "doc", params: { path: note.path } })}
-          title="Open as a document" style={{ background: "none", border: "none", color: "var(--t3)", fontSize: 11, cursor: "pointer", padding: 0 }}>
-          open
+          title="Belge olarak aç" style={{ background: "none", border: "none", color: "var(--t3)", fontSize: 11, cursor: "pointer", padding: 0 }}>
+          aç
         </button>
-        <button onClick={onSteer} title="Steer the brief in chat"
+        <button onClick={onSteer} title="Hazırlık notunu sohbet üzerinden yönlendirin"
           style={{ background: "none", border: "none", color: "var(--t3)", fontSize: 11, cursor: "pointer", padding: 0 }}>
-          update via chat
+          sohbetten güncelle
         </button>
       </div>
       <div style={{ padding: "4px 16px 12px", maxHeight: 460, overflow: "auto" }}>
@@ -192,7 +202,7 @@ function MeetingPrepTab({ params }: TabProps) {
     const id = String(row.id);
     refreshMeetings();
     // hand off: the canonical prep tab owns the created meeting; the draft tab closes.
-    layout.openTab(prepTabDescriptor({ id, title: title.trim() || "New meeting" }));
+    layout.openTab(prepTabDescriptor({ id, title: title.trim() || "Yeni toplantı" }));
     layout.closeTab(PREP_DRAFT_TAB_ID);
     return id;
   };
@@ -275,7 +285,7 @@ function MeetingPrepTab({ params }: TabProps) {
     try {
       const id = await ensureRow();               // draft → create the row first
       if (!id) return;
-      const name = (m.title_custom || title || "meeting-prep").slice(0, 60);
+      const name = (m.title_custom || title || "toplanti-hazirlik").slice(0, 60);
       const ws = await createSharedWorkspace(name);
       await updatePlannedMeeting(id, { workspace_id: ws.workspace_id });
       refreshMeetings();
@@ -284,10 +294,10 @@ function MeetingPrepTab({ params }: TabProps) {
       // participants around this meeting — its README is the team brief. Any brief already built
       // in the user's own workspace is the starting point, not discarded.
       const carry = ownBrief
-        ? ` I already have a brief for this meeting in my own workspace at ${ownBrief.path} — carry its content over as the starting brief, then keep improving it.`
+        ? ` Bu toplantı için kendi çalışma alanımda ${ownBrief.path} yolunda hâlihazırda bir hazırlık notum var — içeriğini başlangıç notu olarak oraya taşı, sonra geliştirmeye devam et.`
         : "";
       window.dispatchEvent(new CustomEvent(ASK_CHAT_EVENT, {
-        detail: { prompt: `I just created the shared workspace "${ws.workspace_id}" for the meeting "${m.title_custom || title || headline}" — it is brand-new (empty) and exists so the other participants and I can collaborate on this meeting and its series. Scaffold it now: write its README as the team brief (audience = everyone in the room, so keep my private context out unless I confirm it), set up whatever structure the series needs, and interview me for what you can't know from my records.${carry} Write early and keep updating as we talk — the README renders live on the meeting page.` },
+        detail: { prompt: `"${m.title_custom || title || headline}" toplantısı için "${ws.workspace_id}" paylaşılan çalışma alanını az önce oluşturdum — tamamen yeni (boş) ve diğer katılımcılarla bu toplantı ve serisi üzerinde birlikte çalışabilmemiz için var. Şimdi iskeletini kur: README dosyasını ekip hazırlık notu olarak yaz (hedef kitle = odadaki herkes, bu yüzden ben onaylamadıkça özel bağlamımı dışarıda bırak), serinin ihtiyaç duyduğu yapıyı kur ve kayıtlarımdan bilemeyeceklerini bana sor.${carry} Erken yazmaya başla ve konuştukça güncellemeyi sürdür — README, toplantı sayfasında canlı olarak görüntüleniyor.` },
       }));
     } catch (e) { if (mounted.current) setErr(presentError(e).headline); }
     finally { if (mounted.current) setBusy(false); }
@@ -304,12 +314,12 @@ function MeetingPrepTab({ params }: TabProps) {
       if (!id) return;
       // re-read the row so the note filename can key to its native id if a link was set
       const row = all.find((x) => x.id === id);
-      const name = row?.title_custom || title || "this meeting";
+      const name = row?.title_custom || title || "bu toplantı";
       const nid = row?.native_id;
-      const key = nid ? ` Name the note's file so it includes the meeting id ${nid} (kg/entities/meeting/…${nid}….md) — the meeting page finds and renders it by that id.` : "";
+      const key = nid ? ` Not dosyasının adını ${nid} toplantı kimliğini içerecek şekilde ver (kg/entities/meeting/…${nid}….md) — toplantı sayfası notu bu kimlikle bulup gösteriyor.` : "";
       setBriefChatStarted(true);
       window.dispatchEvent(new CustomEvent(ASK_CHAT_EVENT, {
-        detail: { prompt: `Interview me to build the brief for "${name}" — ask what you can't know from my records (who's in the room, what I want out of it, what the notetaker should listen for), research the attendees in my knowledge and public sources, then write the brief as this meeting's note in my own workspace (no shared workspace) so it can be reused across this meeting's series.${key} Write the note EARLY and keep updating it as we talk — it renders live on the meeting page.` },
+        detail: { prompt: `"${name}" için hazırlık notunu oluşturmak üzere benimle görüş — kayıtlarımdan bilemeyeceklerini sor (odada kimler var, bu toplantıdan ne bekliyorum, botun nelere kulak vermesi gerekiyor), katılımcıları bilgi alanımda ve açık kaynaklarda araştır, ardından hazırlık notunu bu toplantının notu olarak kendi çalışma alanıma yaz (paylaşılan çalışma alanı olmadan) ki bu toplantının serisi boyunca yeniden kullanılabilsin.${key} Notu ERKEN yaz ve konuştukça güncellemeyi sürdür — not, toplantı sayfasında canlı olarak görüntüleniyor.` },
       }));
     } catch (e) { if (mounted.current) setErr(presentError(e).headline); }
     finally { if (mounted.current) setBusy(false); }
@@ -318,7 +328,7 @@ function MeetingPrepTab({ params }: TabProps) {
   const remove = async () => {
     if (!m) return;
     if (isDraft) { layout.closeTab(PREP_DRAFT_TAB_ID); return; }   // nothing persisted — just discard the draft
-    if (typeof window !== "undefined" && !window.confirm("Delete this planned meeting?")) return;
+    if (typeof window !== "undefined" && !window.confirm("Bu planlanan toplantı silinsin mi?")) return;
     setBusy(true);
     try { await deletePlannedMeeting(m.id); refreshMeetings(); layout.closeTab(`prep:${m.id}`); }
     catch (e) { setErr(presentError(e).headline); }
@@ -326,7 +336,7 @@ function MeetingPrepTab({ params }: TabProps) {
   };
 
   const autoJoin = m?.auto_join !== false;   // absent = ON
-  const headline = useMemo(() => m?.title_custom || m?.title || "Planned meeting", [m]);
+  const headline = useMemo(() => m?.title_custom || m?.title || "Planlanan toplantı", [m]);
   // own-workspace brief (frame 6): only hunted while the meeting is unbound — a bound workspace's
   // README is the brief and wins.
   // No brief hunt on a draft (no row/title yet) — it would match nothing or the wrong note.
@@ -345,12 +355,12 @@ function MeetingPrepTab({ params }: TabProps) {
   }, [rowGone, layout, meetingId]);
 
   if (!m) {
-    return <div style={{ padding: 32, fontSize: 13, color: "var(--t3)" }}>Loading meeting…</div>;
+    return <div style={{ padding: 32, fontSize: 13, color: "var(--t3)" }}>Toplantı yükleniyor…</div>;
   }
   if (!isIntent) {
     return (
       <div style={{ padding: 32, fontSize: 13, color: "var(--t2)", lineHeight: 1.6 }}>
-        This meeting has started — open it from the Meetings list to see the live view.
+        Bu toplantı başladı — canlı görünüm için Toplantılar listesinden açın.
       </div>
     );
   }
@@ -363,7 +373,7 @@ function MeetingPrepTab({ params }: TabProps) {
         {readOnly ? (
           <h2 style={{ margin: "0 0 18px", fontSize: 19, fontWeight: 650, color: "var(--t1)" }}>{headline}</h2>
         ) : (
-          <input value={title} disabled={busy} placeholder="What's this meeting about?"
+          <input value={title} disabled={busy} placeholder="Bu toplantı ne hakkında?"
             onChange={(e) => setTitle(e.target.value)}
             onBlur={() => { if ((m.title_custom ?? "") !== title.trim()) void patch({ title: title.trim() || null }); }}
             onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
@@ -374,7 +384,7 @@ function MeetingPrepTab({ params }: TabProps) {
 
         {m.auto_join_error && (
           <div role="alert" style={{ margin: "0 0 14px", padding: "8px 12px", borderRadius: 8, background: "var(--dangerbg)", color: "var(--danger)", fontSize: 12.5, lineHeight: 1.5 }}>
-            ⚠ Auto-join failed: {m.auto_join_error}
+            ⚠ Otomatik katılım başarısız: {m.auto_join_error}
           </div>
         )}
 
@@ -383,7 +393,7 @@ function MeetingPrepTab({ params }: TabProps) {
           <DateTimePicker
             value={m.scheduled_at}
             disabled={readOnly || busy}
-            placeholder="Pick a date & time"
+            placeholder="Tarih ve saat seçin"
             onChange={(iso) => void patch({ scheduled_at: iso })}
             onClear={() => void patch({ scheduled_at: null })}
           />
@@ -392,21 +402,21 @@ function MeetingPrepTab({ params }: TabProps) {
                (first-run-onboarding frame 6: Join/Send-bot/Auto-join read as flavors of one verb). */
             <a href={m.meeting_url} target="_blank" rel="noreferrer"
               style={{ background: "var(--accent)", color: "var(--on-accent)", borderRadius: 7, padding: "5px 14px", fontSize: 12.5, fontWeight: 600, textDecoration: "none" }}>
-              Open meeting
+              Toplantıyı aç
             </a>
           )}
           {!readOnly && (
             <label style={{ display: "inline-flex", alignItems: "center", gap: 7, fontSize: 12, color: "var(--t2)", cursor: "pointer", userSelect: "none" }}>
               <input type="checkbox" checked={autoJoin} disabled={busy}
                 onChange={(e) => void patch({ auto_join: e.target.checked })} />
-              Auto-join{!m.native_id && <span style={{ color: "var(--t3)", fontSize: 11 }}>(needs a link)</span>}
+              Otomatik katılım{!m.native_id && <span style={{ color: "var(--t3)", fontSize: 11 }}>(bağlantı gerekiyor)</span>}
             </label>
           )}
         </div>
         {/* no link yet → the input is the honest primary control; with a link it lives in ⋯ */}
         {!readOnly && (!m.meeting_url || moreOpen) && (
           <div style={{ display: "flex", flexDirection: "column", gap: 4, margin: "8px 0 4px", maxWidth: 420 }}>
-            <span style={label}>Meeting link</span>
+            <span style={label}>Toplantı bağlantısı</span>
             <input value={link} disabled={busy} placeholder="https://meet.google.com/…"
               onChange={(e) => setLink(e.target.value)}
               onBlur={() => { if ((m.meeting_url ?? "") !== link.trim()) void patch({ meeting_url: link.trim() || null }); }}
@@ -418,7 +428,7 @@ function MeetingPrepTab({ params }: TabProps) {
         {(m.attendees?.length ?? 0) > 0 && (
           <div style={{ margin: "0 0 22px" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "0 0 8px" }}>
-              <span style={label}>Attendees</span>
+              <span style={label}>Katılımcılar</span>
               <span style={{ flex: 1, height: 1, background: "var(--line)" }} />
             </div>
             <div style={{ display: "flex", gap: 7, flexWrap: "wrap", alignItems: "center" }}>
@@ -426,10 +436,10 @@ function MeetingPrepTab({ params }: TabProps) {
                 const display = a.name || a.email;
                 const initials = (a.name
                   ? a.name.split(/\s+/).map((w) => w[0]).slice(0, 2).join("")
-                  : a.email.slice(0, 2)).toUpperCase();
+                  : a.email.slice(0, 2)).toLocaleUpperCase("tr-TR");
                 const declined = a.partstat === "declined";
                 return (
-                  <span key={a.email} title={a.email + (a.partstat ? ` · ${a.partstat}` : "")}
+                  <span key={a.email} title={a.email + (a.partstat ? ` · ${partstatLabel(a.partstat)}` : "")}
                     style={{ display: "inline-flex", alignItems: "center", gap: 7,
                       border: "1px solid var(--line)", borderRadius: 14, padding: "2px 11px 2px 3px",
                       fontSize: 12.5, color: declined ? "var(--t3)" : "var(--t1)",
@@ -451,7 +461,7 @@ function MeetingPrepTab({ params }: TabProps) {
         <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap", marginBottom: 12, paddingBottom: 12, borderBottom: "1px solid var(--line)", fontSize: 12, color: "var(--t3)" }}>
           {m.workspace_id && (
             <span style={{ display: "inline-flex", gap: 6, alignItems: "baseline" }}>
-              workspace{" "}
+              çalışma alanı{" "}
               <button onClick={() => layout.openTab(manageTabDescriptor(m.workspace_id!, { shared: true }))}
                 title={m.workspace_id}
                 style={{ background: "none", border: "none", color: "var(--t2)", fontWeight: 600, fontSize: 12, cursor: "pointer", padding: 0 }}>
@@ -460,7 +470,7 @@ function MeetingPrepTab({ params }: TabProps) {
               {!readOnly && (
                 <button onClick={() => setRebindOpen((v) => !v)}
                   style={{ background: "none", border: "none", color: "var(--t3)", fontSize: 11.5, cursor: "pointer", padding: 0, borderBottom: "1px dotted var(--t3)" }}>
-                  change
+                  değiştir
                 </button>
               )}
             </span>
@@ -470,28 +480,28 @@ function MeetingPrepTab({ params }: TabProps) {
               (owner ruling 2026-07-09) */}
           {!readOnly && !m.workspace_id && (ownBrief || briefChatStarted) && (
             <button disabled={busy} onClick={() => void createAndBind()}
-              title="Everyone you invite sees the brief and the live transcript the moment they join"
+              title="Davet ettiğiniz herkes katıldığı anda hazırlık notunu ve canlı transkripti görür"
               style={{ background: "none", border: "none", color: "var(--t2)", fontSize: 12, cursor: "pointer", padding: 0, borderBottom: "1px dotted var(--t3)" }}>
-              + Create a workspace to share
+              + Paylaşmak için çalışma alanı oluştur
             </button>
           )}
-          {readOnly && <span style={{ fontSize: 11.5 }}>shared with you</span>}
+          {readOnly && <span style={{ fontSize: 11.5 }}>sizinle paylaşıldı</span>}
           <span style={{ flex: 1 }} />
           {!readOnly && m.workspace_id && (
             <button disabled={busy} onClick={() => void share()}
               style={{ background: "none", border: "none", color: "var(--t2)", fontSize: 12, cursor: "pointer", padding: 0, borderBottom: "1px dotted var(--t3)" }}>
-              Share with attendees{(m.attendees?.length ?? 0) > 0 ? ` (${m.attendees!.length})` : ""}
+              Katılımcılarla paylaş{(m.attendees?.length ?? 0) > 0 ? ` (${m.attendees!.length})` : ""}
             </button>
           )}
           {!readOnly && (
             <button disabled={busy || !m.native_id} onClick={() => void sendNow()}
-              title={m.native_id ? "Send the bot now instead of waiting" : "Attach a meeting link first"}
+              title={m.native_id ? "Beklemeden botu şimdi gönder" : "Önce bir toplantı bağlantısı ekleyin"}
               style={{ background: "none", border: "none", color: m.native_id ? "var(--accent)" : "var(--t3)", fontSize: 12, fontWeight: 600, cursor: m.native_id ? "pointer" : "default", padding: 0, borderBottom: `1px dotted ${m.native_id ? "var(--accent)" : "var(--t3)"}` }}>
-              Send notetaker now
+              Botu şimdi gönder
             </button>
           )}
           {!readOnly && (
-            <button onClick={() => setMoreOpen((v) => !v)} title="More — edit link, unbind, delete"
+            <button onClick={() => setMoreOpen((v) => !v)} title="Daha fazla — bağlantıyı düzenle, çalışma alanı bağını kaldır, sil"
               style={{ background: "none", border: "none", color: "var(--t3)", fontSize: 14, cursor: "pointer", padding: "0 2px" }}>
               ⋯
             </button>
@@ -502,7 +512,7 @@ function MeetingPrepTab({ params }: TabProps) {
             <select defaultValue="" disabled={busy}
               onChange={(e) => { if (e.target.value) { void patch({ workspace_id: e.target.value }); setRebindOpen(false); } }}
               style={{ ...field, minWidth: 200 }}>
-              <option value="" disabled>Bind a different workspace…</option>
+              <option value="" disabled>Farklı bir çalışma alanı bağlayın…</option>
               {shares.map((s) => <option key={s.workspace_id} value={s.workspace_id}>{s.workspace_id}</option>)}
             </select>
           </div>
@@ -512,19 +522,19 @@ function MeetingPrepTab({ params }: TabProps) {
             {m.workspace_id && (
               <button disabled={busy} onClick={() => { void patch({ workspace_id: null }); setMoreOpen(false); }}
                 style={{ background: "transparent", border: "1px solid var(--line2)", color: "var(--t3)", borderRadius: 7, padding: "4px 10px", fontSize: 12, cursor: "pointer" }}>
-                Unbind workspace
+                Çalışma alanı bağını kaldır
               </button>
             )}
             <button disabled={busy} onClick={() => void remove()}
               style={{ background: "transparent", border: "1px solid var(--line2)", color: "var(--danger)", borderRadius: 7, padding: "4px 10px", fontSize: 12, cursor: "pointer" }}>
-              Delete meeting
+              Toplantıyı sil
             </button>
           </div>
         )}
         {inviteLink && (
           <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
             <input readOnly value={inviteLink} onFocus={(e) => e.currentTarget.select()} style={{ ...field, flex: 1, fontSize: 11.5 }} />
-            <button onClick={() => void copyText(inviteLink)} style={{ fontSize: 12, padding: "4px 12px", background: "var(--accent)", color: "var(--bg)", border: "none", borderRadius: 7, cursor: "pointer" }}>Copy</button>
+            <button onClick={() => void copyText(inviteLink)} style={{ fontSize: 12, padding: "4px 12px", background: "var(--accent)", color: "var(--bg)", border: "none", borderRadius: 7, cursor: "pointer" }}>Kopyala</button>
           </div>
         )}
 
@@ -532,14 +542,14 @@ function MeetingPrepTab({ params }: TabProps) {
         {m.workspace_id ? (
           <Brief slug={m.workspace_id} title={headline} />
         ) : readOnly ? (
-          <div style={{ margin: "18px 0 0", fontSize: 12.5, color: "var(--t3)" }}>No workspace bound.</div>
+          <div style={{ margin: "18px 0 0", fontSize: 12.5, color: "var(--t3)" }}>Bağlı çalışma alanı yok.</div>
         ) : ownBrief ? (
           /* the own-workspace note IS the brief — rendered live while the chat writes it */
           <OwnBrief note={ownBrief} onSteer={() => startBriefChat()} />
         ) : briefChatStarted ? (
           <div style={{ margin: "18px 0 0", padding: "12px 14px", border: "1px dashed var(--line2)", borderRadius: 10, display: "flex", alignItems: "center", gap: 10, fontSize: 12.5, color: "var(--t3)" }}>
             <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--accent)", flex: "none" }} />
-            Brief chat running — the brief renders here as the agent writes it.
+            Hazırlık sohbeti sürüyor — asistan yazdıkça hazırlık notu burada görünür.
           </div>
         ) : (
           /* No-brief state (first-run-onboarding frame 6, owner-ruled): two REAL actions. Brief chat
@@ -547,33 +557,33 @@ function MeetingPrepTab({ params }: TabProps) {
              brief lands in YOUR default workspace, reused across the series. Shared workspace = the
              existing collaborative flow, repositioned as the explicit sharing choice. */
           <div style={{ margin: "18px 0 0", padding: "12px 14px", border: "1px dashed var(--line2)", borderRadius: 10, display: "flex", flexDirection: "column", gap: 9 }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: "var(--t1)" }}>No brief yet</div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: "var(--t1)" }}>Henüz hazırlık notu yok</div>
             <div style={{ fontSize: 12.5, color: "var(--t3)", lineHeight: 1.55 }}>
-              A brief makes the notetaker useful — who&rsquo;s in the room, what you want out of it, what
-              to listen for.
+              Hazırlık notu botu işe yarar hale getirir — odada kimler var, bu toplantıdan ne
+              beklediğiniz, nelere kulak vermesi gerektiği.
             </div>
             <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
               <button disabled={busy} onClick={() => startBriefChat()}
                 style={{ background: "var(--accent)", color: "var(--on-accent)", border: "none", borderRadius: 7, padding: "6px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
-                Start brief chat
+                Hazırlık sohbetini başlat
               </button>
               <button disabled={busy} onClick={() => void createAndBind()}
                 style={{ background: "transparent", color: "var(--accent)", border: "1px dashed var(--line2)", borderRadius: 7, padding: "5px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
-                + Create a workspace to share
+                + Paylaşmak için çalışma alanı oluştur
               </button>
               {shares.length > 0 && (
                 <select defaultValue="" disabled={busy} onChange={(e) => { if (e.target.value) void patch({ workspace_id: e.target.value }); }}
                   style={{ ...field, minWidth: 180, color: "var(--t3)" }}>
-                  <option value="" disabled>or bind an existing one…</option>
+                  <option value="" disabled>veya mevcut birini bağlayın…</option>
                   {shares.map((s) => <option key={s.workspace_id} value={s.workspace_id}>{s.workspace_id}</option>)}
                 </select>
               )}
             </div>
             <div style={{ fontSize: 11, color: "var(--t3)", lineHeight: 1.5 }}>
-              <b style={{ color: "var(--t2)", fontWeight: 600 }}>Brief chat</b> — the agent interviews you and
-              writes the brief into your own workspace, reused across this series.{" "}
-              <b style={{ color: "var(--t2)", fontWeight: 600 }}>Shared workspace</b> — everyone you invite sees
-              the brief and the live transcript the moment they join.
+              <b style={{ color: "var(--t2)", fontWeight: 600 }}>Hazırlık sohbeti</b> — asistan sizinle görüşür ve
+              hazırlık notunu kendi çalışma alanınıza yazar; bu serinin tamamında yeniden kullanılır.{" "}
+              <b style={{ color: "var(--t2)", fontWeight: 600 }}>Paylaşılan çalışma alanı</b> — davet ettiğiniz
+              herkes katıldığı anda hazırlık notunu ve canlı transkripti görür.
             </div>
           </div>
         )}
@@ -594,6 +604,6 @@ export const prepTabDescriptor = (m: { id: string; title: string }) =>
 // repeated "+ Plan a meeting" clicks reuse the one open draft rather than stacking blank tabs.
 export const PREP_DRAFT_TAB_ID = "prep:draft";
 export const prepDraftTabDescriptor = () =>
-  ({ id: PREP_DRAFT_TAB_ID, title: "New meeting", kind: "meetingPrep", params: { meetingId: "", draft: true } });
+  ({ id: PREP_DRAFT_TAB_ID, title: "Yeni toplantı", kind: "meetingPrep", params: { meetingId: "", draft: true } });
 
 registerTab("meetingPrep", MeetingPrepTab);

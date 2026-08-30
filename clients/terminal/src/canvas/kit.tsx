@@ -97,8 +97,8 @@ function Skeleton({ lines = 3, compact = false }: { lines?: number; compact?: bo
   );
 }
 
-function Empty({ title = "Nothing yet", body }: { title?: string; body?: string }) {
-  const safeTitle = toText(title, "Nothing yet");
+function Empty({ title = "Henüz bir şey yok", body }: { title?: string; body?: string }) {
+  const safeTitle = toText(title, "Henüz bir şey yok");
   const safeBody = toText(body);
   return (
     <div style={{ ...frameStyle, border: "1px dashed var(--line2)", borderRadius: 8, padding: 18, color: "var(--t3)", textAlign: "center", fontSize: 13, overflow: "hidden" }}>
@@ -193,7 +193,7 @@ function Card({ title, body, ts, tone = "default", loading = false, children }: 
 function Stat({ label, value, delta, tone = "default", size = "md", loading = false }: { label?: string; value?: string | number; delta?: string | number; tone?: Tone; size?: Size } & Loadable) {
   const safeTone = asTone(tone);
   const safeSize = asSize(size);
-  const safeLabel = toText(label, "Metric");
+  const safeLabel = toText(label, "Metrik");
   const safeValue = toText(value, "0");
   const safeDelta = delta == null ? "" : toText(delta);
   if (loading) return <Card loading />;
@@ -226,13 +226,13 @@ function readCell(row: TableRow, key: string, index: number): unknown {
   return index === 0 ? row : "";
 }
 
-function Table({ columns, rows, empty = "No rows", loading = false }: { columns?: Column[]; rows?: TableRow[]; empty?: string } & Loadable) {
+function Table({ columns, rows, empty = "Kayıt yok", loading = false }: { columns?: Column[]; rows?: TableRow[]; empty?: string } & Loadable) {
   const safeRows = safeArray(rows);
   if (loading) return <Panel><Skeleton lines={5} compact /></Panel>;
-  if (!safeRows.length) return <Empty title={empty} body="New data will appear here automatically." />;
+  if (!safeRows.length) return <Empty title={empty} body="Yeni veriler burada otomatik olarak görünür." />;
   const cols = safeArray(columns).length ? safeArray(columns) : inferColumns(safeRows);
   const normalized = cols.map((column) => typeof column === "string" ? { key: column, label: column, align: "left" as Align } : { key: toText(column.key), label: toText(column.label, column.key), align: asAlign(column.align) }).filter((column) => column.key);
-  if (!normalized.length) return <Empty title={empty} body="No displayable columns are available." />;
+  if (!normalized.length) return <Empty title={empty} body="Görüntülenebilir sütun yok." />;
   return (
     <div style={{ ...scrollStyle, border: "1px solid var(--line)", borderRadius: 8 }}>
       <table style={{ width: "100%", tableLayout: "fixed", borderCollapse: "collapse", fontSize: 12.5 }}>
@@ -256,16 +256,16 @@ function Table({ columns, rows, empty = "No rows", loading = false }: { columns?
 
 type ListItem = string | { title?: string; body?: string; meta?: string | number; tone?: Tone };
 
-function List({ items, empty = "No items", loading = false }: { items?: ListItem[]; empty?: string } & Loadable) {
+function List({ items, empty = "Öğe yok", loading = false }: { items?: ListItem[]; empty?: string } & Loadable) {
   const safeItems = safeArray(items);
   if (loading) return <Panel><Skeleton lines={4} /></Panel>;
-  if (!safeItems.length) return <Empty title={empty} body="Nothing has been surfaced yet." />;
+  if (!safeItems.length) return <Empty title={empty} body="Henüz öne çıkan bir şey yok." />;
   return (
     <div style={{ ...scrollStyle, display: "flex", flexDirection: "column", gap: 7 }}>
       {safeItems.map((item, index) => {
         const obj = typeof item === "string" ? { title: item } : item ?? {};
         const safeTone = asTone(obj.tone);
-        const title = toText(obj.title, `Item ${index + 1}`);
+        const title = toText(obj.title, `Öğe ${index + 1}`);
         const body = toText(obj.body);
         const meta = obj.meta == null ? "" : toText(obj.meta);
         return (
@@ -291,7 +291,7 @@ const entityDotColor: Record<EntityItem["kind"], string> = {
 };
 
 function entityRef(item: EntityItem): string {
-  return `[[${toText(item.name, item.title ?? "Entity")}]]`;
+  return `[[${toText(item.name, item.title ?? "Varlık")}]]`;
 }
 
 function entityKey(item: EntityItem, index: number): string {
@@ -310,19 +310,19 @@ function EntityActionButton({ children, onClick }: { children?: ReactNode; onCli
   );
 }
 
-function EntityList({ items, empty = "No entities", loading = false }: { items?: EntityItem[]; empty?: string } & Loadable) {
+function EntityList({ items, empty = "Varlık yok", loading = false }: { items?: EntityItem[]; empty?: string } & Loadable) {
   const actions = useActions();
   const [hovered, setHovered] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState<string | null>(null);
   const safeItems = safeArray(items);
   if (loading) return <Panel><Skeleton lines={5} compact /></Panel>;
-  if (!safeItems.length) return <Empty title={empty} body="Surfaced entities will appear as the meeting unfolds." />;
+  if (!safeItems.length) return <Empty title={empty} body="Öne çıkan varlıklar toplantı ilerledikçe burada görünür." />;
 
   return (
     <div style={{ ...frameStyle, display: "flex", flexWrap: "wrap", alignItems: "flex-start", gap: 7, width: "100%", overflow: "visible" }}>
       {safeItems.map((rawItem, index) => {
         const key = entityKey(rawItem, index);
-        const name = toText(rawItem.name, rawItem.title ?? `Entity ${index + 1}`);
+        const name = toText(rawItem.name, rawItem.title ?? `Varlık ${index + 1}`);
         const context = toText(rawItem.context);
         const summary = toText(rawItem.summary ?? rawItem.body);
         const quote = toText(rawItem.quote);
@@ -353,16 +353,16 @@ function EntityList({ items, empty = "No entities", loading = false }: { items?:
               {context && <span title={context} style={{ color: "var(--t3)", fontSize: 11, maxWidth: 74, ...ellipsisLine() }}>{context}</span>}
               {rawItem.researched === false ? (
                 <button type="button" onClick={research} style={{ border: "none", background: "transparent", color: "var(--accent)", padding: "0 1px", fontSize: 11.5, fontWeight: 750, cursor: "pointer", whiteSpace: "nowrap" }}>
-                  + research
+                  + araştır
                 </button>
               ) : docPath ? (
                 <button type="button" onClick={openDoc} style={{ border: "none", background: "transparent", color: "var(--blue)", padding: "0 1px", fontSize: 11.5, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>
-                  doc
+                  belge
                 </button>
               ) : null}
               <button
                 type="button"
-                aria-label={`Options for ${name}`}
+                aria-label={`${name} için seçenekler`}
                 onClick={() => setMenuOpen((current) => current === key ? null : key)}
                 style={{ border: "none", background: "transparent", color: "var(--t3)", padding: "0 2px", fontSize: 13, lineHeight: 1, cursor: "pointer", flex: "none" }}
               >
@@ -371,9 +371,9 @@ function EntityList({ items, empty = "No entities", loading = false }: { items?:
             </div>
             {isMenuOpen && (
               <div style={{ position: "absolute", top: 31, right: 0, zIndex: 5, minWidth: 130, border: "1px solid var(--line)", borderRadius: 7, background: "var(--panel)", boxShadow: "0 12px 32px rgba(0,0,0,.28)", padding: 4 }}>
-                {docPath && <button type="button" onClick={openDoc} style={{ width: "100%", border: "none", borderRadius: 5, background: "transparent", color: "var(--t2)", textAlign: "left", padding: "6px 8px", fontSize: 12, cursor: "pointer" }}>Open doc</button>}
-                <button type="button" onClick={research} style={{ width: "100%", border: "none", borderRadius: 5, background: "transparent", color: "var(--t2)", textAlign: "left", padding: "6px 8px", fontSize: 12, cursor: "pointer" }}>Research</button>
-                <button type="button" onClick={copyRef} style={{ width: "100%", border: "none", borderRadius: 5, background: "transparent", color: "var(--t2)", textAlign: "left", padding: "6px 8px", fontSize: 12, cursor: "pointer" }}>Copy ref</button>
+                {docPath && <button type="button" onClick={openDoc} style={{ width: "100%", border: "none", borderRadius: 5, background: "transparent", color: "var(--t2)", textAlign: "left", padding: "6px 8px", fontSize: 12, cursor: "pointer" }}>Belgeyi aç</button>}
+                <button type="button" onClick={research} style={{ width: "100%", border: "none", borderRadius: 5, background: "transparent", color: "var(--t2)", textAlign: "left", padding: "6px 8px", fontSize: 12, cursor: "pointer" }}>Araştır</button>
+                <button type="button" onClick={copyRef} style={{ width: "100%", border: "none", borderRadius: 5, background: "transparent", color: "var(--t2)", textAlign: "left", padding: "6px 8px", fontSize: 12, cursor: "pointer" }}>Referansı kopyala</button>
               </div>
             )}
             {isHovered && (summary || quote) && (
@@ -381,9 +381,9 @@ function EntityList({ items, empty = "No entities", loading = false }: { items?:
                 {summary && <div title={summary} style={{ color: "var(--t2)", fontSize: 12, lineHeight: 1.4, ...lineClamp(3) }}>{summary}</div>}
                 {quote && <div title={quote} style={{ color: "var(--t3)", fontSize: 11.5, fontStyle: "italic", lineHeight: 1.4, marginTop: summary ? 6 : 0, ...lineClamp(3) }}>{quote}</div>}
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
-                  {docPath && <EntityActionButton onClick={openDoc}>Open doc</EntityActionButton>}
-                  <EntityActionButton onClick={research}>Research</EntityActionButton>
-                  <EntityActionButton onClick={copyRef}>Copy ref</EntityActionButton>
+                  {docPath && <EntityActionButton onClick={openDoc}>Belgeyi aç</EntityActionButton>}
+                  <EntityActionButton onClick={research}>Araştır</EntityActionButton>
+                  <EntityActionButton onClick={copyRef}>Referansı kopyala</EntityActionButton>
                 </div>
               </div>
             )}
@@ -394,14 +394,14 @@ function EntityList({ items, empty = "No entities", loading = false }: { items?:
   );
 }
 
-function Timeline({ items, empty = "No events", loading = false }: { items?: { id?: string; title?: string; body?: string; ts?: string | number; kind?: string }[]; empty?: string } & Loadable) {
+function Timeline({ items, empty = "Etkinlik yok", loading = false }: { items?: { id?: string; title?: string; body?: string; ts?: string | number; kind?: string }[]; empty?: string } & Loadable) {
   const safeItems = safeArray(items);
   if (loading) return <Panel><Skeleton lines={5} /></Panel>;
-  if (!safeItems.length) return <Empty title={empty} body="Meeting events will appear as they arrive." />;
+  if (!safeItems.length) return <Empty title={empty} body="Toplantı etkinlikleri geldikçe burada görünür." />;
   return (
     <div style={{ ...scrollStyle, display: "flex", flexDirection: "column", gap: 10 }}>
       {safeItems.map((item, index) => {
-        const title = toText(item.title, `Event ${index + 1}`);
+        const title = toText(item.title, `Etkinlik ${index + 1}`);
         const marker = item.ts != null ? toText(item.ts) : toText(item.kind);
         return (
           <div key={item.id ?? `${title}-${index}`} style={{ display: "grid", gridTemplateColumns: "minmax(48px, 74px) minmax(0, 1fr)", gap: 10, minWidth: 0 }}>
@@ -414,16 +414,16 @@ function Timeline({ items, empty = "No events", loading = false }: { items?: { i
   );
 }
 
-function Transcript({ segments, liveCaption, empty = "Waiting for transcript", loading = false }: { segments?: TranscriptSegment[]; liveCaption?: string; empty?: string } & Loadable) {
+function Transcript({ segments, liveCaption, empty = "Transkript bekleniyor", loading = false }: { segments?: TranscriptSegment[]; liveCaption?: string; empty?: string } & Loadable) {
   const safeSegments = normalizeTranscriptSegments(segments);
   const caption = toText(liveCaption);
   if (loading) return <Panel><Skeleton lines={6} /></Panel>;
-  if (!safeSegments.length && !caption) return <Empty title={empty} body="Transcript lines will appear once speech is available." />;
+  if (!safeSegments.length && !caption) return <Empty title={empty} body="Konuşma algılandığında transkript satırları burada görünür." />;
   return (
     <div style={{ ...scrollStyle, display: "flex", flexDirection: "column", gap: 8, maxHeight: 420 }}>
       {caption && <div title={caption} style={{ color: "var(--t1)", background: "var(--panel2)", border: "1px solid var(--line2)", borderRadius: 8, padding: "8px 10px", fontSize: 13, ...lineClamp(2) }}>{caption}</div>}
       {safeSegments.map((segment, index) => {
-        const speaker = toText(segment.speaker, "Speaker");
+        const speaker = toText(segment.speaker, "Konuşmacı");
         const text = toText(segment.text);
         return (
           <div key={`${index}-${segment.ts ?? ""}-${speaker}`} style={{ display: "grid", gridTemplateColumns: "minmax(68px, 92px) minmax(0, 1fr)", gap: 9, fontSize: 12.5, minWidth: 0 }}>
@@ -436,7 +436,7 @@ function Transcript({ segments, liveCaption, empty = "Waiting for transcript", l
   );
 }
 
-function LiveTranscript({ segments, liveCaption, empty = "waiting for transcript…", loading = false, maxSegments = 3 }: { segments?: TranscriptSegment[]; liveCaption?: string; empty?: string; maxSegments?: number } & Loadable) {
+function LiveTranscript({ segments, liveCaption, empty = "transkript bekleniyor…", loading = false, maxSegments = 3 }: { segments?: TranscriptSegment[]; liveCaption?: string; empty?: string; maxSegments?: number } & Loadable) {
   const scrollerRef = useRef<HTMLDivElement>(null);
   const safeSegments = normalizeTranscriptSegments(segments);
   const limit = Math.max(1, Math.floor(toNumber(maxSegments, 3)));
@@ -447,8 +447,8 @@ function LiveTranscript({ segments, liveCaption, empty = "waiting for transcript
 
   // The TAIL: the most recent lines, wrapped and stacked (never a single horizontal scroll line). The
   // last line is the live one — highlighted with a pending marker.
-  const lines = safeSegments.map((s, i) => ({ speaker: toText(s.speaker, "Speaker"), text: toText(s.text), live: captionMatchesLast && i === safeSegments.length - 1 }));
-  if (showStandaloneCaption) lines.push({ speaker: toText(lastSegment?.speaker, "Live"), text: caption, live: true });
+  const lines = safeSegments.map((s, i) => ({ speaker: toText(s.speaker, "Konuşmacı"), text: toText(s.text), live: captionMatchesLast && i === safeSegments.length - 1 }));
+  if (showStandaloneCaption) lines.push({ speaker: toText(lastSegment?.speaker, "Canlı"), text: caption, live: true });
   const tail = lines.slice(-limit);
   const scrollKey = `${tail.length}:${tail[tail.length - 1]?.text ?? ""}`;
 
@@ -475,7 +475,7 @@ function LiveTranscript({ segments, liveCaption, empty = "waiting for transcript
     return (
       <div role="status" aria-live="polite" style={{ ...bandStyle, display: "flex", alignItems: "center" }}>
         <span style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--t3)", flex: "none", marginRight: 8 }} />
-        <span style={{ color: "var(--t3)", fontSize: 12.5, fontStyle: "italic", ...ellipsisLine() }}>{toText(empty, "waiting for transcript…")}</span>
+        <span style={{ color: "var(--t3)", fontSize: 12.5, fontStyle: "italic", ...ellipsisLine() }}>{toText(empty, "transkript bekleniyor…")}</span>
       </div>
     );
   }
@@ -518,8 +518,8 @@ function NoteTagChip({ label, kind, context, onClick }: { label: string; kind?: 
       onClick={onClick}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
-      title={`Ask the chat about “${label}”`}
-      aria-label={`Ask the chat about ${label}`}
+      title={`Sohbete “${label}” hakkında sorun`}
+      aria-label={`Sohbete ${label} hakkında sorun`}
       style={{ display: "inline-flex", alignItems: "center", gap: 5, verticalAlign: "baseline", background: active ? "var(--accentbg)" : "var(--panel2)", border: `1px solid ${active ? "var(--accent)" : "var(--line2)"}`, borderRadius: 999, padding: "1px 8px", margin: "0 1px", fontSize: 12.5, fontWeight: 550, color: active ? "var(--accent)" : "var(--t1)", whiteSpace: "nowrap", cursor: clickable ? "pointer" : "default", fontFamily: "inherit", lineHeight: 1.4 }}
     >
       <span aria-hidden="true" style={{ width: 6, height: 6, borderRadius: "50%", background: active ? "var(--accent)" : dot, flex: "none" }} />
@@ -533,13 +533,13 @@ function NoteTagChip({ label, kind, context, onClick }: { label: string; kind?: 
 interface NoteTagLike { id?: string; label?: string; kind?: string; context?: string; at?: number; end?: number }
 interface MeetingNoteLike { id?: string; ts?: string; tsMs?: number; completed?: boolean; speaker?: string; chapter?: string; text?: string; tags?: NoteTagLike[] }
 
-/** Resolve a note's display timestamp: an absolute epoch-ms `tsMs` is formatted in the VIEWER'S local
- *  timezone; otherwise fall back to the pre-formatted relative `ts` string. Never throws. */
+/** Resolve a note's display timestamp: an absolute epoch-ms `tsMs` is formatted in Turkish in the
+ *  VIEWER'S local timezone; otherwise fall back to the pre-formatted relative `ts` string. Never throws. */
 function noteClock(note: MeetingNoteLike): string {
   const ms = typeof note.tsMs === "number" ? note.tsMs : Number.NaN;
   if (Number.isFinite(ms)) {
     try {
-      return new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      return new Date(ms).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" });
     } catch {
       /* fall through to relative ts */
     }
@@ -583,9 +583,9 @@ function NoteBody({ text, tags, onTag }: { text: string; tags: NoteTagLike[]; on
 function tagChatPrompt(tag: NoteTagLike): string {
   const label = toText(tag.label).trim();
   const kind = toText(tag.kind);
-  if (kind === "person") return `“${label}” came up in this meeting. Who are they — give me a short brief grounded in what was said and the workspace.`;
-  if (kind === "company") return `“${label}” came up in this meeting. What is it — a short brief grounded in what was said and the workspace.`;
-  return `“${label}” came up in this meeting. What is this product or project, and why does it matter here?`;
+  if (kind === "person") return `“${label}” bu toplantıda geçti. Kim olduğunu, konuşulanlara ve çalışma alanına dayanan kısa bir notla anlat.`;
+  if (kind === "company") return `“${label}” bu toplantıda geçti. Ne olduğunu, konuşulanlara ve çalışma alanına dayanan kısa bir notla anlat.`;
+  return `“${label}” bu toplantıda geçti. Bu ürün ya da proje nedir ve burada neden önemli?`;
 }
 
 /** A run of consecutive notes from the same speaker (within one chapter), merged into one block. */
@@ -596,7 +596,7 @@ interface NoteBlock { speaker: string; chapter: string; clock: string; lines: Me
 function groupNotesBySpeaker(list: MeetingNoteLike[]): NoteBlock[] {
   const blocks: NoteBlock[] = [];
   for (const note of list) {
-    const speaker = toText(note.speaker, "Speaker");
+    const speaker = toText(note.speaker, "Konuşmacı");
     const chapter = toText(note.chapter).trim();
     const last = blocks[blocks.length - 1];
     if (last && last.speaker === speaker && last.chapter === chapter) {
@@ -616,16 +616,16 @@ function groupNotesBySpeaker(list: MeetingNoteLike[]): NoteBlock[] {
  *  - timestamps: absolute `tsMs` rendered in the viewer's LOCAL timezone, else the relative `ts` fallback.
  *  - pending: a note with completed===false renders as a dim/italic trailing "live" line in its block.
  */
-function LiveNotes({ notes, empty = "condensing the conversation…", loading = false, maxNotes = 14, merge = true }: { notes?: MeetingNoteLike[]; empty?: string; maxNotes?: number; merge?: boolean } & Loadable) {
+function LiveNotes({ notes, empty = "konuşma özetleniyor…", loading = false, maxNotes = 14, merge = true }: { notes?: MeetingNoteLike[]; empty?: string; maxNotes?: number; merge?: boolean } & Loadable) {
   const actions = useActions();
   const onTag = (tag: NoteTagLike) => actions.ask(tagChatPrompt(tag));
   const safe = safeArray(notes).filter((n) => toText(n?.text).trim());
   const limit = Math.max(1, Math.floor(toNumber(maxNotes, 14)));
   const list = safe.slice(-limit);
   if (loading) return <Panel><Skeleton lines={4} /></Panel>;
-  if (!list.length) return <Empty title="No notes yet" body={toText(empty, "condensing the conversation…")} />;
+  if (!list.length) return <Empty title="Henüz not yok" body={toText(empty, "konuşma özetleniyor…")} />;
   // When merge is off each note is its own single-line block — same renderer, no divergent path.
-  const blocks = merge ? groupNotesBySpeaker(list) : list.map((note) => ({ speaker: toText(note.speaker, "Speaker"), chapter: toText(note.chapter).trim(), clock: noteClock(note), lines: [note] }));
+  const blocks = merge ? groupNotesBySpeaker(list) : list.map((note) => ({ speaker: toText(note.speaker, "Konuşmacı"), chapter: toText(note.chapter).trim(), clock: noteClock(note), lines: [note] }));
   return (
     <div role="log" aria-live="polite" style={{ ...frameStyle, width: "100%", display: "flex", flexDirection: "column", gap: 7 }}>
       {blocks.map((block, index) => {
@@ -674,14 +674,14 @@ function LiveNotes({ notes, empty = "condensing the conversation…", loading = 
 
 function normalizeTranscriptSegments(segments: TranscriptSegment[] | undefined): TranscriptSegment[] {
   return safeArray(segments)
-    .map((segment) => ({ speaker: toText(segment.speaker, "Speaker"), text: toText(segment.text), ts: segment.ts }))
+    .map((segment) => ({ speaker: toText(segment.speaker, "Konuşmacı"), text: toText(segment.text), ts: segment.ts }))
     .filter((segment) => segment.text.trim());
 }
 
 function Chart({ kind = "bar", data, tone = "accent", loading = false }: { kind?: "bar" | "line"; data?: (number | { label?: string; value: number })[]; tone?: Tone } & Loadable) {
   const values = safeArray(data).map((item) => typeof item === "number" ? item : toNumber(item?.value, Number.NaN)).filter(Number.isFinite);
   if (loading) return <Panel><Skeleton lines={5} /></Panel>;
-  if (!values.length) return <Empty title="No chart data" body="Metrics will appear once values are available." />;
+  if (!values.length) return <Empty title="Grafik verisi yok" body="Değerler geldiğinde ölçümler burada görünür." />;
   const max = Math.max(1, ...values);
   const points = values.map((value, index) => `${(index / Math.max(1, values.length - 1)) * 100},${42 - (value / max) * 36 + 3}`).join(" ");
   const safeTone = asTone(tone);
@@ -701,7 +701,7 @@ function Chart({ kind = "bar", data, tone = "accent", loading = false }: { kind?
 function Badge({ children, tone = "default", loading = false }: { children?: ReactNode; tone?: Tone } & Loadable) {
   if (loading) return <span style={{ display: "inline-flex", width: 58 }}><Skeleton lines={1} compact /></span>;
   const safeTone = asTone(tone);
-  return <span style={{ ...frameStyle, display: "inline-flex", alignItems: "center", maxWidth: "100%", padding: "2px 7px", borderRadius: 5, background: toneBg[safeTone], color: toneColor[safeTone], fontSize: 11, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{children ?? "Status"}</span>;
+  return <span style={{ ...frameStyle, display: "inline-flex", alignItems: "center", maxWidth: "100%", padding: "2px 7px", borderRadius: 5, background: toneBg[safeTone], color: toneColor[safeTone], fontSize: 11, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{children ?? "Durum"}</span>;
 }
 
 function Tag({ children, tone = "default", loading = false }: { children?: ReactNode; tone?: Tone } & Loadable) {
@@ -714,7 +714,7 @@ function Button({ children, tone = "default", size = "md", disabled, loading = f
   const isDisabled = Boolean(disabled || loading);
   return (
     <button type="button" onClick={isDisabled ? undefined : onClick} disabled={isDisabled} style={{ ...frameStyle, border: "1px solid var(--line2)", borderRadius: 7, background: isDisabled ? "var(--panel2)" : safeTone === "default" ? "var(--panel)" : toneBg[safeTone], color: isDisabled ? "var(--t3)" : safeTone === "default" ? "var(--t1)" : toneColor[safeTone], padding: safeSize === "sm" ? "4px 8px" : safeSize === "lg" ? "9px 13px" : "7px 10px", fontSize: textSize[safeSize], fontWeight: 650, cursor: isDisabled ? "default" : "pointer", maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-      {loading ? "Loading" : children ?? "Action"}
+      {loading ? "Yükleniyor…" : children ?? "İşlem"}
     </button>
   );
 }
@@ -737,7 +737,7 @@ function Tabs({ tabs, value, loading = false, onChange }: { tabs?: { id: string;
   const safeTabs = safeArray(tabs).filter((tab) => tab?.id);
   const [internal, setInternal] = useState(safeTabs[0]?.id ?? "");
   if (loading) return <Panel><Skeleton lines={5} /></Panel>;
-  if (!safeTabs.length) return <Empty title="No tabs" body="Add tab content to show controls here." />;
+  if (!safeTabs.length) return <Empty title="Sekme yok" body="Burada kontrolleri görmek için sekme içeriği ekleyin." />;
   const active = value ?? internal ?? safeTabs[0]?.id;
   const current = safeTabs.find((tab) => tab.id === active) ?? safeTabs[0];
   return (
@@ -777,7 +777,7 @@ function Avatar({ name, tone = "default", size = "md", loading = false }: { name
   if (loading) return <Skeleton lines={1} compact />;
   const safeSize = asSize(size);
   const px = safeSize === "lg" ? 36 : safeSize === "sm" ? 22 : 28;
-  const safeName = toText(name, "Unknown");
+  const safeName = toText(name, "Bilinmiyor");
   const initials = safeName.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "?";
   const safeTone = asTone(tone);
   return <span title={safeName} style={{ width: px, height: px, minWidth: px, borderRadius: "50%", display: "inline-flex", alignItems: "center", justifyContent: "center", background: toneBg[safeTone], color: toneColor[safeTone], fontSize: safeSize === "lg" ? 13 : 11, fontWeight: 800, overflow: "hidden" }}>{initials}</span>;
@@ -786,7 +786,7 @@ function Avatar({ name, tone = "default", size = "md", loading = false }: { name
 function Markdown({ children, loading = false }: { children?: string } & Loadable) {
   const text = toText(children);
   if (loading) return <Panel><Skeleton lines={5} /></Panel>;
-  if (!text.trim()) return <Empty title="No content" body="Markdown content will appear here." />;
+  if (!text.trim()) return <Empty title="İçerik yok" body="Markdown içeriği burada görünür." />;
   return (
     <div style={{ ...frameStyle, width: "100%", overflow: "hidden" }}>
       <MarkdownView>{text}</MarkdownView>

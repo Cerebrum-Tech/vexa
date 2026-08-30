@@ -66,7 +66,7 @@ const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(
 
 /** A default entity scaffold for a title surfaced in a meeting (no fixture lookup). */
 export function entityFor(title: string): Entity {
-  return { title, type: "topic", path: `kg/entities/topic/${slug(title)}.md`, exists: false, subtitle: "Topic" };
+  return { title, type: "topic", path: `kg/entities/topic/${slug(title)}.md`, exists: false, subtitle: "Konu" };
 }
 
 /** Split a meeting's people + mentioned entities into "in the room" vs "detected" (deduped). */

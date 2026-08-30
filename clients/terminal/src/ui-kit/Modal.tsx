@@ -24,7 +24,7 @@ export function Modal({ title, onClose, children, width = 400 }: {
       <div style={card} role="dialog" aria-modal="true" aria-label={title}>
         <div style={head}>
           <div style={{ fontSize: 13, fontWeight: 600, color: "var(--t1)" }}>{title}</div>
-          <span onClick={onClose} title="Close (Esc)" style={{ cursor: "pointer", color: "var(--t3)", fontSize: 17, lineHeight: 1, padding: "0 3px" }}>×</span>
+          <span onClick={onClose} title="Kapat (Esc)" style={{ cursor: "pointer", color: "var(--t3)", fontSize: 17, lineHeight: 1, padding: "0 3px" }}>×</span>
         </div>
         {children}
       </div>

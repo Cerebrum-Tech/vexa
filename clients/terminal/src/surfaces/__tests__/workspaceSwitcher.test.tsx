@@ -1,11 +1,11 @@
 /** Behavioral test for the WORKSPACES sidebar section (workspace.tsx WorkspaceSwitcher).
  *
- *  ADDITIVE model (WP-A1): the list-level "+ New workspace…" action CREATES a fresh blank workspace and
- *  ADDS it to the mount set (a new CHECKED row) — it does NOT swap/rebuild/park the baseline, and pops NO
- *  scary confirm (creating a workspace is non-destructive). It lives alongside "+ Attach repo…" as the two
- *  ways to bring a workspace into the set. These tests pin: the list offers "+ New workspace…" (not the old
- *  "Start fresh…"), clicking it calls createWorkspace (never swapWorkspace/fresh) with no window.confirm,
- *  and no row carries the old ↻ icon.
+ *  ADDITIVE model (WP-A1): the list-level "+ Yeni çalışma alanı…" (new workspace) action CREATES a fresh blank
+ *  workspace and ADDS it to the mount set (a new CHECKED row) — it does NOT swap/rebuild/park the baseline, and
+ *  pops NO scary confirm (creating a workspace is non-destructive). It lives alongside "+ Depo ekle…" (attach
+ *  repo) as the two ways to bring a workspace into the set. These tests pin: the list offers "+ Yeni çalışma
+ *  alanı…" (not the old "Start fresh…"), clicking it calls createWorkspace (never swapWorkspace/fresh) with
+ *  no window.confirm, and no row carries the old ↻ icon.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup, waitFor } from "@testing-library/react";
@@ -60,12 +60,12 @@ async function renderOpenSwitcher(overrideActive?: Awaited<ReturnType<typeof api
 beforeEach(() => sessionStorage.clear());
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
-describe("WorkspaceSwitcher — '+ New workspace…' CREATES + ADDS (additive), not swap-rebuild-baseline", () => {
-  it("offers '+ New workspace…' as a list item alongside '+ Attach repo…' (not the old 'Start fresh…')", async () => {
+describe("WorkspaceSwitcher — '+ Yeni çalışma alanı…' CREATES + ADDS (additive), not swap-rebuild-baseline", () => {
+  it("offers '+ Yeni çalışma alanı…' as a list item alongside '+ Depo ekle…' (not the old 'Start fresh…')", async () => {
     await renderOpenSwitcher();
-    expect(screen.getByText("Attach repo…")).toBeTruthy();
-    expect(screen.getByText("New workspace…")).toBeTruthy();
-    expect(screen.queryByText("Start fresh…")).toBeNull();  // the old swap-rebuild action is gone
+    expect(screen.getByText("Depo ekle…")).toBeTruthy();
+    expect(screen.getByText("Yeni çalışma alanı…")).toBeTruthy();
+    expect(screen.queryByText(/Start fresh…|Sıfırdan başla/)).toBeNull();  // the old swap-rebuild action is gone
   });
 
   it("no workspace row carries the old ↻ icon anymore", async () => {
@@ -76,7 +76,7 @@ describe("WorkspaceSwitcher — '+ New workspace…' CREATES + ADDS (additive), 
   it("clicking it calls createWorkspace — NOT swapWorkspace/fresh — and pops NO confirm", async () => {
     const { onSwapped } = await renderOpenSwitcher();
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
-    fireEvent.click(screen.getByText("New workspace…"));
+    fireEvent.click(screen.getByText("Yeni çalışma alanı…"));
     await waitFor(() => expect(api.createWorkspace).toHaveBeenCalled());
     expect(confirm).not.toHaveBeenCalled();                 // creating a workspace is non-destructive
     expect(api.swapWorkspace).not.toHaveBeenCalled();       // NOT the swap-rebuild-baseline path
@@ -87,7 +87,7 @@ describe("WorkspaceSwitcher — '+ New workspace…' CREATES + ADDS (additive), 
   it("re-reads the active set after creating, so the new (checked) row shows up", async () => {
     await renderOpenSwitcher();
     vi.mocked(api.readActiveSet).mockClear();
-    fireEvent.click(screen.getByText("New workspace…"));
+    fireEvent.click(screen.getByText("Yeni çalışma alanı…"));
     // the reload() after create re-fetches the active set → the new checked row is picked up
     await waitFor(() => expect(api.readActiveSet).toHaveBeenCalled());
   });
@@ -111,7 +111,7 @@ describe("WorkspaceSwitcher — '+ New workspace…' CREATES + ADDS (additive), 
         { slug: "workspace-1", repo: null, ref: null, role: "private", path: "/w/.attached/u1/workspace-1", write: true, primary: false },
       ],
     } as unknown as Awaited<ReturnType<typeof api.readActiveSet>>);
-    fireEvent.click(screen.getByText("New workspace…"));
+    fireEvent.click(screen.getByText("Yeni çalışma alanı…"));
     const newRow = await screen.findByText("New workspace");
     const cb = newRow.closest("div")!.querySelector<HTMLElement>('[role="checkbox"]')!;
     await waitFor(() => expect(cb.getAttribute("aria-checked")).toBe("true"));  // new row is CHECKED
@@ -155,11 +155,11 @@ describe("WorkspaceSwitcher — additive active set (WP-A2.1)", () => {
     expect(api.activateWorkspace).not.toHaveBeenCalled();
   });
 
-  it("'Attach repo…' ADDS the repo to the set (activate), not a swap", async () => {
+  it("'Depo ekle…' ADDS the repo to the set (activate), not a swap", async () => {
     await renderOpenSwitcher();
-    fireEvent.click(screen.getByText("Attach repo…"));
-    fireEvent.change(screen.getByPlaceholderText("git repo URL"), { target: { value: "https://example.com/r.git" } });
-    fireEvent.click(screen.getByText("Attach"));
+    fireEvent.click(screen.getByText("Depo ekle…"));
+    fireEvent.change(screen.getByPlaceholderText("git deposu URL’si"), { target: { value: "https://example.com/r.git" } });
+    fireEvent.click(screen.getByText("Ekle"));
     await waitFor(() => expect(api.activateWorkspace).toHaveBeenCalledWith({ repo: "https://example.com/r.git", ref: undefined, token: undefined }));
     expect(api.swapWorkspace).not.toHaveBeenCalled();
   });

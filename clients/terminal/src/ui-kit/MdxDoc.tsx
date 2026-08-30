@@ -79,7 +79,7 @@ function Tabs({ children }: { children?: ReactNode }) {
         {items.map((t, i) => (
           <button key={i} onClick={() => setActive(i)}
             style={{ border: "none", background: i === active ? "var(--panel2)" : "transparent", color: i === active ? "var(--t1)" : "var(--t3)", fontSize: 12.5, fontWeight: i === active ? 600 : 400, padding: "5px 11px", borderRadius: 7, cursor: "pointer" }}>
-            {t.props?.title ?? `Tab ${i + 1}`}
+            {t.props?.title ?? `Sekme ${i + 1}`}
           </button>
         ))}
       </div>
@@ -143,10 +143,10 @@ export const MDX_COMPONENTS = { ...htmlComponents, Note, Warning, Card, CardGrou
 // let the throw route into the plain-Markdown fallback below.
 const FORBIDDEN_MDX_NODES = new Set(["mdxjsEsm", "mdxFlowExpression", "mdxTextExpression"]);
 function assertNoExecutableMdx(node: { type?: string; attributes?: unknown[]; children?: unknown[] }): void {
-  if (node.type && FORBIDDEN_MDX_NODES.has(node.type)) throw new Error(`executable MDX (${node.type}) is not allowed in workspace docs`);
+  if (node.type && FORBIDDEN_MDX_NODES.has(node.type)) throw new Error(`çalıştırılabilir MDX (${node.type}) çalışma alanı belgelerinde kullanılamaz`);
   for (const attr of (node.attributes ?? []) as { type?: string; value?: { type?: string } }[]) {
     if (attr?.type === "mdxJsxExpressionAttribute" || attr?.value?.type === "mdxJsxAttributeValueExpression")
-      throw new Error("expression-valued JSX attributes are not allowed in workspace docs");
+      throw new Error("ifade değerli JSX öznitelikleri çalışma alanı belgelerinde kullanılamaz");
   }
   for (const child of (node.children ?? []) as { type?: string }[]) assertNoExecutableMdx(child);
 }
@@ -195,14 +195,14 @@ export function MdxDoc({ children, style }: { children: string; style?: CSSPrope
     return () => { cancelled = true; };
   }, [src]);
 
-  if (state.status === "loading") return <div style={{ color: "var(--t3)", fontSize: 12, ...style }}>rendering…</div>;
+  if (state.status === "loading") return <div style={{ color: "var(--t3)", fontSize: 12, ...style }}>görüntüleniyor…</div>;
   if (state.status === "fallback") {
     return (
       <div style={style}>
         {/* fail-loud: name the downgrade AND the reason inline — a tooltip-only error is
             invisible in screenshots and to anyone who doesn't hover */}
         <div style={{ fontFamily: "var(--mono)", fontSize: 10.5, color: "var(--t3)", marginBottom: 8 }}>
-          simplified rendering (MDX failed: {state.error})
+          basitleştirilmiş görünüm (MDX derlenemedi: {state.error})
         </div>
         <Markdown>{src}</Markdown>
       </div>

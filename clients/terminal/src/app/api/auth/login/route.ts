@@ -27,21 +27,21 @@ export async function POST(request: NextRequest) {
   try {
     ({ email } = await request.json());
   } catch {
-    return NextResponse.json({ error: "Invalid request body" }, { status: 400, headers: NO_STORE });
+    return NextResponse.json({ error: "İstek okunamadı — lütfen tekrar deneyin." }, { status: 400, headers: NO_STORE });
   }
 
   if (typeof email !== "string" || !email.trim()) {
-    return NextResponse.json({ error: "Email is required" }, { status: 400, headers: NO_STORE });
+    return NextResponse.json({ error: "E-posta adresi gerekli." }, { status: 400, headers: NO_STORE });
   }
   const normalized = email.trim().toLowerCase();
   if (!EMAIL_RE.test(normalized)) {
-    return NextResponse.json({ error: "Invalid email format" }, { status: 400, headers: NO_STORE });
+    return NextResponse.json({ error: "E-posta adresi geçersiz." }, { status: 400, headers: NO_STORE });
   }
   // Direct email login is a DEBUG path only — real sign-in goes through Google/Microsoft OAuth
   // (api/auth/[...nextauth]). Restrict it to test accounts so it can't be used as a password-less bypass.
   if (!normalized.includes("test")) {
     return NextResponse.json(
-      { error: "Direct email login is for test accounts only — use Google or Microsoft sign-in." },
+      { error: "Doğrudan e-posta ile giriş yalnızca test hesapları içindir — Google veya Microsoft ile giriş yapın." },
       { status: 403, headers: NO_STORE },
     );
   }

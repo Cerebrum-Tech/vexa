@@ -27,6 +27,8 @@ COPY . .
 # Empty → GA renders nothing (opt-in). Changing it requires a rebuild.
 ARG NEXT_PUBLIC_GA_MEASUREMENT_ID=""
 ENV NEXT_PUBLIC_GA_MEASUREMENT_ID=$NEXT_PUBLIC_GA_MEASUREMENT_ID
+ARG NEXT_PUBLIC_DEFAULT_BOT_NAME="Innova Toplantı Asistanı"
+ENV NEXT_PUBLIC_DEFAULT_BOT_NAME=$NEXT_PUBLIC_DEFAULT_BOT_NAME
 # Terminal mode (src/app/mode.ts). "meetings" builds a meetings-only terminal: only the meetings
 # list + meeting/canvas tabs + the API-tokens surface register, and the server proxy refuses
 # agent-api paths (404). Empty (default) keeps every surface. NEXT_PUBLIC_* → set BEFORE `next build`.

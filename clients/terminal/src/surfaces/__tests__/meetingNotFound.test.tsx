@@ -34,17 +34,17 @@ describe("meetingResolution — (row, list answered) → what the tab shows", ()
 describe("MeetingNotFound — the clean dead end", () => {
   it("names the id that failed to resolve", () => {
     render(<MeetingNotFound meetingId="9999" />);
-    expect(screen.getByText("Meeting not found")).toBeTruthy();
+    expect(screen.getByText("Toplantı bulunamadı")).toBeTruthy();
     expect(screen.getByText("9999")).toBeTruthy();
   });
 
   it("offers a way out when one is wired", () => {
     render(<MeetingNotFound meetingId="9999" onOpenToday={() => {}} />);
-    expect(screen.getByRole("button", { name: "Open today" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Bugün’ü aç" })).toBeTruthy();
   });
 
   it("an id-less route still renders an answer, not an empty shell", () => {
     render(<MeetingNotFound meetingId="" />);
-    expect(screen.getByText("Meeting not found")).toBeTruthy();
+    expect(screen.getByText("Toplantı bulunamadı")).toBeTruthy();
   });
 });

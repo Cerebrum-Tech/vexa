@@ -76,7 +76,7 @@ describe("actionsFor — each action fires the correct endpoint+body", () => {
     const { url, init, body } = lastFetch();
     expect(url).toBe("/api/bots");
     expect(init.method).toBe("POST");
-    expect(body).toEqual({ platform: "google_meet", native_meeting_id: NATIVE, meeting_url: `https://meet.google.com/${NATIVE}`, bot_name: "Vexa" });
+    expect(body).toEqual({ platform: "google_meet", native_meeting_id: NATIVE, meeting_url: `https://meet.google.com/${NATIVE}`, bot_name: "Innova Toplantı Asistanı" });
   });
 
   it("active→Stop DELETEs the bot by platform+native (the gateway /api/bots route)", () => {
@@ -103,9 +103,9 @@ describe("actionsFor — each action fires the correct endpoint+body", () => {
     // UI channel: the presented truth, never the fetch engine's message.
     expect(onFailure).toHaveBeenCalledWith({
       actionId: "stop",
-      actionLabel: "Stop",
+      actionLabel: "Durdur",
       native: NATIVE,
-      message: "Couldn't reach the Vexa server — check that the stack is running.",
+      message: "Innova Toplantı Asistanı sunucusuna ulaşılamadı — servislerin çalıştığını kontrol edin.",
       // A transport failure is not the service authority refusing — no denial panel.
       denial: null,
     });
@@ -113,7 +113,7 @@ describe("actionsFor — each action fires the correct endpoint+body", () => {
     expect(warn).toHaveBeenCalledWith("meeting action failed", expect.objectContaining({ actionId: "stop", message: "Failed to fetch" }));
   });
 
-  it("a 403 service_not_allowed on Send now yields the DENIAL, never 'your key doesn't have access' (Vexa-ai/vexa-platform#291)", async () => {
+  it("a 403 service_not_allowed on Send now yields the DENIAL, never the generic 'anahtarınızın buna erişim yetkisi yok' (Vexa-ai/vexa-platform#291)", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const onFailure = vi.fn();
     fetchMock.mockResolvedValueOnce({
@@ -124,9 +124,9 @@ describe("actionsFor — each action fires the correct endpoint+body", () => {
     await actionsFor(row("idle")).find((a) => a.id === "send")!.run(onFailure);
 
     const failure = onFailure.mock.calls[0][0];
-    expect(failure.denial).toMatchObject({ kind: "paywall", title: "Out of credit" });
-    expect(failure.message).toContain("Out of credit");
-    expect(failure.message).not.toMatch(/doesn't have access/i);
+    expect(failure.denial).toMatchObject({ kind: "paywall", title: "Bakiyeniz tükendi" });
+    expect(failure.message).toContain("Bakiyeniz tükendi");
+    expect(failure.message).not.toContain("erişim yetkisi yok");
     warn.mockRestore();
   });
 
@@ -141,7 +141,7 @@ describe("actionsFor — each action fires the correct endpoint+body", () => {
     await actionsFor(row("active")).find((a) => a.id === "stop")!.run(onFailure);
 
     const { message } = onFailure.mock.calls[0][0];
-    expect(message).toBe("This meeting is no longer active — refreshing the list.");
+    expect(message).toBe("Bu toplantı artık etkin değil — liste yenileniyor.");
     expect(message).not.toContain("404");
     expect(message).not.toContain("{");
     // reconcile: the finally-path re-snapshot was requested so the control self-corrects
@@ -160,7 +160,7 @@ describe("actionsFor — each action fires the correct endpoint+body", () => {
 
     await actionsFor(row("idle")).find((a) => a.id === "send")!.run(onFailure);
 
-    expect(onFailure.mock.calls[0][0].message).toBe("That meeting already has a bot.");
+    expect(onFailure.mock.calls[0][0].message).toBe("Bu toplantıda zaten bir bot var.");
   });
 
   it("idle→Schedule PUTs intent:scheduled with an ISO `at`", () => {

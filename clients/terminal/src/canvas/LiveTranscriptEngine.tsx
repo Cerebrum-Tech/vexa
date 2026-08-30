@@ -29,6 +29,19 @@ export interface EngineActions {
 // transcript highlights match [[wikilink]] chips exactly. Signals use semantic tokens.
 const SIGNAL_HUE: Record<string, string> = { decision: "var(--violet)", "action-item": "var(--green)", action: "var(--green)", question: "var(--blue)", claim: "var(--warn)" };
 
+// Presentation labels for the badge taxonomy and entity kinds. The slugs stay the wire vocabulary;
+// only what a reader sees is Turkish.
+const SIGNAL_LABEL: Record<string, string> = { decision: "karar", "action-item": "aksiyon maddesi", action: "aksiyon maddesi", question: "soru", claim: "iddia" };
+const ENTITY_KIND_LABEL: Record<string, string> = { person: "kişi", company: "şirket", product: "ürün", number: "sayı", signal: "sinyal" };
+
+export function signalLabel(kind: string): string {
+  return SIGNAL_LABEL[kind] ?? kind;
+}
+
+export function entityKindLabel(kind: string): string {
+  return ENTITY_KIND_LABEL[kind] ?? kind;
+}
+
 function hueFor(kind: string): string {
   return entityColor(kind) ?? "var(--t2)";
 }
@@ -58,7 +71,7 @@ function EntityMention({ entity, actions }: { entity: SpanEntity; actions?: Engi
         tabIndex={0}
         aria-haspopup="menu"
         aria-expanded={open}
-        title={`${entity.kind}: ${entity.label}`}
+        title={`${entityKindLabel(entity.kind)}: ${entity.label}`}
         onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
         onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setOpen((v) => !v); } }}
         style={{
@@ -78,8 +91,8 @@ function EntityMention({ entity, actions }: { entity: SpanEntity; actions?: Engi
             borderRadius: 8, boxShadow: "0 6px 20px rgba(0,0,0,0.18)", padding: 4, fontSize: 12, fontWeight: 500,
           }}
         >
-          <button type="button" role="menuitem" onClick={run(actions?.research)} style={menuItemStyle}>Research</button>
-          <button type="button" role="menuitem" onClick={run(actions?.openEntityDoc)} style={menuItemStyle}>Open entity doc</button>
+          <button type="button" role="menuitem" onClick={run(actions?.research)} style={menuItemStyle}>Araştır</button>
+          <button type="button" role="menuitem" onClick={run(actions?.openEntityDoc)} style={menuItemStyle}>Varlık belgesini aç</button>
         </span>
       )}
     </span>
@@ -102,7 +115,7 @@ function ContestedText({ text }: { text: string }): React.ReactElement | null {
       <span
         key={`contest-${match.index}`}
         data-contested="true"
-        aria-label="Unresolved live transcript"
+        aria-label="Kesinleşmemiş canlı transkript"
         style={{
           display: "inline",
           color: "var(--t3)",
@@ -137,7 +150,7 @@ function BlockText({ text, entities, actions }: { text: string; entities?: Engin
 
 export function LiveTranscriptEngine({
   segments,
-  emptyLabel = "Waiting for transcript…",
+  emptyLabel = "Transkript bekleniyor…",
   entities,
   signals,
   actions,
@@ -189,7 +202,7 @@ export function LiveTranscriptEngine({
         {uniq.map((t, i) => {
           const hue = hueFor(t.kind);
           return (
-            <span key={`${t.label}-${i}`} title={`research ${t.label}`}
+            <span key={`${t.label}-${i}`} title={`${t.label} hakkında araştırma yap`}
               style={{ fontSize: 11, color: hue, border: `1px solid ${hue}`, background: "transparent", borderRadius: 999, padding: "1px 8px", lineHeight: 1.5, opacity: 0.9 }}>
               {t.label}
             </span>
@@ -204,11 +217,11 @@ export function LiveTranscriptEngine({
   const signalBadges = (forLastBlock: boolean) => {
     if (!forLastBlock || !signals || !signals.length) return null;
     return (
-      <div role="group" aria-label="signals" style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
+      <div role="group" aria-label="sinyaller" style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
         {signals.map((sig) => {
           const hue = SIGNAL_HUE[sig.kind] ?? "var(--t2)";
           return (
-            <button key={sig.id} type="button" title={`${sig.kind}: ${sig.label}`}
+            <button key={sig.id} type="button" title={`${signalLabel(sig.kind)}: ${sig.label}`}
               onClick={() => actions?.onSignal?.(sig)}
               style={{
                 display: "inline-flex", alignItems: "center", gap: 5, cursor: "pointer", fontSize: 11,
@@ -216,7 +229,7 @@ export function LiveTranscriptEngine({
                 padding: "1px 7px", lineHeight: 1.5, fontWeight: 600,
               }}>
               <span style={{ width: 6, height: 6, borderRadius: "50%", background: hue, flex: "none" }} />
-              {sig.kind}
+              {signalLabel(sig.kind)}
             </button>
           );
         })}

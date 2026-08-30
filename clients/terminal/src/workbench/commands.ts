@@ -13,16 +13,16 @@ export function registerEngineCommands(container: ServiceContainer): void {
     window.setTimeout(() => window.dispatchEvent(new Event("vexa:terminal:focus-chat")), 0);
   };
 
-  cmd.register({ id: "palette.toggle", title: "Command Palette", run: ({ container: c }) => c.get(PaletteServiceId).toggle() });
-  cmd.register({ id: "workbench.toggleLeft", title: "Toggle Left Sidebar", run: ({ container: c }) => c.get(LayoutServiceId).toggleLeft() });
-  cmd.register({ id: "workbench.toggleRight", title: "Toggle Right Sidebar", run: ({ container: c }) => c.get(LayoutServiceId).toggleRight() });
-  cmd.register({ id: "workbench.resetLayout", title: "Reset Layout", run: ({ container: c }) => c.get(LayoutServiceId).resetLayout() });
-  cmd.register({ id: "chat.focus", title: "Focus Chat", run: ({ container: c }) => focusChat(c) });
+  cmd.register({ id: "palette.toggle", title: "Komut paleti", run: ({ container: c }) => c.get(PaletteServiceId).toggle() });
+  cmd.register({ id: "workbench.toggleLeft", title: "Sol kenar çubuğunu aç/kapat", run: ({ container: c }) => c.get(LayoutServiceId).toggleLeft() });
+  cmd.register({ id: "workbench.toggleRight", title: "Sağ kenar çubuğunu aç/kapat", run: ({ container: c }) => c.get(LayoutServiceId).toggleRight() });
+  cmd.register({ id: "workbench.resetLayout", title: "Düzeni sıfırla", run: ({ container: c }) => c.get(LayoutServiceId).resetLayout() });
+  cmd.register({ id: "chat.focus", title: "Sohbete odaklan", run: ({ container: c }) => focusChat(c) });
   // Go back: restore the UI state from before the last navigation (VS Code-style).
   // Escape is layered: overlays (palette, menus, dropdowns) close themselves and stop
   // propagation, so this only fires when nothing is on top. Never navigates while the
   // user is typing — Escape there means "leave the field", handled locally.
-  cmd.register({ id: "nav.back", title: "Go Back (previous UI state)", run: ({ container: c }) => {
+  cmd.register({ id: "nav.back", title: "Geri git (önceki görünüm)", run: ({ container: c }) => {
     const el = document.activeElement as HTMLElement | null;
     if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable)) return;
     c.get(LayoutServiceId).goBack();
@@ -30,7 +30,7 @@ export function registerEngineCommands(container: ServiceContainer): void {
 
   // one "show list" command per registered left list (generated from the registry).
   for (const l of registry.lists()) {
-    cmd.register({ id: `list.${l.id}`, title: `Show: ${l.label}`, run: ({ container: c }) => c.get(LayoutServiceId).setActiveList(l.id) });
+    cmd.register({ id: `list.${l.id}`, title: `Göster: ${l.label}`, run: ({ container: c }) => c.get(LayoutServiceId).setActiveList(l.id) });
   }
 
   const kb = container.get(KeybindingServiceId);

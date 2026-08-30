@@ -9,7 +9,7 @@ import type { EntityItem, EntityKind, MeetingDocLink, MeetingState, SpeakerSumma
 
 const EMPTY_MEETING: MeetingMock = {
   id: "live",
-  title: "Live meeting",
+  title: "Canlı toplantı",
   when: "",
   status: "past",
   platform: "Meeting",
@@ -50,7 +50,7 @@ function matchesMeeting(m: MeetingMock, meetingId: string): boolean {
 }
 
 function unresolvedMeeting(meetingId: string): MeetingMock {
-  return { ...EMPTY_MEETING, id: meetingId, title: "Meeting" };
+  return { ...EMPTY_MEETING, id: meetingId, title: "Toplantı" };
 }
 
 function resolveMeeting(meetings: MeetingMock[], meetingId: string): MeetingMock {
@@ -130,7 +130,7 @@ function normalizeSegments(segments: TranscriptSegment[] | null | undefined): Tr
   return safeArray(segments)
     .map((segment) => ({
       id: segment.id,
-      speaker: textOf(segment.speaker, "Speaker"),
+      speaker: textOf(segment.speaker, "Konuşmacı"),
       text: cleanTranscriptText(textOf(segment.text)),
       ts: segment.ts,
       tsMs: segment.tsMs,
@@ -159,16 +159,20 @@ function oneWord(value: unknown, fallback: string): string {
 
 function numberContext(name: string): string {
   const lower = name.toLowerCase();
-  if (/[$€£]/.test(name) || /\bk\b/.test(lower)) return "Budget";
-  if (/\bq[1-4]\b|quarter|timeline|july|august|september|october|november|december/.test(lower)) return "Timeline";
-  if (/seat|user|license/.test(lower)) return "Seats";
-  if (/%/.test(name)) return "Rate";
-  return "Number";
+  if (/[$€£]/.test(name) || /\bk\b/.test(lower)) return "Bütçe";
+  if (/\bq[1-4]\b|quarter|timeline|july|august|september|october|november|december/.test(lower)) return "Takvim";
+  if (/seat|user|license/.test(lower)) return "Koltuk";
+  if (/%/.test(name)) return "Oran";
+  return "Sayı";
 }
 
+// Presentation labels for the entity kinds. The slugs stay the wire vocabulary (doc paths, filters);
+// only what a reader sees is Turkish.
+const KIND_LABEL: Record<EntityKind, string> = { person: "Kişi", company: "Şirket", product: "Ürün", number: "Sayı", signal: "Sinyal" };
+
 function entityName(kind: EntityKind, item: unknown, index: number): string {
-  if (kind === "number" && isRecord(item)) return textOf(field(item, "text") ?? field(item, "name") ?? field(item, "title") ?? field(item, "value"), `number ${index + 1}`);
-  return entityTitle(item, `${kind} ${index + 1}`);
+  if (kind === "number" && isRecord(item)) return textOf(field(item, "text") ?? field(item, "name") ?? field(item, "title") ?? field(item, "value"), `sayı ${index + 1}`);
+  return entityTitle(item, `${KIND_LABEL[kind] ?? kind} ${index + 1}`);
 }
 
 function entitySummary(item: unknown): string {
@@ -194,8 +198,8 @@ function firstQuoteFor(name: string, segments: TranscriptSegment[]): string | un
 
 function contextForEntity(kind: EntityKind, item: unknown, name: string): string {
   if (kind === "number") return oneWord(field(item, "context"), numberContext(name));
-  if (kind === "signal") return oneWord(field(item, "context") ?? field(item, "kind"), "Signal");
-  return oneWord(field(item, "context") ?? field(item, "subtitle") ?? field(item, "role") ?? field(item, "type"), kind[0].toUpperCase() + kind.slice(1));
+  if (kind === "signal") return oneWord(field(item, "context") ?? field(item, "kind"), "Sinyal");
+  return oneWord(field(item, "context") ?? field(item, "subtitle") ?? field(item, "role") ?? field(item, "type"), KIND_LABEL[kind] ?? kind);
 }
 
 function enrichEntity(kind: EntityKind, item: unknown, index: number, segments: TranscriptSegment[]): EntityItem {
@@ -494,7 +498,7 @@ export function useTranscript(opts?: { by?: "time" | "speaker"; window?: number 
     const segments = opts?.by === "speaker"
       ? windowed
         .map((segment, index) => ({ segment, index }))
-        .sort((a, b) => textOf(a.segment.speaker, "Speaker").localeCompare(textOf(b.segment.speaker, "Speaker")) || a.index - b.index)
+        .sort((a, b) => textOf(a.segment.speaker, "Konuşmacı").localeCompare(textOf(b.segment.speaker, "Konuşmacı")) || a.index - b.index)
         .map((entry) => entry.segment)
       : windowed;
     return { segments, liveCaption: textOf(meeting.transcript.liveCaption, undefined) };
@@ -506,7 +510,7 @@ export function useSpeakers(): SpeakerSummary[] {
   return useMemo(() => {
     const totals = new Map<string, { name: string; segments: number; talkMs: number }>();
     segments.forEach((segment, index) => {
-      const name = textOf(segment.speaker, "Speaker") || "Speaker";
+      const name = textOf(segment.speaker, "Konuşmacı") || "Konuşmacı";
       const current = totals.get(name) ?? { name, segments: 0, talkMs: 0 };
       const start = parseTimestampMs(segment.ts);
       const next = parseTimestampMs(segments[index + 1]?.ts);
@@ -541,7 +545,7 @@ export function useSignals(): EntityItem[] {
   return useMemo(() => {
     const seen = new Map<string, EntityItem>();
     safeArray(meeting.cards).forEach((card, index) => {
-      const title = textOf(card.title, `Signal ${index + 1}`);
+      const title = textOf(card.title, `Sinyal ${index + 1}`);
       const key = slug(title);
       if (seen.has(key)) return;
       const body = textOf(card.body);
@@ -549,7 +553,7 @@ export function useSignals(): EntityItem[] {
         id: card.id || `signal:${index}`,
         kind: "signal" as const,
         name: title,
-        context: oneWord(card.kind, "Signal"),
+        context: oneWord(card.kind, "Sinyal"),
         summary: body || title,
         quote: body || undefined,
         researched: false,
@@ -564,16 +568,23 @@ export function useSignals(): EntityItem[] {
 export function useMeetingDocs(): { brief: MeetingDocLink; report: MeetingDocLink } {
   const meeting = useMeeting();
   return useMemo(() => {
-    const key = slug(meeting.meeting.nativeId || meeting.meeting.id || meeting.meeting.title || "meeting");
+    // The worker OWNS this path: it writes `kg/entities/meeting/<native>.md` with the native meeting id
+    // VERBATIM (core/agent/worker/meeting.py). The client reads that name as given — a native id is an
+    // opaque producer identifier (`19:meeting_AbC-dEf_123@thread.v2` on Teams), never something to
+    // reshape here. A doc ref recorded for the meeting still wins over this deterministic default:
+    // `knownDoc` matches the ref by kind and returns the path the writer reported.
+    const key = meeting.meeting.nativeId || meeting.meeting.id || "meeting";
     const briefPath = `kg/entities/meeting/${key}.md`;
-    const reportPath = `kg/entities/meeting/${key}-report.md`;
+    // The post-meeting writer updates the canonical meeting entity in place; prep and recap therefore
+    // share one path, with the terminal waiting for the Turkish report headings before presenting it.
+    const reportPath = briefPath;
     const docs = [
       ...safeArray(meeting.meeting.docs),
       ...docsFromSections(meeting.sections.docs),
     ];
     return {
       brief: knownDoc(docs, briefPath, ["brief", "prep", "meeting"]),
-      report: knownDoc(docs, reportPath, ["report", "post-meeting-report"]),
+      report: knownDoc(docs, reportPath, ["report", "post-meeting-report", "meeting"]),
     };
-  }, [meeting.meeting.docs, meeting.meeting.id, meeting.meeting.nativeId, meeting.meeting.title, meeting.sections.docs]);
+  }, [meeting.meeting.docs, meeting.meeting.id, meeting.meeting.nativeId, meeting.sections.docs]);
 }

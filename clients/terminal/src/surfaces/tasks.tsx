@@ -9,6 +9,7 @@ import { usePreviewPinTab } from "./previewPinTab";
 // No client subject: the gateway injects X-User-Id and agent-api derives `subject` from it (P20 scope).
 interface Task { path: string; title: string; state: string; priority?: string; due?: string }
 const PRIO: Record<string, string> = { high: "var(--warn)", med: "var(--accent)", medium: "var(--accent)", low: "var(--t2)" };
+const PRIO_LABEL: Record<string, string> = { high: "yüksek", med: "orta", medium: "orta", low: "düşük" };
 
 const taskDocTab = (path: string): TabDescriptor => ({ id: `doc:${path}`, title: path.split("/").pop() ?? path, kind: "doc", params: { path } });
 const cb = (done: boolean): CSSProperties => ({ width: 16, height: 16, borderRadius: 4, border: "1.5px solid var(--line2)", flex: "none", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, background: done ? "var(--green)" : "transparent", color: done ? "var(--on-green)" : "transparent" });
@@ -29,8 +30,8 @@ function TaskRow({ task }: { task: Task }) {
       <div style={{ flex: 1 }}>
         <div style={{ fontSize: 13, color: task.state === "done" ? "var(--t3)" : "var(--t1)", textDecoration: task.state === "done" ? "line-through" : "none" }}>{task.title}</div>
         <div style={{ display: "flex", gap: 8, marginTop: 3, fontSize: 11.5, color: "var(--t3)" }}>
-          {task.priority && <span style={{ color: PRIO[task.priority] ?? "var(--t2)" }}>{task.priority}</span>}
-          {task.due && <span>due {task.due}</span>}
+          {task.priority && <span style={{ color: PRIO[task.priority] ?? "var(--t2)" }}>{PRIO_LABEL[task.priority] ?? task.priority}</span>}
+          {task.due && <span>son tarih {task.due}</span>}
         </div>
       </div>
     </div>
@@ -54,11 +55,11 @@ function TasksList() {
 
   return (
     <div style={{ padding: "8px" }}>
-      <div style={{ fontSize: 11, color: "var(--t3)", textTransform: "uppercase", letterSpacing: ".04em", padding: "6px 4px 6px" }}>tasks</div>
+      <div style={{ fontSize: 11, color: "var(--t3)", textTransform: "uppercase", letterSpacing: ".04em", padding: "6px 4px 6px" }}>görevler</div>
       {tasks.map((t) => <TaskRow key={t.path} task={t} />)}
-      {tasks.length === 0 && <div style={{ padding: "8px 4px", color: "var(--t3)", fontSize: 12 }}>No tasks yet — ask the agent in Chat.</div>}
+      {tasks.length === 0 && <div style={{ padding: "8px 4px", color: "var(--t3)", fontSize: 12 }}>Henüz görev yok — Sohbet bölümünde asistana sorun.</div>}
     </div>
   );
 }
 
-registerList({ id: "tasks", label: "Tasks", icon: "tasks", order: 50, component: TasksList });
+registerList({ id: "tasks", label: "Görevler", icon: "tasks", order: 50, component: TasksList });

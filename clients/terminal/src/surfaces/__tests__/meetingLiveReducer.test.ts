@@ -112,7 +112,7 @@ describe("meetingLive reducer — fault surfacing (never silent, P18/P21)", () =
     expect(issue?.model).toBe("deepseek");
     const card = result.current.cards.at(-1);
     expect(card?.kind).toBe("warning");
-    expect(card?.title).toBe("Model inference error");
+    expect(card?.title).toBe("Model çıkarım hatası");
   });
 
   it("accepts a string-form model-error message", () => {

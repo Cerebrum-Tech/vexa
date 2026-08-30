@@ -54,17 +54,17 @@ afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 describe("FilesList — workspaces-first Knowledge rail", () => {
   it("leads with the WORKSPACES section, open by default", async () => {
     renderList();
-    expect(screen.getByText("workspaces")).toBeTruthy();
+    expect(screen.getByText("çalışma alanları")).toBeTruthy();
     await screen.findByText("leo");           // the workspace row is visible without any toggle
-    expect(screen.getByText(/Attach repo…/)).toBeTruthy();
+    expect(screen.getByText(/Depo ekle…/)).toBeTruthy();
   });
 
   it("keeps FILES collapsed by default — Find-file visible, tree hidden — and expands on the caret", async () => {
     renderList();
-    expect(screen.getByPlaceholderText("Find file…")).toBeTruthy();
-    await screen.findByText(/files · leo/);   // header carries the home workspace label
+    expect(screen.getByPlaceholderText("Dosya ara…")).toBeTruthy();
+    await screen.findByText(/dosyalar · leo/);   // header carries the home workspace label
     expect(screen.queryByText("kg")).toBeNull();          // tree hidden while collapsed
-    fireEvent.click(screen.getByText(/files · leo/));
+    fireEvent.click(screen.getByText(/dosyalar · leo/));
     await screen.findByText("kg");                        // caret expands the home tree
     expect(sessionStorage.getItem("ws.files.open")).toBe("1");
   });
@@ -86,7 +86,7 @@ describe("FilesList — workspaces-first Knowledge rail", () => {
         <FilesList />
       </ServicesProvider>,
     );
-    await screen.findByText(/files · leo/);
+    await screen.findByText(/dosyalar · leo/);
     expect(layout.openPreview).not.toHaveBeenCalled();
   });
 });

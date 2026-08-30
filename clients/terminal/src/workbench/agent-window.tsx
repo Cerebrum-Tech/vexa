@@ -21,10 +21,10 @@ export type Turn =
   | { id: string; role: "insight"; t?: string; text: string };
 
 const PHASE_LABEL: Record<TurnPhase, string> = {
-  connecting: "Starting agent",
-  working: "Working",
-  reconnecting: "Reconnecting",
-  stalled: "Connection stalled — retrying",
+  connecting: "Asistan başlatılıyor",
+  working: "Çalışıyor",
+  reconnecting: "Yeniden bağlanıyor",
+  stalled: "Bağlantı yanıt vermiyor — yeniden deneniyor",
 };
 
 /** A live "what's happening" line for the in-flight turn — spinner + phase + elapsed seconds, self-ticking
@@ -96,7 +96,7 @@ export function Conversation({ turns, busy, empty }: { turns: Turn[]; busy?: boo
               : (!t.text && <div style={{ fontSize: 13.5, color: "var(--t3)" }}>…</div>))}
             {t.commit && (
               <div style={{ marginTop: 9, fontSize: 11, color: "var(--green)", display: "inline-flex", alignItems: "center", gap: 6, background: "var(--greenbg)", borderRadius: 6, padding: "3px 8px", fontFamily: "var(--mono)" }}>
-                <Icon name="git" size={12} />committed · {t.commit.slice(0, 7)}
+                <Icon name="git" size={12} />kaydedildi · {t.commit.slice(0, 7)}
               </div>
             )}
             {t.rejected && (

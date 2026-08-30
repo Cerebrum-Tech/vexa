@@ -50,17 +50,17 @@ interface Overview {
 interface ProbeStage { id: string; label: string; status: "pass" | "warn" | "fail"; latency_ms?: number; detail?: string }
 interface ProbeResult { status: "pass" | "warn" | "fail"; stages: ProbeStage[]; duration_ms: number; at: number }
 
-const PANEL: TabDescriptor = { id: "admin-infra", title: "Infra", kind: "adminInfra", params: {} };
+const PANEL: TabDescriptor = { id: "admin-infra", title: "Altyapı", kind: "adminInfra", params: {} };
 const POLL_MS = 5000;
 
 function ago(t?: number): string {
   if (!t) return "—";
   const s = Math.max(0, Math.floor((Date.now() - t) / 1000));
-  if (s < 60) return `${s}s`;
-  if (s < 3600) return `${Math.floor(s / 60)}m`;
-  return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
+  if (s < 60) return `${s} sn`;
+  if (s < 3600) return `${Math.floor(s / 60)} dk`;
+  return `${Math.floor(s / 3600)} sa ${Math.floor((s % 3600) / 60)} dk`;
 }
-const isoAgo = (iso?: string) => (iso ? `${ago(Date.parse(iso))} ago` : "—");
+const isoAgo = (iso?: string) => (iso ? `${ago(Date.parse(iso))} önce` : "—");
 /** redis stream ids are `{ms}-{seq}` — the ms half is a wall-clock timestamp. */
 const idMs = (id?: string | null): number | null => {
   const ms = id ? Number(id.split("-")[0]) : NaN;
@@ -74,6 +74,20 @@ const TONE: Record<Tone, { fg: string; bg: string }> = {
   danger: { fg: "var(--danger)", bg: "var(--dangerbg)" },
 };
 
+/** Backend vocabulary is printed in Turkish; the slugs themselves stay protocol values the
+ *  filters and the API compare against. An unmapped value falls through VERBATIM — a state the
+ *  backend grows must surface as itself, never hide behind a stale translation. */
+const PROBE_STATUS_TR: Record<string, string> = { pass: "başarılı", warn: "uyarı", fail: "başarısız" };
+const WORKLOAD_STATE_TR: Record<string, string> = {
+  starting: "başlatılıyor", running: "çalışıyor", stopping: "durduruluyor",
+  stopped: "durdu", destroyed: "kaldırıldı",
+};
+const LIVE_STATUS_TR: Record<string, string> = {
+  live: "canlı", active: "canlı", stopping: "durduruluyor", stopped: "durdu",
+  completed: "tamamlandı", failed: "başarısız",
+};
+const trState = (map: Record<string, string>, v?: string | null): string => (v ? map[v] ?? v : "—");
+
 /** One health verdict per meeting row, most severe first (ADR-0027 Train-2-aware):
  *  native keying (S2) → a processed_pending member past its drain deadline (the run-46 S1
  *  signature, LIVE and exact) → still-draining (in the zset, within deadline — expected for
@@ -81,18 +95,18 @@ const TONE: Record<Tone, { fg: string; bg: string }> = {
  *  than the bot's stop with no view_end marker and out of the sweep) → ok. A proc tail that IS
  *  the worker's view_end marker completed cleanly, so it suppresses the approximation. */
 function healthOf(m: PipelineRow, botStopMs: number | null): { label: string; tone: Tone } {
-  if (m.row_keyed === false) return { label: "native key (S2)", tone: "danger" };
+  if (m.row_keyed === false) return { label: "native anahtar (S2)", tone: "danger" };
   if (m.pending_drain) {
     return m.pending_drain.overdue
-      ? { label: "stuck drain (S1)", tone: "danger" }
-      : { label: "draining…", tone: "warn" };
+      ? { label: "boşaltma takıldı (S1)", tone: "danger" }
+      : { label: "boşaltılıyor…", tone: "warn" };
   }
   const procMs = idMs(m.proc_stream?.last_id);
   if (m.proc_stream?.last_type !== "view_end" &&
       botStopMs && procMs && procMs > botStopMs && !m.in_active_meetings) {
-    return { label: "undrained tail?", tone: "warn" };
+    return { label: "boşaltılmamış kuyruk?", tone: "warn" };
   }
-  return { label: "ok", tone: "ok" };
+  return { label: "sorun yok", tone: "ok" };
 }
 
 const th: CSSProperties = { textAlign: "left", fontSize: 11, color: "var(--t3)", textTransform: "uppercase", letterSpacing: ".04em", padding: "4px 8px", borderBottom: "1px solid var(--line)", whiteSpace: "nowrap", fontWeight: 500 };
@@ -132,7 +146,7 @@ function ProbeStrip() {
     setErr(null);
     try {
       const r = await fetch("/api/admin/probe", { method: "POST", cache: "no-store" });
-      if (!r.ok) { setErr(`probe failed (${r.status})`); return; }
+      if (!r.ok) { setErr(`kontrol başarısız (${r.status})`); return; }
       const body = (await r.json()) as ProbeResult;
       setProbe({ ...body, at: Date.now() / 1000 });
     } catch (e) {
@@ -146,13 +160,13 @@ function ProbeStrip() {
   return (
     <div style={{ padding: "10px 14px", borderBottom: "1px solid var(--line)", background: "var(--panel)" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-        <span style={{ fontSize: 12, fontWeight: 600, color: "var(--t2)", whiteSpace: "nowrap" }}>Transcription golden probe</span>
-        {probe && <Pill label={`${probe.status} · ${(probe.duration_ms / 1000).toFixed(1)}s`} tone={tone} />}
-        {probe && <span style={{ fontSize: 12, color: "var(--t3)" }}>ran {ago(probe.at * 1000)} ago</span>}
+        <span style={{ fontSize: 12, fontWeight: 600, color: "var(--t2)", whiteSpace: "nowrap" }}>Transkripsiyon uçtan uca kontrolü</span>
+        {probe && <Pill label={`${trState(PROBE_STATUS_TR, probe.status)} · ${(probe.duration_ms / 1000).toFixed(1)} sn`} tone={tone} />}
+        {probe && <span style={{ fontSize: 12, color: "var(--t3)" }}>{ago(probe.at * 1000)} önce çalıştı</span>}
         {err && <span style={{ fontSize: 12, color: "var(--danger)" }}>{err}</span>}
         <button onClick={() => void run()} disabled={running}
           style={{ marginLeft: "auto", ...segBtn(false), display: "flex", alignItems: "center", gap: 5, opacity: running ? 0.6 : 1 }}>
-          <Icon name="zap" size={12} />{running ? "Running…" : "Run probe"}
+          <Icon name="zap" size={12} />{running ? "Çalışıyor…" : "Kontrolü çalıştır"}
         </button>
       </div>
       {probe && (
@@ -184,32 +198,32 @@ function WorkloadsTab({ workloads, error }: { workloads: Workload[]; error?: str
   return (
     <div>
       <div style={{ display: "flex", gap: 8, alignItems: "center", padding: "10px 14px", flexWrap: "wrap" }}>
-        <input placeholder="Filter by id or meeting…" value={q} onChange={(e) => setQ(e.target.value)} style={searchStyle} />
+        <input placeholder="Kimlik veya toplantıya göre filtreleyin…" value={q} onChange={(e) => setQ(e.target.value)} style={searchStyle} />
         <div style={{ display: "flex", gap: 4 }}>
           {(["all", "bot", "agent-worker"] as const).map((k) => (
-            <button key={k} style={segBtn(kind === k)} onClick={() => setKind(k)}>{k === "all" ? "All" : k === "bot" ? "Bots" : "Workers"}</button>
+            <button key={k} style={segBtn(kind === k)} onClick={() => setKind(k)}>{k === "all" ? "Tümü" : k === "bot" ? "Botlar" : "Worker’lar"}</button>
           ))}
         </div>
         <div style={{ display: "flex", gap: 4 }}>
           {(["all", "running", "stopped"] as const).map((s) => (
-            <button key={s} style={segBtn(state === s)} onClick={() => setState(s)}>{s === "all" ? "Any state" : s[0].toUpperCase() + s.slice(1)}</button>
+            <button key={s} style={segBtn(state === s)} onClick={() => setState(s)}>{s === "all" ? "Tüm durumlar" : s === "running" ? "Çalışan" : "Durmuş"}</button>
           ))}
         </div>
-        <span style={{ marginLeft: "auto", fontSize: 12, color: "var(--t3)" }}>{shown.length} shown</span>
+        <span style={{ marginLeft: "auto", fontSize: 12, color: "var(--t3)" }}>{shown.length} satır gösteriliyor</span>
       </div>
       <SectionError error={error} />
       <div style={{ overflowX: "auto" }}>
         <table style={{ borderCollapse: "collapse", width: "100%" }}>
           <thead><tr>
-            <th style={{ ...th, paddingLeft: 14 }}>workload</th><th style={th}>kind</th><th style={th}>state</th>
-            <th style={th}>meeting</th><th style={th}>started</th><th style={th}>exit</th>
+            <th style={{ ...th, paddingLeft: 14 }}>iş yükü</th><th style={th}>tür</th><th style={th}>durum</th>
+            <th style={th}>toplantı</th><th style={th}>başlangıç</th><th style={th}>çıkış</th>
           </tr></thead>
           <tbody>
             {shown.map((w) => (
               <tr key={w.workloadId} style={{ opacity: w.state === "running" ? 1 : 0.75 }}>
                 <td style={{ ...td, paddingLeft: 14 }}>{w.workloadId}</td>
                 <td style={{ ...td, fontFamily: "var(--sans)", color: "var(--t2)" }}>{w.kind ?? "—"}</td>
-                <td style={td}><StateDot on={w.state === "running"} />{w.state ?? "—"}</td>
+                <td style={td}><StateDot on={w.state === "running"} />{trState(WORKLOAD_STATE_TR, w.state)}</td>
                 <td style={td}>{w.meeting_id ?? "—"}</td>
                 <td style={{ ...td, color: "var(--t2)" }} title={w.startedAt}>{isoAgo(w.startedAt)}</td>
                 <td style={{ ...td, color: "var(--t3)" }}>{w.exitCode ?? w.stopReason ?? "—"}</td>
@@ -217,9 +231,9 @@ function WorkloadsTab({ workloads, error }: { workloads: Workload[]; error?: str
             ))}
             {shown.length === 0 && !error && (
               <tr><td style={{ ...td, color: "var(--t3)", paddingLeft: 14 }} colSpan={6}>
-                {workloads.length === 0 ? "no managed containers"
-                  : state === "running" && !q && kind === "all" ? "nothing running — Any state shows stopped containers"
-                    : "nothing matches the filters"}
+                {workloads.length === 0 ? "yönetilen konteyner yok"
+                  : state === "running" && !q && kind === "all" ? "çalışan yok — durmuş konteynerler için “Tüm durumlar”a geçin"
+                    : "filtrelere uyan kayıt yok"}
               </td></tr>
             )}
           </tbody>
@@ -243,39 +257,39 @@ function PipelineTab({ meetings, botStops, error }: { meetings: PipelineRow[]; b
   return (
     <div>
       <div style={{ display: "flex", gap: 8, alignItems: "center", padding: "10px 14px", flexWrap: "wrap" }}>
-        <input placeholder="Filter by meeting id…" value={q} onChange={(e) => setQ(e.target.value)} style={searchStyle} />
+        <input placeholder="Toplantı kimliğine göre filtreleyin…" value={q} onChange={(e) => setQ(e.target.value)} style={searchStyle} />
         <div style={{ display: "flex", gap: 4 }}>
-          {([["all", "All"], ["on", "Processing on"], ["live", "Live only"], ["issues", "Issues"]] as const).map(([k, label]) => (
+          {([["all", "Tümü"], ["on", "İşleme açık"], ["live", "Yalnızca canlı"], ["issues", "Sorunlar"]] as const).map(([k, label]) => (
             <button key={k} style={{ ...segBtn(mode === k), ...(k === "issues" ? { color: mode === k ? "var(--danger)" : "var(--t2)" } : {}) }} onClick={() => setMode(k)}>{label}</button>
           ))}
         </div>
-        <span style={{ marginLeft: "auto", fontSize: 12, color: "var(--t3)" }}>{shown.length} shown</span>
+        <span style={{ marginLeft: "auto", fontSize: 12, color: "var(--t3)" }}>{shown.length} satır gösteriliyor</span>
       </div>
       <SectionError error={error} />
       <div style={{ overflowX: "auto" }}>
         <table style={{ borderCollapse: "collapse", width: "100%" }}>
           <thead><tr>
-            <th style={{ ...th, paddingLeft: 14 }}>meeting</th><th style={th}>live</th><th style={th}>processing</th>
-            <th style={th}>proc stream</th><th style={th}>transcript</th><th style={th}>cursor</th>
-            <th style={th}>active set</th><th style={th}>health</th>
+            <th style={{ ...th, paddingLeft: 14 }}>toplantı</th><th style={th}>canlı</th><th style={th}>işleme</th>
+            <th style={th}>proc akışı</th><th style={th}>transkript</th><th style={th}>cursor</th>
+            <th style={th}>aktif küme</th><th style={th}>sağlık</th>
           </tr></thead>
           <tbody>
             {shown.map(({ m, health }) => (
               <tr key={m.meeting_id}>
                 <td style={{ ...td, paddingLeft: 14 }} title={m.live?.title}>{m.meeting_id}{m.live?.native_id ? <span style={{ color: "var(--t3)" }}> ({m.live.native_id})</span> : null}</td>
-                <td style={td} title={m.live?.last_seen ? "registry last_seen — re-stamped every segment batch; silent entries self-demote after 60s" : undefined}>
-                  {m.live ? <><StateDot on={m.live.status === "live"} />{m.live.status}{m.live.last_seen ? <span style={{ color: "var(--t3)" }}> · {ago(m.live.last_seen * 1000)}</span> : null}</> : "—"}
+                <td style={td} title={m.live?.last_seen ? "kayıt defterindeki last_seen — her segment yığınında yenilenir; sessiz kalan kayıtlar 60 sn sonra kendiliğinden düşer" : undefined}>
+                  {m.live ? <><StateDot on={m.live.status === "live"} />{trState(LIVE_STATUS_TR, m.live.status)}{m.live.last_seen ? <span style={{ color: "var(--t3)" }}> · {ago(m.live.last_seen * 1000)}</span> : null}</> : "—"}
                 </td>
-                <td style={{ ...td, color: m.processing_on ? "var(--t1)" : "var(--t2)" }}>{m.processing_on ? "ON" : "off"}</td>
+                <td style={{ ...td, color: m.processing_on ? "var(--t1)" : "var(--t2)" }}>{m.processing_on ? "açık" : "kapalı"}</td>
                 <td style={td}>{stat(m.proc_stream)}</td>
                 <td style={td}>{stat(m.transcript_stream)}</td>
                 <td style={{ ...td, color: "var(--t2)" }}>{m.copilot_cursor ? `…${m.copilot_cursor.slice(-6)}` : "—"}</td>
-                <td style={{ ...td, color: "var(--t2)" }}>{m.in_active_meetings ? "yes" : "no"}</td>
+                <td style={{ ...td, color: "var(--t2)" }}>{m.in_active_meetings ? "evet" : "hayır"}</td>
                 <td style={td}><Pill label={health.label} tone={health.tone} /></td>
               </tr>
             ))}
             {shown.length === 0 && !error && (
-              <tr><td style={{ ...td, color: "var(--t3)", paddingLeft: 14 }} colSpan={8}>{meetings.length ? "nothing matches the filters" : "no pipeline carriers in redis"}</td></tr>
+              <tr><td style={{ ...td, color: "var(--t3)", paddingLeft: 14 }} colSpan={8}>{meetings.length ? "filtrelere uyan kayıt yok" : "redis’te işlem hattı taşıyıcısı yok"}</td></tr>
             )}
           </tbody>
         </table>
@@ -299,7 +313,7 @@ function AdminPanel({ active }: { id: string; params: Record<string, unknown>; a
       try {
         const r = await fetch("/api/admin/overview", { cache: "no-store" });
         if (!on) return;
-        if (!r.ok) { setErr(`overview fetch failed (${r.status})`); return; }
+        if (!r.ok) { setErr(`genel bakış alınamadı (${r.status})`); return; }
         setData((await r.json()) as Overview);
         setErr(null);
         setTs(Date.now());
@@ -329,14 +343,14 @@ function AdminPanel({ active }: { id: string; params: Record<string, unknown>; a
   return (
     <div style={{ height: "100%", overflowY: "auto", background: "var(--bg)" }}>
       <div style={{ display: "flex", alignItems: "baseline", gap: 10, padding: "14px 14px 8px" }}>
-        <h2 style={{ fontSize: 15, fontWeight: 600, color: "var(--t1)", margin: 0 }}>Infra</h2>
-        <span style={{ fontSize: 11.5, color: "var(--t3)" }}>read-only · refreshes every {POLL_MS / 1000}s{ts ? ` · updated ${ago(ts)} ago` : ""}</span>
+        <h2 style={{ fontSize: 15, fontWeight: 600, color: "var(--t1)", margin: 0 }}>Altyapı</h2>
+        <span style={{ fontSize: 11.5, color: "var(--t3)" }}>salt okunur · her {POLL_MS / 1000} sn&rsquo;de bir yenilenir{ts ? ` · ${ago(ts)} önce güncellendi` : ""}</span>
       </div>
       {err && <SectionError error={err} />}
       <ProbeStrip />
       <div style={{ display: "flex", gap: 2, padding: "8px 14px 0", borderBottom: "1px solid var(--line)" }}>
-        <button style={tabBtn(tab === "w")} onClick={() => setTab("w")}>Workloads <span style={{ color: "var(--t3)", fontWeight: 400 }}>{workloads.length}</span></button>
-        <button style={tabBtn(tab === "p")} onClick={() => setTab("p")}>Meeting pipeline <span style={{ color: "var(--t3)", fontWeight: 400 }}>{meetings.length}</span></button>
+        <button style={tabBtn(tab === "w")} onClick={() => setTab("w")}>İş yükleri <span style={{ color: "var(--t3)", fontWeight: 400 }}>{workloads.length}</span></button>
+        <button style={tabBtn(tab === "p")} onClick={() => setTab("p")}>Toplantı işlem hattı <span style={{ color: "var(--t3)", fontWeight: 400 }}>{meetings.length}</span></button>
       </div>
       {tab === "w"
         ? <WorkloadsTab workloads={workloads} error={data?.workloads_error} />
@@ -351,7 +365,7 @@ function AdminLeft() {
   useEffect(() => { layout.openTab(PANEL); }, [layout]);
   return (
     <div style={{ padding: "10px 12px", fontSize: 12, color: "var(--t3)" }}>
-      Read-only infrastructure panel: transcription golden probe, running bots, agent workers, and per-meeting pipeline state.
+      Salt okunur altyapı paneli: transkripsiyon uçtan uca kontrolü, çalışan botlar, asistan worker&rsquo;ları ve toplantı bazında işlem hattı durumu.
     </div>
   );
 }
@@ -363,7 +377,7 @@ if (!meetingsOnly() && typeof window !== "undefined") {
     .then((r) => {
       if (!r.ok) return;
       registerTab("adminInfra", AdminPanel);
-      registerList({ id: "admin", label: "Infra", icon: "radio", order: 90, component: AdminLeft });
+      registerList({ id: "admin", label: "Altyapı", icon: "radio", order: 90, component: AdminLeft });
     })
     .catch(() => { /* hidden — a failed probe just means no entry */ });
 }

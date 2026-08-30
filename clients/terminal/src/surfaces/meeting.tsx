@@ -23,7 +23,7 @@ import { mintTranscriptShare, mintInvite, listSharedMemberships, type Membership
 import { deletePlannedMeeting, MAX_CALENDARS, listCalendars, createCalendar, updateCalendar, syncCalendar, getCalendarSyncStatus, type CalendarConnection, type CalendarSyncStamp } from "./plannedApi";
 import { prepTabDescriptor, prepDraftTabDescriptor } from "./meetingPrep";
 
-// ── "Share session" — mint a link to this meeting's LIVE FEED (independent transcript share) and,
+// ── "Oturumu paylaş" — mint a link to this meeting's LIVE FEED (independent transcript share) and,
 //    optionally, BUNDLE a shared-workspace invite into the SAME link (?tshare=…&invite=…). The two are
 //    decoupled capabilities; this is the one-click way to hand someone both at once. ─────────────────
 function platformSlug(display: string): string {
@@ -65,38 +65,38 @@ function ShareSessionButton({ platform, native }: { platform: string; native: st
   const fieldStyle = { fontSize: 12, padding: "4px 6px", background: "var(--panel)", border: "1px solid var(--line)", borderRadius: 6, color: "var(--t1)" } as const;
   return (
     <div ref={ref} style={{ position: "relative", flex: "none" }}>
-      <button onClick={() => { setOpen((v) => !v); setLink(null); }} title="Share this meeting's live feed (and optionally a workspace)"
+      <button onClick={() => { setOpen((v) => !v); setLink(null); }} title="Bu toplantının canlı yayınını (ve isterseniz bir çalışma alanını) paylaşın"
         style={{ display: "inline-flex", alignItems: "center", gap: 5, background: "transparent", border: "1px solid var(--line2)", color: "var(--t2)", borderRadius: 6, padding: "2px 8px", fontSize: 12, cursor: "pointer" }}>
-        <Icon name="upload" size={12} /> Share session
+        <Icon name="upload" size={12} /> Oturumu paylaş
       </button>
       {open && (
         <div style={{ position: "absolute", top: "100%", right: 0, marginTop: 6, width: 280, background: "var(--panel)", border: "1px solid var(--line2)", borderRadius: 10, boxShadow: "0 8px 28px rgba(0,0,0,.32)", padding: 12, zIndex: 50, display: "flex", flexDirection: "column", gap: 8 }}>
-          <div style={{ fontSize: 11, color: "var(--t3)", textTransform: "uppercase", letterSpacing: ".04em" }}>Share session</div>
+          <div style={{ fontSize: 11, color: "var(--t3)", textTransform: "uppercase", letterSpacing: ".04em" }}>Oturumu paylaş</div>
           <div style={{ display: "flex", gap: 6 }}>
             <select value={mode} disabled={busy} onChange={(e) => { setMode(e.target.value); setLink(null); }} style={{ ...fieldStyle, flex: 1 }}>
-              <option value="open">anyone with link</option>
-              <option value="restricted">restricted (emails)</option>
+              <option value="open">bağlantıya sahip herkes</option>
+              <option value="restricted">kısıtlı (e-posta ile)</option>
             </select>
             <select value={ttlDays} disabled={busy} onChange={(e) => { setTtlDays(Number(e.target.value)); setLink(null); }} style={fieldStyle}>
-              <option value={1}>1 day</option><option value={7}>7 days</option><option value={30}>30 days</option>
+              <option value={1}>1 gün</option><option value={7}>7 gün</option><option value={30}>30 gün</option>
             </select>
           </div>
           {mode === "restricted" && (
-            <input value={emails} placeholder="allowed emails (comma-separated)" disabled={busy}
+            <input value={emails} placeholder="izin verilen e-postalar (virgülle ayrılmış)" disabled={busy}
               onChange={(e) => { setEmails(e.target.value); setLink(null); }} style={fieldStyle} />
           )}
-          <select value={wsId} disabled={busy} onChange={(e) => { setWsId(e.target.value); setLink(null); }} style={fieldStyle} title="Optionally bundle a shared workspace into the link">
-            <option value="">live feed only (no workspace)</option>
-            {shares.map((s) => <option key={s.workspace_id} value={s.workspace_id}>+ workspace: {s.workspace_id}</option>)}
+          <select value={wsId} disabled={busy} onChange={(e) => { setWsId(e.target.value); setLink(null); }} style={fieldStyle} title="İsteğe bağlı olarak bağlantıya paylaşılan bir çalışma alanı ekleyin">
+            <option value="">yalnızca canlı yayın (çalışma alanı yok)</option>
+            {shares.map((s) => <option key={s.workspace_id} value={s.workspace_id}>+ çalışma alanı: {s.workspace_id}</option>)}
           </select>
           {err && <div role="alert" style={{ fontSize: 11.5, color: "var(--danger)" }}>⚠ {err}</div>}
           {link ? (
             <div style={{ display: "flex", gap: 6 }}>
               <input readOnly value={link} onFocus={(e) => e.currentTarget.select()} style={{ ...fieldStyle, flex: 1, fontSize: 11 }} />
-              <button onClick={() => void copyText(link)} style={{ fontSize: 12, padding: "4px 10px", background: "var(--accent)", color: "var(--bg)", border: "none", borderRadius: 6, cursor: "pointer" }}>Copy</button>
+              <button onClick={() => void copyText(link)} style={{ fontSize: 12, padding: "4px 10px", background: "var(--accent)", color: "var(--bg)", border: "none", borderRadius: 6, cursor: "pointer" }}>Kopyala</button>
             </div>
           ) : (
-            <button disabled={busy} onClick={() => void create()} style={{ fontSize: 12, padding: "5px 10px", background: "var(--accent)", color: "var(--bg)", border: "none", borderRadius: 6, cursor: "pointer", opacity: busy ? 0.5 : 1 }}>{busy ? "Creating…" : "Create link"}</button>
+            <button disabled={busy} onClick={() => void create()} style={{ fontSize: 12, padding: "5px 10px", background: "var(--accent)", color: "var(--bg)", border: "none", borderRadius: 6, cursor: "pointer", opacity: busy ? 0.5 : 1 }}>{busy ? "Oluşturuluyor…" : "Bağlantı oluştur"}</button>
           )}
         </div>
       )}
@@ -121,7 +121,7 @@ function ConnectedDocChip({ doc }: { doc: ConnectedDoc }) {
   const label = doc.title || baseName(doc.path).replace(/\.md$/, "");
   const nav = usePreviewPinTab<HTMLButtonElement>(docTabFor(doc.path, label));
   return (
-    <button onClick={nav.onClick} onDoubleClick={nav.onDoubleClick} title={`Open ${doc.path}`}
+    <button onClick={nav.onClick} onDoubleClick={nav.onDoubleClick} title={`${doc.path} dosyasını aç`}
       style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "5px 10px", borderRadius: 8, background: "var(--panel)", border: "1px solid var(--line)", color: "var(--t1)", fontSize: 12.5, cursor: "pointer", maxWidth: 280 }}
       onMouseEnter={(e) => { e.currentTarget.style.background = "var(--panel2)"; e.currentTarget.style.borderColor = "var(--line2)"; }}
       onMouseLeave={(e) => { e.currentTarget.style.background = "var(--panel)"; e.currentTarget.style.borderColor = "var(--line)"; }}>
@@ -135,7 +135,7 @@ function ConnectedDocChip({ doc }: { doc: ConnectedDoc }) {
 function MeetingDocChip({ native, title, hasLinks }: { native: string; title: string; hasLinks: boolean }) {
   const nav = usePreviewPinTab<HTMLButtonElement>(docTabFor(`kg/entities/meeting/${native}.md`, title));
   return (
-    <button onClick={nav.onClick} onDoubleClick={nav.onDoubleClick} title="Open this meeting's notes"
+    <button onClick={nav.onClick} onDoubleClick={nav.onDoubleClick} title="Bu toplantının notlarını aç"
       style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "5px 10px 5px 6px", borderRadius: 8, background: "var(--panel)", border: "1px solid var(--line)", color: "var(--t1)", fontSize: 12.5, cursor: "pointer", maxWidth: 360, marginBottom: hasLinks ? 8 : 0 }}
       onMouseEnter={(e) => { e.currentTarget.style.background = "var(--panel2)"; e.currentTarget.style.borderColor = "var(--line2)"; }}
       onMouseLeave={(e) => { e.currentTarget.style.background = "var(--panel)"; e.currentTarget.style.borderColor = "var(--line)"; }}>
@@ -148,7 +148,7 @@ function MeetingDocChip({ native, title, hasLinks }: { native: string; title: st
 function WikiLinkChip({ title, path }: { title: string; path: string }) {
   const nav = usePreviewPinTab<HTMLButtonElement>(docTabFor(path, title));
   return (
-    <button onClick={nav.onClick} onDoubleClick={nav.onDoubleClick} title={`Open ${title}`}
+    <button onClick={nav.onClick} onDoubleClick={nav.onDoubleClick} title={`${title} kaydını aç`}
       style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "5px 10px", borderRadius: 8, background: "var(--panel)", border: "1px solid var(--line)", color: "var(--t1)", fontSize: 12.5, cursor: "pointer", maxWidth: 280 }}
       onMouseEnter={(e) => { e.currentTarget.style.background = "var(--panel2)"; e.currentTarget.style.borderColor = "var(--line2)"; }}
       onMouseLeave={(e) => { e.currentTarget.style.background = "var(--panel)"; e.currentTarget.style.borderColor = "var(--line)"; }}>
@@ -173,7 +173,7 @@ function ConnectedDocsPanel({ docs }: { docs: ConnectedDoc[] }) {
   return (
     <div style={{ marginTop: 22 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "0 2px 10px" }}>
-        <span style={{ fontSize: 10.5, color: "var(--t3)", textTransform: "uppercase", letterSpacing: ".07em", fontWeight: 600 }}>Connected</span>
+        <span style={{ fontSize: 10.5, color: "var(--t3)", textTransform: "uppercase", letterSpacing: ".07em", fontWeight: 600 }}>Bağlantılı</span>
         <span style={{ fontSize: 10.5, color: "var(--t3)", fontFamily: "var(--mono)" }}>{docs.length}</span>
         <span style={{ flex: 1, height: 1, background: "var(--line)" }} />
       </div>
@@ -233,12 +233,12 @@ function ConnectedPanel({ native, docs }: { native: string; docs?: ConnectedDoc[
   return (
     <div style={{ marginTop: 22 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "0 2px 10px" }}>
-        <span style={{ fontSize: 10.5, color: "var(--t3)", textTransform: "uppercase", letterSpacing: ".07em", fontWeight: 600 }}>Connected</span>
+        <span style={{ fontSize: 10.5, color: "var(--t3)", textTransform: "uppercase", letterSpacing: ".07em", fontWeight: 600 }}>Bağlantılı</span>
         {state.status === "present" && state.links.length > 0 && <span style={{ fontSize: 10.5, color: "var(--t3)", fontFamily: "var(--mono)" }}>{state.links.length}</span>}
         <span style={{ flex: 1, height: 1, background: "var(--line)" }} />
       </div>
       {state.status === "absent" && (
-        <div style={{ fontSize: 12.5, color: "var(--t3)", padding: "2px 2px", lineHeight: 1.5 }}>No notes yet — they&apos;re written when the meeting ends (or a prep routine runs).</div>
+        <div style={{ fontSize: 12.5, color: "var(--t3)", padding: "2px 2px", lineHeight: 1.5 }}>Henüz not yok — bunlar toplantı bittiğinde (veya bir hazırlık rutini çalıştığında) yazılır.</div>
       )}
       {state.status === "present" && (
         <>
@@ -252,7 +252,7 @@ function ConnectedPanel({ native, docs }: { native: string; docs?: ConnectedDoc[
               })}
             </div>
           )}
-          {state.links.length === 0 && <div style={{ fontSize: 12.5, color: "var(--t3)", padding: "2px 2px" }}>Notes recorded — no linked entities yet.</div>}
+          {state.links.length === 0 && <div style={{ fontSize: 12.5, color: "var(--t3)", padding: "2px 2px" }}>Notlar kaydedildi — henüz bağlantılı varlık yok.</div>}
         </>
       )}
     </div>
@@ -264,17 +264,17 @@ function ConnectedPanel({ native, docs }: { native: string; docs?: ConnectedDoc[
 //  status editing) — each item calls ONE endpoint that performs the one legal write (design doc §B).
 type BadgeKind = "intent" | "live" | "awaiting" | "needshelp" | "stopping" | "terminal";
 const STATUS_BADGE: Record<string, { label: string; color: string; bg: string; kind: BadgeKind }> = {
-  idle: { label: "Idle", color: "var(--t3)", bg: "var(--panel2)", kind: "intent" },
-  scheduled: { label: "Scheduled", color: "var(--blue)", bg: "var(--bluebg)", kind: "intent" },
-  requested: { label: "Requested", color: "var(--accent)", bg: "var(--accentbg)", kind: "live" },
-  joining: { label: "Joining", color: "var(--accent)", bg: "var(--accentbg)", kind: "live" },
-  awaiting_admission: { label: "Awaiting", color: "var(--violet)", bg: "var(--violetbg)", kind: "awaiting" },
-  needs_help: { label: "Needs help", color: "var(--warn)", bg: "var(--warnbg)", kind: "needshelp" },
-  active: { label: "Live", color: "var(--green)", bg: "var(--greenbg)", kind: "live" },
-  stopping: { label: "Stopping", color: "var(--t3)", bg: "var(--panel2)", kind: "stopping" },
-  completed: { label: "Completed", color: "var(--green)", bg: "var(--greenbg)", kind: "terminal" },
-  failed: { label: "Failed", color: "var(--danger)", bg: "var(--dangerbg)", kind: "terminal" },
-  stopped: { label: "Stopped", color: "var(--t3)", bg: "var(--panel2)", kind: "terminal" },
+  idle: { label: "Boşta", color: "var(--t3)", bg: "var(--panel2)", kind: "intent" },
+  scheduled: { label: "Zamanlandı", color: "var(--blue)", bg: "var(--bluebg)", kind: "intent" },
+  requested: { label: "İstendi", color: "var(--accent)", bg: "var(--accentbg)", kind: "live" },
+  joining: { label: "Katılıyor", color: "var(--accent)", bg: "var(--accentbg)", kind: "live" },
+  awaiting_admission: { label: "Bekliyor", color: "var(--violet)", bg: "var(--violetbg)", kind: "awaiting" },
+  needs_help: { label: "Yardım gerekli", color: "var(--warn)", bg: "var(--warnbg)", kind: "needshelp" },
+  active: { label: "Canlı", color: "var(--green)", bg: "var(--greenbg)", kind: "live" },
+  stopping: { label: "Durduruluyor", color: "var(--t3)", bg: "var(--panel2)", kind: "stopping" },
+  completed: { label: "Tamamlandı", color: "var(--green)", bg: "var(--greenbg)", kind: "terminal" },
+  failed: { label: "Başarısız", color: "var(--danger)", bg: "var(--dangerbg)", kind: "terminal" },
+  stopped: { label: "Durduruldu", color: "var(--t3)", bg: "var(--panel2)", kind: "terminal" },
 };
 const badgeFor = (raw?: string) => STATUS_BADGE[raw ?? ""] ?? { label: raw ?? "—", color: "var(--t3)", bg: "var(--panel2)", kind: "terminal" as BadgeKind };
 
@@ -297,11 +297,11 @@ const readFailure = (r: Response): Promise<ApiError> => readApiFailure(r);
  *  presenter seam. Exported (additive) so the action test pins the vocabulary. */
 export function presentMeetingActionFailure(error: unknown): string {
   if (error instanceof ApiError) {
-    if (error.status === 404) return "This meeting is no longer active — refreshing the list.";
-    if (error.status === 409) return "That meeting already has a bot.";
+    if (error.status === 404) return "Bu toplantı artık etkin değil — liste yenileniyor.";
+    if (error.status === 409) return "Bu toplantıda zaten bir bot var.";
   }
   // A service-authority refusal (paywall / cap / billing outage) says WHY in its own words —
-  // "Your key doesn't have access to this." is a lie about a bot the account simply cannot afford.
+  // "Anahtarınızın buna erişim yetkisi yok." is a lie about a bot the account simply cannot afford.
   const denial = serviceDenialFromError(error);
   if (denial) return `${denial.title} — ${denial.body}`;
   return presentError(error).headline;
@@ -330,12 +330,12 @@ export function actionsFor(m: MeetingMock): RowAction[] {
   // 404s ("No active meeting for this bot") for a live Teams/Zoom bot.
   const platformSlug = m.platform === "Google Meet" ? "google_meet" : m.platform.toLowerCase().replace(/\s+/g, "_");
   const intent = (state: "idle" | "scheduled", at?: string, onFailure?: MeetingActionFailureHandler) =>
-    runMeetingAction({ actionId: state === "idle" ? "cancel" : "schedule", actionLabel: state === "idle" ? "Cancel" : "Schedule", native }, fetch(`/api/meetings/${platformSlug}/${encodeURIComponent(native)}/intent`, {
+    runMeetingAction({ actionId: state === "idle" ? "cancel" : "schedule", actionLabel: state === "idle" ? "İptal" : "Zamanla", native }, fetch(`/api/meetings/${platformSlug}/${encodeURIComponent(native)}/intent`, {
       method: "PUT", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ intent: state, ...(at ? { at } : {}) }),
     }), onFailure);
   const send = (onFailure?: MeetingActionFailureHandler) =>
-    runMeetingAction({ actionId: "send", actionLabel: "Send now", native }, fetch("/api/bots", {
+    runMeetingAction({ actionId: "send", actionLabel: "Şimdi gönder", native }, fetch("/api/bots", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         platform: platformSlug, native_meeting_id: native,
@@ -347,19 +347,19 @@ export function actionsFor(m: MeetingMock): RowAction[] {
     }), onFailure);
   // Delete a PLANNED row — ROW-id addressed (a link-less plan has no platform/native path).
   const del = (onFailure?: MeetingActionFailureHandler) =>
-    runMeetingAction({ actionId: "delete", actionLabel: "Delete", native }, fetch(`/api/meetings/${encodeURIComponent(m.id)}`, { method: "DELETE" }), onFailure);
+    runMeetingAction({ actionId: "delete", actionLabel: "Sil", native }, fetch(`/api/meetings/${encodeURIComponent(m.id)}`, { method: "DELETE" }), onFailure);
   // Cancel (clear the time) on a LINK-LESS planned row — PATCH by row id (no native path exists).
   const cancelById = (onFailure?: MeetingActionFailureHandler) =>
-    runMeetingAction({ actionId: "cancel", actionLabel: "Cancel", native }, fetch(`/api/meetings/${encodeURIComponent(m.id)}`, {
+    runMeetingAction({ actionId: "cancel", actionLabel: "İptal", native }, fetch(`/api/meetings/${encodeURIComponent(m.id)}`, {
       method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ scheduled_at: null }),
     }), onFailure);
   // Stop = the gateway-backed user-stop route DELETE /bots/{platform}/{native} (meeting-api lifecycle/stop_router).
   const stop = (onFailure?: MeetingActionFailureHandler) =>
-    runMeetingAction({ actionId: "stop", actionLabel: "Stop", native }, fetch(`/api/bots/${platformSlug}/${encodeURIComponent(native)}`, { method: "DELETE" }), onFailure);
+    runMeetingAction({ actionId: "stop", actionLabel: "Durdur", native }, fetch(`/api/bots/${platformSlug}/${encodeURIComponent(native)}`, { method: "DELETE" }), onFailure);
   const schedule = (onFailure?: MeetingActionFailureHandler) => {
     // minimal time picker: prompt for a local datetime, send as ISO. (A richer picker can replace this.)
     const def = new Date(Date.now() + 3600_000).toISOString().slice(0, 16);
-    const input = typeof window !== "undefined" ? window.prompt("Schedule for (YYYY-MM-DD HH:MM, local):", def) : null;
+    const input = typeof window !== "undefined" ? window.prompt("Zamanlanacak tarih ve saat (YYYY-MM-DD HH:MM, yerel):", def) : null;
     if (!input) return;
     const at = new Date(input).toISOString();
     return intent("scheduled", at, onFailure);
@@ -371,21 +371,21 @@ export function actionsFor(m: MeetingMock): RowAction[] {
     case "idle":
       return [
         ...(hasLink ? [
-          { id: "schedule", label: "Schedule", tone: "accent", run: schedule } as RowAction,
-          { id: "send", label: "Send now", tone: "accent", run: send } as RowAction,
+          { id: "schedule", label: "Zamanla", tone: "accent", run: schedule } as RowAction,
+          { id: "send", label: "Şimdi gönder", tone: "accent", run: send } as RowAction,
         ] : []),
-        { id: "delete", label: "Delete", tone: "muted", run: del },
+        { id: "delete", label: "Sil", tone: "muted", run: del },
       ];
     case "scheduled":
       return [
-        ...(hasLink ? [{ id: "send", label: "Send now", tone: "accent", run: send } as RowAction] : []),
-        { id: "cancel", label: "Cancel", tone: "muted", run: (onFailure?: MeetingActionFailureHandler) => hasLink ? intent("idle", undefined, onFailure) : cancelById(onFailure) },
-        { id: "delete", label: "Delete", tone: "muted", run: del },
+        ...(hasLink ? [{ id: "send", label: "Şimdi gönder", tone: "accent", run: send } as RowAction] : []),
+        { id: "cancel", label: "İptal", tone: "muted", run: (onFailure?: MeetingActionFailureHandler) => hasLink ? intent("idle", undefined, onFailure) : cancelById(onFailure) },
+        { id: "delete", label: "Sil", tone: "muted", run: del },
       ];
     case "requested": case "joining": case "awaiting_admission": case "needs_help": case "active": case "stopping":
-      return [{ id: "stop", label: "Stop", tone: "live", run: stop }];
+      return [{ id: "stop", label: "Durdur", tone: "live", run: stop }];
     case "completed": case "failed": case "stopped": default:
-      return [{ id: "resend", label: "Re-send", tone: "accent", run: send }];
+      return [{ id: "resend", label: "Yeniden gönder", tone: "accent", run: send }];
   }
 }
 
@@ -415,7 +415,7 @@ function RowActions({ m, showBadge, reveal, onActionStart, onActionFailure }: { 
     <div ref={ref} style={{ position: "relative", flex: "none", display: "inline-flex", alignItems: "center", gap: 5 }} onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
       {showBadge && <StatusBadge raw={m.live_status} />}
       {acts.length > 0 && (reveal || open) && (
-        <button title="Actions" onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
+        <button title="İşlemler" onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
           style={{ background: "transparent", border: "1px solid var(--line2)", color: "var(--t2)", borderRadius: 6, padding: "1px 5px", fontSize: 11, lineHeight: 1.4, cursor: "pointer" }}>▾</button>
       )}
       {open && (
@@ -472,13 +472,13 @@ function MeetingRow({ m }: { m: MeetingMock }) {
       <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
         {inRoom && <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--green)", flex: "none" }} />}
         <span style={{ fontSize: 13, color: live ? "var(--t1)" : "var(--t2)", fontWeight: live ? 600 : 400, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</span>
-        {m.shared && <span title="Shared with you (you don't own this meeting)" style={{ flex: "none", fontSize: 9.5, color: "var(--t3)", border: "1px solid var(--line)", borderRadius: 5, padding: "0 5px" }}>shared</span>}
+        {m.shared && <span title="Sizinle paylaşıldı (bu toplantının sahibi değilsiniz)" style={{ flex: "none", fontSize: 9.5, color: "var(--t3)", border: "1px solid var(--line)", borderRadius: 5, padding: "0 5px" }}>paylaşılan</span>}
         {(m.native_id || isIntent) && !m.shared && <RowActions m={m} showBadge={showBadge} reveal={hover} onActionStart={() => setActionFailure(null)} onActionFailure={setActionFailure} />}
       </div>
-      <div style={{ fontSize: 11, color: inRoom ? "var(--green)" : "var(--t3)", marginTop: 1, paddingLeft: inRoom ? 13 : 0 }}>{inRoom ? "live" : m.when}</div>
+      <div style={{ fontSize: 11, color: inRoom ? "var(--green)" : "var(--t3)", marginTop: 1, paddingLeft: inRoom ? 13 : 0 }}>{inRoom ? "canlı" : m.when}</div>
       {isIntent && m.auto_join_error && (
         <div role="alert" style={{ fontSize: 11, color: "var(--danger)", marginTop: 3, lineHeight: 1.35 }}>
-          ⚠ Auto-join failed: {m.auto_join_error}
+          ⚠ Otomatik katılım başarısız oldu: {m.auto_join_error}
         </div>
       )}
       {actionFailure?.denial ? (
@@ -487,49 +487,49 @@ function MeetingRow({ m }: { m: MeetingMock }) {
         </div>
       ) : actionFailure && (
         <div role="status" aria-live="polite" style={{ fontSize: 11, color: "var(--danger)", marginTop: 4, lineHeight: 1.35 }}>
-          {actionFailure.actionLabel} failed: {actionFailure.message}
+          {actionFailure.actionLabel} işlemi başarısız oldu: {actionFailure.message}
         </div>
       )}
       {menu && (
         <ContextMenu x={menu.x} y={menu.y} onClose={() => setMenu(null)} items={[
-          { id: "copy-reference", label: "Copy reference", detail: `@meeting:${native}`, onSelect: () => copyText(`@meeting:${native}`) },
+          { id: "copy-reference", label: "Referansı kopyala", detail: `@meeting:${native}`, onSelect: () => copyText(`@meeting:${native}`) },
         ]} />
       )}
     </div>
   );
 }
 
-// ── "+ Plan a meeting" — opens a DRAFT prep tab. No backend row is created here; the prep tab
+// ── "+ Toplantı planla" — opens a DRAFT prep tab. No backend row is created here; the prep tab
 //    creates the row lazily on the first real input (title/link/date, brief chat, …), so abandoning
-//    the tab never leaves an empty "Untitled meeting" behind. ───────────────────────────────────────
+//    the tab never leaves an empty "Başlıksız toplantı" behind. ─────────────────────────────────────
 function PlanMeetingButton() {
   const layout = useService(LayoutServiceId);
   return (
     <button onClick={() => layout.openTab(prepDraftTabDescriptor())}
       style={{ display: "block", width: "100%", textAlign: "left", background: "transparent", border: "1px dashed var(--line2)", color: "var(--t2)", borderRadius: 7, padding: "6px 9px", fontSize: 12, cursor: "pointer", marginBottom: 2 }}
       onMouseEnter={(e) => (e.currentTarget.style.background = "var(--panel2)")} onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}>
-      + Plan a meeting
+      + Toplantı planla
     </button>
   );
 }
 
-/** The last sync attempt, humanized: "Imported 3 · updated 1 (2 min ago)" or the actual error. */
+/** The last sync attempt, humanized: "✓ 2 dk önce eşitlendi — 3 içe aktarıldı, 1 güncellendi" or the actual error. */
 function CalendarSyncStatusLine({ stamp }: { stamp: CalendarSyncStamp | null }) {
   if (!stamp?.last_sync) return null;
   const ago = (() => {
     const s = Math.max(0, (Date.now() - new Date(stamp.last_sync).getTime()) / 1000);
-    if (s < 90) return "just now";
-    if (s < 3600) return `${Math.round(s / 60)} min ago`;
-    return `${Math.round(s / 3600)} h ago`;
+    if (s < 90) return "az önce";
+    if (s < 3600) return `${Math.round(s / 60)} dk önce`;
+    return `${Math.round(s / 3600)} sa önce`;
   })();
   if (stamp.last_error) {
-    return <div role="alert" style={{ fontSize: 11.5, color: "var(--danger)", lineHeight: 1.5 }}>⚠ Last sync failed ({ago}): {stamp.last_error}</div>;
+    return <div role="alert" style={{ fontSize: 11.5, color: "var(--danger)", lineHeight: 1.5 }}>⚠ Son eşitleme başarısız oldu ({ago}): {stamp.last_error}</div>;
   }
   const c = stamp.counts ?? {};
-  const bits = [c.created ? `imported ${c.created}` : "", c.updated ? `updated ${c.updated}` : "", c.cancelled ? `removed ${c.cancelled}` : ""].filter(Boolean);
+  const bits = [c.created ? `${c.created} içe aktarıldı` : "", c.updated ? `${c.updated} güncellendi` : "", c.cancelled ? `${c.cancelled} kaldırıldı` : ""].filter(Boolean);
   return (
     <div style={{ fontSize: 11.5, color: "var(--green)", lineHeight: 1.5 }}>
-      ✓ Synced {ago}{bits.length ? ` — ${bits.join(", ")}` : " — no meetings with joinable links found"}
+      ✓ {ago} eşitlendi{bits.length ? ` — ${bits.join(", ")}` : " — katılınabilir bağlantısı olan toplantı bulunamadı"}
     </div>
   );
 }
@@ -540,14 +540,14 @@ function CalendarSyncStatusLine({ stamp }: { stamp: CalendarSyncStamp | null }) 
 //    (one manager, not two — the design-spec's "same list twice" anti-pattern). The feed address
 //    is write-only: it is typed once here for the FIRST calendar and never rendered back.
 //    Two skins over ONE popover: `icon` (the quiet header icon, always there) and `row` (a
-//    discoverable "Connect your calendar" row that hides itself once a calendar exists). ──
+//    discoverable "Takviminizi bağlayın" row that hides itself once a calendar exists). ──
 function CalendarSyncButton({ variant = "icon" }: { variant?: "icon" | "row" }) {
   const layout = useService(LayoutServiceId);
   const [open, setOpen] = useState(false);
   const [cals, setCals] = useState<CalendarConnection[] | null>(null);
   const [stamps, setStamps] = useState<Record<string, CalendarSyncStamp>>({});
   const [url, setUrl] = useState("");
-  const [name, setName] = useState("My calendar");
+  const [name, setName] = useState("Takvimim");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [syncing, setSyncing] = useState<string | null>(null);
@@ -602,7 +602,7 @@ function CalendarSyncButton({ variant = "icon" }: { variant?: "icon" | "row" }) 
     if (!u) return;
     setBusy(true); setErr(null);
     try {
-      const created = await createCalendar({ name: name.trim() || "My calendar", ics_url: u, auto_join: true });
+      const created = await createCalendar({ name: name.trim() || "Takvimim", ics_url: u, auto_join: true });
       setUrl(""); refreshMeetings();
       await load(false);
       await syncOne(created.id);            // paste → an ANSWER, not a silent wait
@@ -612,7 +612,7 @@ function CalendarSyncButton({ variant = "icon" }: { variant?: "icon" | "row" }) 
   };
 
   const connected = (cals?.length ?? 0) > 0;
-  const openSettings = () => { setOpen(false); layout.openTab({ id: "settings", title: "Settings", kind: "settings", params: {} }); };
+  const openSettings = () => { setOpen(false); layout.openTab({ id: "settings", title: "Ayarlar", kind: "settings", params: {} }); };
 
   if (variant === "row" && connected) return null;   // has one → manage via the header icon / Settings
   return (
@@ -621,10 +621,10 @@ function CalendarSyncButton({ variant = "icon" }: { variant?: "icon" | "row" }) 
         <button onClick={() => setOpen((v) => !v)}
           style={{ display: "flex", alignItems: "center", gap: 6, width: "100%", textAlign: "left", background: "transparent", border: "1px dashed var(--line2)", color: "var(--t2)", borderRadius: 7, padding: "6px 9px", fontSize: 12, cursor: "pointer", marginTop: 6 }}
           onMouseEnter={(e) => (e.currentTarget.style.background = "var(--panel2)")} onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}>
-          <Icon name="cal" size={12} /> Connect your calendar
+          <Icon name="cal" size={12} /> Takviminizi bağlayın
         </button>
       ) : (
-        <button onClick={() => setOpen((v) => !v)} title="Calendars — import upcoming meetings from your calendars"
+        <button onClick={() => setOpen((v) => !v)} title="Takvimler — yaklaşan toplantıları takvimlerinizden içe aktarın"
           style={{ display: "inline-flex", alignItems: "center", background: "transparent", border: "none", color: connected ? "var(--accent)" : "var(--t3)", cursor: "pointer", padding: 2 }}>
           <Icon name="cal" size={13} />
         </button>
@@ -632,7 +632,7 @@ function CalendarSyncButton({ variant = "icon" }: { variant?: "icon" | "row" }) 
       {open && (
         <div style={{ position: "absolute", top: "100%", right: 0, marginTop: 6, width: 300, background: "var(--panel)", border: "1px solid var(--line2)", borderRadius: 10, boxShadow: "0 8px 28px rgba(0,0,0,.32)", padding: 12, zIndex: 50, display: "flex", flexDirection: "column", gap: 8 }}>
           <div style={{ fontSize: 11, color: "var(--t3)", textTransform: "uppercase", letterSpacing: ".04em" }}>
-            {connected ? `calendars · ${cals?.length ?? 0} of ${MAX_CALENDARS}` : "calendar sync"}
+            {connected ? `takvimler · ${cals?.length ?? 0} / ${MAX_CALENDARS}` : "takvim eşitleme"}
           </div>
           {connected ? (
             <>
@@ -640,44 +640,44 @@ function CalendarSyncButton({ variant = "icon" }: { variant?: "icon" | "row" }) 
                 <div key={c.id} style={{ display: "flex", flexDirection: "column", gap: 5, borderBottom: "1px dashed var(--line)", paddingBottom: 7 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                     <span style={{ flex: 1, fontSize: 12, color: c.enabled ? "var(--t1)" : "var(--t3)", fontWeight: 600 }}>{c.name}</span>
-                    {!c.enabled && <span style={{ fontSize: 10.5, color: "var(--t3)" }}>paused</span>}
+                    {!c.enabled && <span style={{ fontSize: 10.5, color: "var(--t3)" }}>duraklatıldı</span>}
                     <button disabled={busy || syncing !== null} onClick={() => void syncOne(c.id)}
                       style={{ fontSize: 11.5, padding: "3px 8px", background: "var(--panel2)", border: "1px solid var(--line)", color: "var(--t1)", borderRadius: 6, cursor: "pointer" }}>
-                      {syncing === c.id ? "Syncing…" : "Sync"}
+                      {syncing === c.id ? "Eşitleniyor…" : "Eşitle"}
                     </button>
                   </div>
                   <label style={{ display: "inline-flex", alignItems: "center", gap: 7, fontSize: 11.5, color: "var(--t2)", cursor: "pointer", userSelect: "none" }}>
                     <input type="checkbox" checked={c.auto_join} disabled={busy || syncing !== null}
                       onChange={(e) => void setAutoJoin(c, e.target.checked)} />
-                    Auto-join meetings from this calendar
+                    Bu takvimdeki toplantılara otomatik katıl
                   </label>
                   <CalendarSyncStatusLine stamp={stamps[c.id] ?? null} />
                 </div>
               ))}
               <button onClick={openSettings}
                 style={{ fontSize: 11.5, padding: "4px 10px", background: "transparent", border: "1px solid var(--line2)", color: "var(--t2)", borderRadius: 6, cursor: "pointer" }}>
-                Add, rename or disconnect in Settings → Calendar
+                Ayarlar → Takvim bölümünden ekleyin, yeniden adlandırın veya bağlantıyı kesin
               </button>
             </>
           ) : (
             <>
               <div style={{ fontSize: 11.5, color: "var(--t3)", lineHeight: 1.5 }}>
-                Paste your calendar&apos;s <b>secret ICS address</b> (Google Calendar → Settings → &quot;Secret address in iCal format&quot;).
-                Upcoming meetings with a Meet/Zoom/Teams link appear under Upcoming and auto-join at start.
+                Takviminizin <b>gizli ICS adresini</b> yapıştırın (Google Calendar → Ayarlar → &ldquo;iCal biçiminde gizli adres&rdquo;).
+                Meet/Zoom/Teams bağlantısı olan yaklaşan toplantılar Yaklaşan bölümünde görünür ve başlangıçta otomatik katılır.
               </div>
               <input value={name} onChange={(e) => setName(e.target.value)} disabled={busy} maxLength={100}
-                aria-label="Calendar name" placeholder="Calendar name"
+                aria-label="Takvim adı" placeholder="Takvim adı"
                 style={{ fontSize: 11.5, padding: "5px 7px", background: "var(--panel2)", border: "1px solid var(--line)", borderRadius: 6, color: "var(--t1)", outline: "none" }} />
               <input value={url} placeholder="https://calendar.google.com/…/basic.ics" disabled={busy}
-                type="password" autoComplete="off" aria-label="Secret ICS address"
+                type="password" autoComplete="off" aria-label="Gizli ICS adresi"
                 onChange={(e) => setUrl(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && url.trim()) void connectFirst(); }}
                 style={{ fontSize: 11.5, padding: "5px 7px", background: "var(--panel2)", border: "1px solid var(--line)", borderRadius: 6, color: "var(--t1)", outline: "none" }} />
               <button disabled={busy || !url.trim()} onClick={() => void connectFirst()}
                 style={{ fontSize: 12, padding: "5px 10px", background: url.trim() ? "var(--accent)" : "var(--panel2)", color: url.trim() ? "var(--bg)" : "var(--t3)", border: "none", borderRadius: 6, cursor: url.trim() ? "pointer" : "default" }}>
-                {busy || syncing !== null ? "Connecting…" : "Connect"}
+                {busy || syncing !== null ? "Bağlanıyor…" : "Bağlan"}
               </button>
               <div style={{ fontSize: 10.5, color: "var(--t3)", lineHeight: 1.45 }}>
-                Tip: the <i>public</i> address only carries events you made public — use the <b>secret</b> one for your full calendar.
+                İpucu: <i>herkese açık</i> adres yalnızca herkese açık yaptığınız etkinlikleri taşır — takviminizin tamamı için <b>gizli</b> adresi kullanın.
               </div>
             </>
           )}
@@ -712,7 +712,7 @@ function MeetingsList() {
     if (!u || sent === "sending") return;
     // Parse + validate the pasted link/id against the platform formats (mirrors join-form).
     const parsed = parseMeetingInput(u, await getJitsiHosts());
-    if (!parsed) { setSent("err"); setErrMsg("That doesn't look like a Meet / Zoom / Teams / Jitsi link."); setDenial(null); setTimeout(() => setSent(null), 5000); return; }
+    if (!parsed) { setSent("err"); setErrMsg("Bu bir Meet / Zoom / Teams / Jitsi bağlantısına benzemiyor."); setDenial(null); setTimeout(() => setSent(null), 5000); return; }
     setSent("sending"); setErrMsg(null); setDenial(null);
     let refused = false;
     try {
@@ -730,9 +730,9 @@ function MeetingsList() {
       } else {
         // Surface the REAL reason, not a generic "bad link" (the cap/dup/auth cases are common).
         setSent("err");
-        if (r.status === 429) { setErrMsg("You're at your meeting limit — stop one first."); }
-        else if (r.status === 409) { setErrMsg("That meeting already has a bot."); }
-        else if (r.status === 401) { setErrMsg("Not signed in — sign in and retry."); }
+        if (r.status === 429) { setErrMsg("Toplantı sınırınıza ulaştınız — önce birini durdurun."); }
+        else if (r.status === 409) { setErrMsg("Bu toplantıda zaten bir bot var."); }
+        else if (r.status === 401) { setErrMsg("Giriş yapılmadı — giriş yapıp yeniden deneyin."); }
         else {
           // 403 service_not_allowed / 503 service_authority_unavailable are the service authority
           // refusing, not an access fault: they get their own words and their own fix.
@@ -741,7 +741,7 @@ function MeetingsList() {
           else setErrMsg(state.headline);
         }
       }
-    } catch { setSent("err"); setErrMsg("Couldn't reach the server."); }
+    } catch { setSent("err"); setErrMsg("Sunucuya ulaşılamadı."); }
     // The transient flash clears itself; a denial panel is sticky until the next attempt — a
     // paywall the user has to act on must not vanish on a 5s timer.
     if (!refused) setTimeout(() => setSent(null), 5000);
@@ -749,32 +749,32 @@ function MeetingsList() {
   return (
     <div style={{ padding: "8px" }}>
       <div style={{ display: "flex", alignItems: "center", padding: "6px 4px 6px" }}>
-        <span style={{ fontSize: 11, color: "var(--t3)", textTransform: "uppercase", letterSpacing: ".04em", flex: 1 }}>meetings</span>
+        <span style={{ fontSize: 11, color: "var(--t3)", textTransform: "uppercase", letterSpacing: ".04em", flex: 1 }}>toplantılar</span>
         <CalendarSyncButton />
       </div>
       <div style={{ padding: "0 4px 10px" }}>
         <div style={{ display: "flex", gap: 6 }}>
           <input value={url} onChange={(e) => setUrl(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") void addBot(); }}
-            placeholder="Paste a meeting link (Meet / Zoom / Teams / Jitsi)…" style={{ flex: 1, minWidth: 0, background: "var(--panel)", border: "1px solid var(--line2)", borderRadius: 7, padding: "6px 8px", color: "var(--t1)", fontSize: 12, outline: "none" }} />
-          <button onClick={() => void addBot()} disabled={!url.trim() || sent === "sending"} title="Send the Vexa bot to this meeting"
+            placeholder="Toplantı bağlantısını yapıştırın (Meet / Zoom / Teams / Jitsi)…" style={{ flex: 1, minWidth: 0, background: "var(--panel)", border: "1px solid var(--line2)", borderRadius: 7, padding: "6px 8px", color: "var(--t1)", fontSize: 12, outline: "none" }} />
+          <button onClick={() => void addBot()} disabled={!url.trim() || sent === "sending"} title="Innova Toplantı Asistanı botunu bu toplantıya gönder"
             style={{ flex: "none", background: url.trim() ? "var(--accent)" : "var(--panel2)", color: url.trim() ? "var(--on-accent)" : "var(--t3)", border: "none", borderRadius: 7, padding: "0 10px", fontSize: 12, fontWeight: 600, cursor: url.trim() ? "pointer" : "default" }}>
-            {sent === "sending" ? "…" : "Add bot"}
+            {sent === "sending" ? "…" : "Bot gönder"}
           </button>
         </div>
-        {sent === "ok" && <div style={{ fontSize: 11, color: "var(--green)", marginTop: 5, lineHeight: 1.4 }}>Bot sent — admit it in the meeting; it appears here once it starts transcribing.</div>}
+        {sent === "ok" && <div style={{ fontSize: 11, color: "var(--green)", marginTop: 5, lineHeight: 1.4 }}>Bot gönderildi — toplantıda kabul edin; transkripsiyona başladığında burada görünür.</div>}
         {denial
           ? <ServiceDenialPanel presentation={denial} onRetry={() => void addBot()} />
-          : sent === "err" && <div style={{ fontSize: 11, color: "var(--danger)", marginTop: 5, lineHeight: 1.4 }}>{errMsg ?? "Couldn't send."}</div>}
+          : sent === "err" && <div style={{ fontSize: 11, color: "var(--danger)", marginTop: 5, lineHeight: 1.4 }}>{errMsg ?? "Gönderilemedi."}</div>}
         <div style={{ marginTop: 8 }}>
           <PlanMeetingButton />
           <CalendarSyncButton variant="row" />
         </div>
       </div>
       {/* The day itself renders in the center (Today) — the sidebar only links there. */}
-      <button onClick={() => layout.openTab({ id: "today", title: "Today", kind: "today", params: {} })}
+      <button onClick={() => layout.openTab({ id: "today", title: "Bugün", kind: "today", params: {} })}
         style={{ display: "block", width: "100%", textAlign: "left", background: "transparent", border: "none", padding: "10px 9px", fontSize: 11.5, color: "var(--t3)", lineHeight: 1.5, cursor: "pointer" }}
         onMouseEnter={(e) => (e.currentTarget.style.color = "var(--t2)")} onMouseLeave={(e) => (e.currentTarget.style.color = "var(--t3)")}>
-        {all.length === 0 ? "No meetings yet — paste a Meet link above, or open Today →" : "Your meetings are in Today →"}
+        {all.length === 0 ? "Henüz toplantı yok — yukarıya bir bağlantı yapıştırın veya Bugün sayfasını açın →" : "Toplantılarınız Bugün sayfasında →"}
       </button>
     </div>
   );
@@ -803,18 +803,18 @@ function useModelInfo(): ModelInfo | null {
 
 function ModelChips() {
   const models = useModelInfo();
-  const streaming = models?.streaming_model || models?.meeting_model || "streaming";
-  const chat = models?.chat_model || models?.agent_model || "chat";
+  const streaming = models?.streaming_model || models?.meeting_model || "varsayılan";
+  const chat = models?.chat_model || models?.agent_model || "varsayılan";
   const chip = (label: string, value: string) => (
-    <span title={`${label} model: ${value}`} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "3px 8px", border: "1px solid var(--line)", borderRadius: 7, color: "var(--t2)", background: "var(--panel)", fontSize: 11.5, whiteSpace: "nowrap", minWidth: 0 }}>
+    <span title={`${label} modeli: ${value}`} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "3px 8px", border: "1px solid var(--line)", borderRadius: 7, color: "var(--t2)", background: "var(--panel)", fontSize: 11.5, whiteSpace: "nowrap", minWidth: 0 }}>
       <span style={{ color: "var(--t3)", fontFamily: "var(--mono)", flex: "none" }}>{label}</span>
       <span style={{ color: "var(--t1)", maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{value}</span>
     </span>
   );
   return (
     <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center", justifyContent: "flex-end", minWidth: 0 }}>
-      {chip("stream", streaming)}
-      {chip("chat", chat)}
+      {chip("akış", streaming)}
+      {chip("sohbet", chat)}
     </div>
   );
 }
@@ -830,7 +830,7 @@ export function BotControls({ m, connected = true }: { m: MeetingMock; connected
   if (acts.length === 0) return null;
   // The control's enabled-ness is a pure function of (row status, WS-connected): while the live
   // `meeting.status` stream is down the row may be a stale snapshot, so a state-bearing control
-  // degrades to indeterminate/disabled — never an actionable "Stop bot" for a meeting the backend
+  // degrades to indeterminate/disabled — never an actionable stop control for a meeting the backend
   // may no longer have (issue #674).
   const disabled = busy || !connected;
   return (
@@ -839,7 +839,7 @@ export function BotControls({ m, connected = true }: { m: MeetingMock; connected
         const danger = a.tone === "live";
         return (
           <button key={a.id} disabled={disabled}
-            title={!connected ? "Live connection lost — reconnecting…" : undefined}
+      title={!connected ? "Canlı bağlantı kesildi — yeniden bağlanıyor…" : undefined}
             onClick={() => {
               if (disabled) return;
               setErr(null); setBusy(true);
@@ -850,7 +850,7 @@ export function BotControls({ m, connected = true }: { m: MeetingMock; connected
               color: danger ? "var(--danger)" : "var(--accent)",
               borderRadius: 7, padding: "4px 11px", fontSize: 12, fontWeight: 600,
               cursor: disabled ? "default" : "pointer", opacity: disabled ? 0.6 : 1 }}>
-            {a.id === "stop" ? "Stop bot" : "Send bot again"}
+            {a.id === "stop" ? "Botu durdur" : "Botu yeniden gönder"}
           </button>
         );
       })}
@@ -886,16 +886,16 @@ export function MeetingNotFound({ meetingId, onOpenToday }: { meetingId: string;
   return (
     <div role="status" style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
       <div style={{ maxWidth: 380, textAlign: "center" }}>
-        <div style={{ fontSize: 15, color: "var(--t1)", fontWeight: 550, marginBottom: 6 }}>Meeting not found</div>
+        <div style={{ fontSize: 15, color: "var(--t1)", fontWeight: 550, marginBottom: 6 }}>Toplantı bulunamadı</div>
         <div style={{ fontSize: 12.5, color: "var(--t3)", lineHeight: 1.55 }}>
           {meetingId
-            ? <>Nothing here matches <span style={{ fontFamily: "var(--mono)", color: "var(--t2)" }}>{meetingId}</span>. It may have been deleted, or it belongs to someone who hasn&apos;t shared it with you.</>
-            : <>This link doesn&apos;t carry a meeting. Open one from your day.</>}
+            ? <>Burada <span style={{ fontFamily: "var(--mono)", color: "var(--t2)" }}>{meetingId}</span> ile eşleşen bir kayıt yok. Silinmiş olabilir ya da sizinle paylaşmamış birine ait olabilir.</>
+            : <>Bu bağlantı bir toplantı taşımıyor. Gününüzden bir toplantı açın.</>}
         </div>
         {onOpenToday && (
           <button onClick={onOpenToday}
             style={{ marginTop: 16, fontSize: 12.5, padding: "5px 12px", background: "transparent", border: "1px solid var(--line2)", color: "var(--t2)", borderRadius: 7, cursor: "pointer" }}>
-            Open today
+            Bugün&rsquo;ü aç
           </button>
         )}
       </div>
@@ -923,7 +923,7 @@ function MeetingTab({ params }: TabProps) {
     return (
       <MeetingNotFound
         meetingId={requestedMeetingId}
-        onOpenToday={() => layout.openTab({ id: "today", title: "Today", kind: "today", params: {} })}
+        onOpenToday={() => layout.openTab({ id: "today", title: "Bugün", kind: "today", params: {} })}
       />
     );
   }
@@ -934,16 +934,16 @@ function MeetingTab({ params }: TabProps) {
         <div style={{ display: "flex", alignItems: "center", gap: 12, fontSize: 13, minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 9, minWidth: 0 }}>
             {header === "live"
-              ? <span style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "var(--green)", fontWeight: 600, letterSpacing: ".04em", fontSize: 11, textTransform: "uppercase", flex: "none" }}><span style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--green)", boxShadow: "0 0 0 3px var(--greenbg)" }} />Live</span>
+              ? <span style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "var(--green)", fontWeight: 600, letterSpacing: ".04em", fontSize: 11, textTransform: "uppercase", flex: "none" }}><span style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--green)", boxShadow: "0 0 0 3px var(--greenbg)" }} />Canlı</span>
               : header === "reconnecting"
-                ? <span style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "var(--accent)", fontWeight: 600, letterSpacing: ".04em", fontSize: 11, textTransform: "uppercase", flex: "none" }} title="Live connection lost — the last known state may be stale"><span style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--accent)", boxShadow: "0 0 0 3px var(--accentbg)" }} />Reconnecting…</span>
+                ? <span style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "var(--accent)", fontWeight: 600, letterSpacing: ".04em", fontSize: 11, textTransform: "uppercase", flex: "none" }} title="Canlı bağlantı kesildi — son bilinen durum güncel olmayabilir"><span style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--accent)", boxShadow: "0 0 0 3px var(--accentbg)" }} />Yeniden bağlanıyor…</span>
                 : header === "recap"
-                  ? <span style={{ display: "inline-flex", alignItems: "center", color: "var(--violet)", background: "var(--violetbg)", fontWeight: 600, letterSpacing: ".06em", fontSize: 10.5, textTransform: "uppercase", borderRadius: 999, padding: "2px 9px", flex: "none" }}>Recap</span>
-                  : <span style={{ fontSize: 11, color: "var(--t3)", fontWeight: 600, letterSpacing: ".04em", textTransform: "uppercase", flex: "none" }}>Connecting…</span>}
+                  ? <span style={{ display: "inline-flex", alignItems: "center", color: "var(--violet)", background: "var(--violetbg)", fontWeight: 600, letterSpacing: ".06em", fontSize: 10.5, textTransform: "uppercase", borderRadius: 999, padding: "2px 9px", flex: "none" }}>Toplantı özeti</span>
+                  : <span style={{ fontSize: 11, color: "var(--t3)", fontWeight: 600, letterSpacing: ".04em", textTransform: "uppercase", flex: "none" }}>Bağlanıyor…</span>}
             <span style={{ width: 3, height: 3, borderRadius: "50%", background: "var(--t3)", flex: "none" }} />
-            <span style={{ color: "var(--t1)", fontWeight: 550, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m ? (m.title_custom ?? (m.native_id ?? m.title).replace(/^Google Meet · /, "")) : "Meeting"}</span>
+            <span style={{ color: "var(--t1)", fontWeight: 550, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m ? (m.title_custom ?? (m.native_id ?? m.title).replace(/^Google Meet · /, "")) : "Toplantı"}</span>
             {m && <span style={{ color: "var(--t3)", flex: "none", fontSize: 12 }}>{m.platform}</span>}
-            {m && <span style={{ color: "var(--t3)", flex: "none" }}>{m.participants.length} in the room</span>}
+            {m && <span style={{ color: "var(--t3)", flex: "none" }}>{m.participants.length} katılımcı</span>}
           </div>
           <div style={{ flex: 1 }} />
           {m && <BotControls m={m} connected={connected} />}
@@ -958,8 +958,8 @@ function MeetingTab({ params }: TabProps) {
   );
 }
 
-registerList({ id: "meetings", label: "Meetings", icon: "cal", order: 20, component: MeetingsList,
+registerList({ id: "meetings", label: "Toplantılar", icon: "cal", order: 20, component: MeetingsList,
   // clicking Meetings opens the user's DAY in the center (design-spec meeting-lifecycle-v2, W2)
-  centerTab: { id: "today", title: "Today", kind: "today", params: {} } });
+  centerTab: { id: "today", title: "Bugün", kind: "today", params: {} } });
 registerTab("meeting", MeetingTab);
-registerCommand({ id: "meeting.openLive", title: "Open live meeting", run: ({ container }) => { const m = liveMeetingsNow()[0]; if (m) container.get(LayoutServiceId).openTab(meetingTab(m)); } });
+registerCommand({ id: "meeting.openLive", title: "Canlı toplantıyı aç", run: ({ container }) => { const m = liveMeetingsNow()[0]; if (m) container.get(LayoutServiceId).openTab(meetingTab(m)); } });

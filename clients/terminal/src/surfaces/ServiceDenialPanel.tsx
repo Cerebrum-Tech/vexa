@@ -76,7 +76,7 @@ export function ServiceDenialPanel({
                 borderRadius: 6, padding: "4px 10px", fontSize: 11.5, fontWeight: 600, cursor: "pointer",
               }}
             >
-              Try again
+              Yeniden dene
             </button>
           )}
         </div>

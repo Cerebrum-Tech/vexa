@@ -16,11 +16,11 @@ function useQueryId(): string {
 }
 
 function ageLabel(at?: number): string {
-  if (!at) return "never";
+  if (!at) return "hiç";
   const s = Math.max(0, Math.round((Date.now() - at) / 1000));
-  if (s < 60) return `${s}s ago`;
+  if (s < 60) return `${s} sn önce`;
   const m = Math.floor(s / 60);
-  return `${m}m ${s % 60}s ago`;
+  return `${m} dk ${s % 60} sn önce`;
 }
 
 function hms(at: number): string {
@@ -78,31 +78,31 @@ export default function TranscriptDebug() {
 
   const mono: React.CSSProperties = { fontFamily: "monospace", fontSize: 12 };
   if (!mounted) {
-    return <div style={{ padding: 20, ...mono, color: "var(--t3)", background: "var(--bg)", minHeight: "100vh" }} suppressHydrationWarning>loading probe…</div>;
+    return <div style={{ padding: 20, ...mono, color: "var(--t3)", background: "var(--bg)", minHeight: "100vh" }} suppressHydrationWarning>sonda yükleniyor…</div>;
   }
   return (
     <div style={{ padding: 20, color: "var(--t1)", background: "var(--bg)", minHeight: "100vh", ...mono }}>
-      <h2 style={{ fontSize: 14, marginBottom: 12 }}>Transcript pipeline probe</h2>
+      <h2 style={{ fontSize: 14, marginBottom: 12 }}>Transkript işlem hattı sondası</h2>
       <div style={{ display: "grid", gridTemplateColumns: "180px 1fr", rowGap: 4, marginBottom: 16 }}>
-        <span>requested id</span><span>{requestedId || "(none — add ?id=…)"}</span>
-        <span>meetings loaded</span><span>{meetings.length}</span>
-        <span>row resolved</span><span>{row ? `yes — status=${row.live_status ?? row.status}` : "NO (not in list yet)"}</span>
-        <span>session_uid</span><span>{sessionUid || "(empty → no SSE will open)"}</span>
-        <span>connected</span><span style={{ color: live.connected ? "var(--green)" : "var(--danger)" }}>{String(live.connected)}</span>
-        <span>ended</span><span>{String(live.ended)}</span>
-        <span>reconnects</span><span>{live.reconnects}</span>
-        <span>last event</span><span>{ageLabel(live.lastEventAt)}</span>
-        <span>last transcript</span><span>{ageLabel(live.lastTranscriptAt)}</span>
-        <span>segments</span><span>{live.transcript.length}</span>
-        <span>processed notes</span><span>{live.notes.length}</span>
-        <span>cards</span><span>{live.cards.length}</span>
-        <span>issues</span><span style={{ color: live.issues.length ? "var(--danger)" : "var(--t3)" }}>{live.issues.length}</span>
-        <span>react renders</span><span>{renders.current}</span>
-        <span>last seg change @</span><span>{lastChangeAt.current == null ? "never" : `${lastChangeAt.current}ms`}</span>
+        <span>istenen id</span><span>{requestedId || "(yok — ?id=… ekleyin)"}</span>
+        <span>yüklenen toplantı</span><span>{meetings.length}</span>
+        <span>satır çözümlendi</span><span>{row ? `evet — status=${row.live_status ?? row.status}` : "hayır (henüz listede yok)"}</span>
+        <span>session_uid</span><span>{sessionUid || "(boş → SSE açılmayacak)"}</span>
+        <span>bağlı</span><span style={{ color: live.connected ? "var(--green)" : "var(--danger)" }}>{String(live.connected)}</span>
+        <span>sona erdi</span><span>{String(live.ended)}</span>
+        <span>yeniden bağlanma</span><span>{live.reconnects}</span>
+        <span>son olay</span><span>{ageLabel(live.lastEventAt)}</span>
+        <span>son transkript</span><span>{ageLabel(live.lastTranscriptAt)}</span>
+        <span>segment</span><span>{live.transcript.length}</span>
+        <span>işlenmiş not</span><span>{live.notes.length}</span>
+        <span>kart</span><span>{live.cards.length}</span>
+        <span>sorun</span><span style={{ color: live.issues.length ? "var(--danger)" : "var(--t3)" }}>{live.issues.length}</span>
+        <span>react render</span><span>{renders.current}</span>
+        <span>son segment değişimi @</span><span>{lastChangeAt.current == null ? "hiç" : `${lastChangeAt.current}ms`}</span>
       </div>
       {live.issues.length > 0 && (
         <div style={{ borderTop: "1px solid var(--line2)", paddingTop: 10, marginBottom: 14 }}>
-          <div style={{ color: "var(--danger)", marginBottom: 6 }}>recent issues</div>
+          <div style={{ color: "var(--danger)", marginBottom: 6 }}>son sorunlar</div>
           {live.issues.slice(-8).map((issue, i) => (
             <div key={`${issue.at}-${i}`} style={{ marginBottom: 4 }}>
               <span style={{ color: "var(--danger)" }}>{issue.kind}</span>
@@ -114,8 +114,8 @@ export default function TranscriptDebug() {
       )}
       {/* RAW WIRE — every event off the SSE, append-only · NO upsert / clustering / copilot */}
       <div style={{ borderTop: "1px solid var(--line2)", paddingTop: 10, marginBottom: 14 }}>
-        <div style={{ color: "var(--green)", marginBottom: 6 }}>RAW WIRE — every event, uncleaned ({raw.length}) · ~ = pending · F = final</div>
-        {raw.length === 0 && <div style={{ color: "var(--t3)" }}>no raw events yet…</div>}
+        <div style={{ color: "var(--green)", marginBottom: 6 }}>Ham akış — her olay, temizlenmemiş ({raw.length}) · ~ = beklemede · F = kesin</div>
+        {raw.length === 0 && <div style={{ color: "var(--t3)" }}>henüz ham olay yok…</div>}
         {raw.slice(-150).map((ev, i) => (
           <div key={i} style={{ marginBottom: 2, opacity: ev.completed === false ? 0.55 : 1, whiteSpace: "pre-wrap" }}>
             <span style={{ color: "var(--t3)" }}>{hms(ev.at)} </span>
@@ -128,17 +128,17 @@ export default function TranscriptDebug() {
       </div>
       {/* current state per segment_id (upserted — latest text per id, still pre-clustering) */}
       <div style={{ borderTop: "1px solid var(--line2)", paddingTop: 10 }}>
-        <div style={{ color: "var(--green)", marginBottom: 6 }}>RAW SEGMENTS — current per id ({live.transcript.length})</div>
-        {live.transcript.length === 0 && <div style={{ color: "var(--t3)" }}>no segments yet…</div>}
+        <div style={{ color: "var(--green)", marginBottom: 6 }}>Ham segmentler — id başına güncel ({live.transcript.length})</div>
+        {live.transcript.length === 0 && <div style={{ color: "var(--t3)" }}>henüz segment yok…</div>}
         {live.transcript.slice(-40).map((s, i) => (
           <div key={s.id ?? i} style={{ marginBottom: 6, opacity: s.completed === false ? 0.6 : 1 }}>
             <span style={{ color: "var(--blue)" }}>{s.speaker}</span>
-            <span style={{ color: "var(--t3)" }}>{s.completed === false ? " (pending)" : ""}</span>
+            <span style={{ color: "var(--t3)" }}>{s.completed === false ? " (beklemede)" : ""}</span>
             <div>{s.text}</div>
           </div>
         ))}
       </div>
-      {live.note && <div style={{ marginTop: 14, color: "var(--warn)" }}>note: {live.note}</div>}
+      {live.note && <div style={{ marginTop: 14, color: "var(--warn)" }}>not: {live.note}</div>}
     </div>
   );
 }

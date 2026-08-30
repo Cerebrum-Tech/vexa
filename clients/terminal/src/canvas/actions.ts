@@ -34,17 +34,17 @@ function updateSections(patch: Record<string, unknown>): void {
 }
 
 function baseName(path: string): string {
-  return path.split("/").filter(Boolean).pop() || path || "Document";
+  return path.split("/").filter(Boolean).pop() || path || "Belge";
 }
 
 function researchPrompt(entity: { name: string; kind: string }): string {
-  const name = String(entity?.name ?? "").trim() || "this surfaced entity";
-  const kind = String(entity?.kind ?? "").trim() || "entity";
+  const name = String(entity?.name ?? "").trim() || "öne çıkan bu varlık";
+  const kind = String(entity?.kind ?? "").trim() || "varlık";
   return [
-    `Meeting Canvas research request: ${kind} "${name}".`,
-    "Research it using the web and the workspace knowledge graph.",
-    "Write or append the canonical entity doc under kg/entities/<kind>/<slug>.md with a concise summary, source notes, and meeting relevance.",
-    "Commit the workspace update when finished.",
+    `Meeting Canvas araştırma isteği: ${kind} "${name}".`,
+    "Web’i ve çalışma alanının bilgi grafiğini kullanarak araştır.",
+    "kg/entities/<kind>/<slug>.md altındaki kanonik varlık belgesini kısa bir özet, kaynak notları ve toplantıyla ilgisi ile birlikte yaz ya da bu belgeye ekle.",
+    "İşin bitince çalışma alanı güncellemesini commit et.",
   ].join("\n");
 }
 
@@ -69,22 +69,23 @@ export const ONBOARDING_KICKOFF_MARK = "[onboarding-kickoff]";
 // Onboarding uses a CACHED first turn (no slow LLM round-trip): the gate seeds this canned agent greeting
 // instantly, then arms the chat so the user's FIRST reply carries the discovery-loop grounding.
 export const ONBOARDING_SEED_EVENT = "vexa:terminal:onboarding-seed";
-export const ONBOARDING_GREETING = "👋 I'm your knowledge agent. This is **your workspace** — I'll help you build a living memory of the people, companies, and meetings in your world, and keep it useful during and between calls. To get started, **what's your name?** (or paste your **LinkedIn URL**, or name + company, and I'll take it from there.)";
+export const ONBOARDING_GREETING = "👋 Ben bilgi asistanınızım. Burası **sizin çalışma alanınız** — çevrenizdeki kişilerin, şirketlerin ve toplantıların yaşayan bir hafızasını kurmanıza yardımcı olurum ve bunu görüşmeler sırasında da aralarında da işinize yarar tutarım. Başlamak için: **adınız nedir?** (Dilerseniz **LinkedIn adresinizi** yapıştırın ya da ad + şirket yazın, gerisini ben hallederim.)";
 // Separates the (hidden) grounding from the user's actual reply, so the reply renders alone on reload.
 export const ONBOARDING_REPLY_SEP = "\n\n[reply]\n";
 export const ONBOARDING_GROUNDING = ONBOARDING_KICKOFF_MARK + [
-  "Read these workspace files before answering (use the Read tool): onboarding.md, CLAUDE.md",
+  "Yanıt vermeden önce şu çalışma alanı dosyalarını oku (Read aracıyla): onboarding.md, CLAUDE.md",
   "",
-  "I'm a new user replying to onboarding. Follow the discovery-loop playbook in onboarding.md.",
-  "Record my NAME in `_system/identity.md` first (the light, always-available identity reference) —",
-  "that's the one fact you must not leave blank; keep asking until you have it.",
-  "If I gave a LinkedIn URL, use it as a SEARCH ANCHOR (search me from it; do NOT try to fetch the",
-  "login-walled page). Research my public footprint autonomously and DEEPLY with web search (never",
-  "bounce back a fact you can find online) and scaffold my entities from scratch. SAVE ME as the single",
-  "person node with `self: true` in this workspace (store my LinkedIn URL on it) — my full profile lives",
-  "there, the light reference in _system links to it. Keep `README.md` current as the workspace dashboard.",
-  "Only ask me about the genuine gaps you can't resolve yourself — saying why each matters. Run at least",
-  "two discovery cycles. My details:",
+  "Kuruluma yanıt veren yeni bir kullanıcıyım. onboarding.md içindeki keşif döngüsü el kitabını izle.",
+  "Önce ADIMI `_system/identity.md` dosyasına yaz (her zaman erişilebilen hafif kimlik referansı) —",
+  "boş bırakmaman gereken tek bilgi budur; öğrenene kadar sormayı sürdür.",
+  "LinkedIn adresi verdiysem onu ARAMA ÇIPASI olarak kullan (oradan beni ara; girişe kapalı sayfayı",
+  "çekmeye ÇALIŞMA). Genel ağdaki izimi web aramasıyla kendi başına ve DERİNLEMESİNE araştır (çevrimiçi",
+  "bulabileceğin bir bilgiyi bana geri sorma) ve varlıklarımı sıfırdan kur. BENİ bu çalışma alanındaki",
+  "tek `self: true` kişi düğümü olarak kaydet (LinkedIn adresimi de o düğümde sakla) — tam profilim",
+  "orada durur, _system içindeki hafif referans ona bağlanır. `README.md` dosyasını çalışma alanının",
+  "kontrol paneli olarak güncel tut.",
+  "Bana yalnızca kendi başına çözemediğin gerçek boşlukları sor — her birinin neden önemli olduğunu",
+  "söyleyerek. En az iki keşif turu çalıştır. Bilgilerim:",
 ].join("\n");
 
 function makeActions(layout?: LayoutService): HarnessActions {

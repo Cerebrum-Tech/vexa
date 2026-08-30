@@ -36,7 +36,7 @@ function ThemeToggle() {
   const [theme, toggle] = useTheme();
   const day = theme === "light";
   return (
-    <button onClick={toggle} title={day ? "Switch to dark mode" : "Switch to day mode"}
+    <button onClick={toggle} title={day ? "Koyu moda geç" : "Gündüz moduna geç"}
       style={{ flex: "none", display: "flex", alignItems: "center", padding: 4, borderRadius: 6, background: "none", border: "none", color: "var(--t3)", cursor: "pointer" }}>
       <Icon name={day ? "moon" : "sun"} size={15} />
     </button>
@@ -62,7 +62,7 @@ function TabHost(props: IDockviewPanelProps) {
     return () => d.dispose();
   }, [props.api]);
   useEffect(() => { if (active) layout.setActiveTab(kind ? { kind, params: params.p ?? {} } : null); }, [active, kind, layout, params.p]);
-  if (!Comp) return <div style={{ padding: 24, color: "var(--t3)", fontSize: 13 }}>Unknown tab kind: {kind}</div>;
+  if (!Comp) return <div style={{ padding: 24, color: "var(--t3)", fontSize: 13 }}>Bilinmeyen sekme türü: {kind}</div>;
   return <Comp id={props.api.id} params={params.p ?? {}} active={active} />;
 }
 const dvComponents = { tab: TabHost };
@@ -87,15 +87,15 @@ function TabHeader(props: IDockviewPanelHeaderProps) {
   const path = typeof params.p?.path === "string" ? params.p.path : null;
   const meetingId = typeof params.p?.meetingId === "string" ? params.p.meetingId : null;
   const pinItem = pinned
-    ? { id: "unpin-tab", label: "Unpin tab", onSelect: () => layout.unpinTab(props.api.id) }
-    : { id: "pin-tab", label: "Pin tab", detail: "keep open until unpinned", onSelect: () => layout.pinTab(props.api.id) };
+    ? { id: "unpin-tab", label: "Sabitlemeyi kaldır", onSelect: () => layout.unpinTab(props.api.id) }
+    : { id: "pin-tab", label: "Sekmeyi sabitle", detail: "sabitleme kaldırılana kadar açık kalır", onSelect: () => layout.pinTab(props.api.id) };
   const copyItems = params.kind === "doc" && path
     ? [
-      { id: "copy-reference", label: "Copy reference", detail: `@file:${path}`, onSelect: () => copyText(`@file:${path}`) },
-      { id: "copy-path", label: "Copy path", detail: path, onSelect: () => copyText(path) },
+      { id: "copy-reference", label: "Referansı kopyala", detail: `@file:${path}`, onSelect: () => copyText(`@file:${path}`) },
+      { id: "copy-path", label: "Yolu kopyala", detail: path, onSelect: () => copyText(path) },
     ]
     : params.kind === "meeting" && meetingId
-      ? [{ id: "copy-reference", label: "Copy reference", detail: `@meeting:${meetingId}`, onSelect: () => copyText(`@meeting:${meetingId}`) }]
+      ? [{ id: "copy-reference", label: "Referansı kopyala", detail: `@meeting:${meetingId}`, onSelect: () => copyText(`@meeting:${meetingId}`) }]
       : [];
   return (
     <div
@@ -119,8 +119,8 @@ function TabHeader(props: IDockviewPanelHeaderProps) {
       style={{ display: "flex", alignItems: "center", height: "100%" }}
     >
       {/* left-click pin toggle: always visible so pinning is one click (pinned = solid accent) */}
-      <span role="button" aria-label={pinned ? "Unpin tab" : "Pin tab"}
-        title={pinned ? "Pinned — click to unpin" : "Pin tab (keeps it open until unpinned)"}
+      <span role="button" aria-label={pinned ? "Sabitlemeyi kaldır" : "Sekmeyi sabitle"}
+        title={pinned ? "Sabitlendi — kaldırmak için tıklayın" : "Sekmeyi sabitle (sabitleme kaldırılana kadar açık kalır)"}
         onPointerDown={(e) => e.preventDefault()}
         onClick={(e) => { e.stopPropagation(); if (pinned) layout.unpinTab(props.api.id); else layout.pinTab(props.api.id); }}
         onMouseEnter={(e) => { e.currentTarget.style.opacity = "1"; }}
@@ -135,7 +135,7 @@ function TabHeader(props: IDockviewPanelHeaderProps) {
         <span
           className="dv-default-tab-action"
           role="button"
-          aria-label="Close tab"
+          aria-label="Sekmeyi kapat"
           onPointerDown={(e) => e.preventDefault()}
           onClick={(e) => { e.stopPropagation(); props.api.close(); }}
         >×</span>
@@ -183,8 +183,8 @@ function LeftPane() {
     <div style={{ height: "100%", display: "flex", flexDirection: "column", background: "var(--sidebar)", borderRight: "1px solid var(--line)", minHeight: 0 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 9, padding: "12px 14px 8px", flex: "none" }}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/vexa-logo.svg" alt="Vexa" width={24} height={24} style={{ borderRadius: 7, display: "block", flex: "none" }} />
-        <span style={{ fontSize: 13, fontWeight: 500, color: "var(--t1)" }}>Vexa <span style={{ fontWeight: 400, color: "var(--t3)" }}>terminal</span></span>
+        <img src="/innova-logo.svg" alt="Innova" width={104} height={20} style={{ display: "block", flex: "none" }} />
+        <span style={{ fontSize: 12, fontWeight: 400, color: "var(--t3)" }}>Toplantı Asistanı</span>
       </div>
       {/* stacked vertically — every list is visible at any sidebar width (no horizontal
           overflow/scroll), matching the file-tree rows below */}
@@ -194,7 +194,7 @@ function LeftPane() {
             onClick={() => { layout.setActiveList(l.id); if (l.centerTab) layout.openTab(l.centerTab); }} title={l.label}>
             <Icon name={l.icon} size={13} />{l.label}
             {l.id === "files" && badge > 0 && (
-              <span title={`${badge} new update${badge > 1 ? "s" : ""} from other members`}
+              <span title={`Diğer üyelerden ${badge} yeni güncelleme`}
                 style={{ marginLeft: "auto", background: "var(--accent)", color: "var(--bg)", fontSize: 10, fontWeight: 700, borderRadius: 9, minWidth: 16, textAlign: "center", padding: "0 5px", lineHeight: "16px", flex: "none" }}>
                 {badge}
               </span>
@@ -225,7 +225,7 @@ function UserProfile() {
   }, []);
 
   const email = user?.email ?? "";
-  const name = (user?.name || (email ? email.split("@")[0] : "") || "Account").trim();
+  const name = (user?.name || (email ? email.split("@")[0] : "") || "Hesap").trim();
   const initials = (name.match(/\b[a-z0-9]/gi) || []).slice(0, 2).join("").toUpperCase() || "?";
 
   const signOut = () => {
@@ -242,13 +242,13 @@ function UserProfile() {
         <div style={{ fontSize: 12.5, fontWeight: 500, color: "var(--t1)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</div>
         {email && <div style={{ fontSize: 11, color: "var(--t3)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{email}</div>}
       </div>
-      <button type="button" title="Settings"
-        onClick={() => layout.openTab({ id: "settings", title: "Settings", kind: "settings", params: {} })}
+      <button type="button" title="Ayarlar"
+        onClick={() => layout.openTab({ id: "settings", title: "Ayarlar", kind: "settings", params: {} })}
         style={{ flex: "none", background: "transparent", border: "none", color: "var(--t3)", cursor: "pointer", display: "flex", padding: 4, borderRadius: 6 }}>
         <Icon name="gear" size={15} />
       </button>
       <ThemeToggle />
-      <button type="button" title="Sign out" onClick={signOut}
+      <button type="button" title="Çıkış yap" onClick={signOut}
         style={{ flex: "none", background: "transparent", border: "none", color: "var(--t3)", cursor: "pointer", display: "flex", padding: 4, borderRadius: 6 }}>
         <Icon name="logout" size={15} />
       </button>
@@ -383,13 +383,13 @@ export function Workbench() {
     // are the first-run hand-off). Replaces the old own-README chat-only onboarding.
     const showDay = () => {
       layout.setActiveList("meetings");
-      layout.openTab({ id: "today", title: "Today", kind: "today", params: {} });
+      layout.openTab({ id: "today", title: "Bugün", kind: "today", params: {} });
     };
     const openMeeting = (mid: string, reveal: boolean) => {
       if (reveal && !meetOnly) layout.setActiveList("meetings");
       // A meeting reached by URL is just "Meeting" until the row resolves; one reached by a share link
       // is labelled as such. Either way the tab id is the same, so it de-dupes with a restored tab.
-      const title = mid === routeMeetingId.current && !sharedMeetingId ? "Meeting" : "Shared meeting";
+      const title = mid === routeMeetingId.current && !sharedMeetingId ? "Toplantı" : "Paylaşılan toplantı";
       layout.openTab({ id: `meeting:${mid}`, title, kind: "meeting", params: { meetingId: mid } });
     };
     // `forceKnowledge` = land ON the Knowledge section unconditionally (an accepted invite is explicit —
@@ -424,9 +424,9 @@ export function Workbench() {
   return (
     <div style={{ height: "100vh", display: "flex", flexDirection: "column", background: "var(--bg)", color: "var(--t1)" }}>
       <div style={{ height: 38, display: "flex", alignItems: "center", gap: 12, padding: "0 12px", borderBottom: "1px solid var(--line)", background: "var(--sidebar)", flex: "none" }}>
-        <button aria-label="Toggle left" onClick={() => layout.toggleLeft()} style={{ background: "none", border: "none", color: "var(--t3)", cursor: "pointer", display: "flex" }}><Icon name="panel" size={16} /></button>
+        <button aria-label="Sol paneli aç/kapat" onClick={() => layout.toggleLeft()} style={{ background: "none", border: "none", color: "var(--t3)", cursor: "pointer", display: "flex" }}><Icon name="panel" size={16} /></button>
         <div style={{ flex: 1, display: "flex", justifyContent: "center", minWidth: 0 }}><OpsNotice /></div>
-        <button aria-label="Toggle right" onClick={() => layout.toggleRight()} style={{ background: "none", border: "none", color: "var(--t3)", cursor: "pointer", display: "flex", transform: "scaleX(-1)" }}><Icon name="panel" size={16} /></button>
+        <button aria-label="Sağ paneli aç/kapat" onClick={() => layout.toggleRight()} style={{ background: "none", border: "none", color: "var(--t3)", cursor: "pointer", display: "flex", transform: "scaleX(-1)" }}><Icon name="panel" size={16} /></button>
       </div>
 
       <div style={{ flex: 1, minHeight: 0 }}>
@@ -471,7 +471,7 @@ export function Workbench() {
 
       <footer style={{ height: 24, flex: "none", background: "var(--sidebar)", borderTop: "1px solid var(--line)", display: "flex", alignItems: "center", fontSize: 11.5, color: "var(--t2)" }}>
         <div style={{ flex: 1 }} />
-        <button onClick={() => layout.resetLayout()} style={{ padding: "0 10px", height: "100%", background: "none", border: "none", color: "var(--t3)", cursor: "pointer" }} title="Reset layout">reset layout</button>
+        <button onClick={() => layout.resetLayout()} style={{ padding: "0 10px", height: "100%", background: "none", border: "none", color: "var(--t3)", cursor: "pointer" }} title="Düzeni sıfırla">düzeni sıfırla</button>
       </footer>
 
       <CommandPalette />

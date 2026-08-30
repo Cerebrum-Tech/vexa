@@ -34,7 +34,7 @@ import {
  *  otherwise `slug` is one of the caller's own slots. `name` seeds the tab title + header label. */
 export const manageTabDescriptor = (slug: string, opts?: { shared?: boolean; name?: string }): TabDescriptor => ({
   id: `workspace:${opts?.shared ? "shared:" : ""}${slug}`,
-  title: opts?.name || (slug === "seed" ? "Personal" : slug),
+  title: opts?.name || (slug === "seed" ? "Kişisel" : slug),
   kind: "workspace",
   params: { slug, shared: !!opts?.shared, name: opts?.name ?? null },
 });
@@ -50,6 +50,9 @@ const btn = (variant: "primary" | "ghost" = "ghost"): React.CSSProperties => ({
 });
 const field: React.CSSProperties = { fontSize: 12.5, padding: "6px 9px", background: "var(--panel2)", border: "1px solid var(--line)", borderRadius: 7, color: "var(--t1)", outline: "none" };
 const short = (subject: string) => subject.replace(/@.*$/, "").replace(/^u_/, "");
+// Membership roles arrive as backend slugs (owner · contributor · viewer); the UI names them in Turkish.
+const ROLE_LABEL: Record<string, string> = { owner: "sahip", contributor: "üye", viewer: "izleyici" };
+const roleLabel = (role: string) => ROLE_LABEL[role] ?? role;
 
 function Section({ icon, title, right, children }: { icon: string; title: string; right?: ReactNode; children: ReactNode }) {
   return (
@@ -93,7 +96,7 @@ function WorkspaceManagePanel({ id, params }: TabProps) {
   // ── derived facts about this workspace ──
   const isSeed = !shared && slug === (attached.active ?? "seed");
   const meta = attached.slots[slug];
-  const displayName = shared ? (initialName || slug) : (meta?.name || (isSeed ? "Personal" : (meta?.repo ?? slug)) || initialName || slug);
+  const displayName = shared ? (initialName || slug) : (meta?.name || (isSeed ? "Kişisel" : (meta?.repo ?? slug)) || initialName || slug);
   const mounted = shared
     ? activeSet.some((m) => m.role === "shared" && m.slug === slug)
     : activeSet.some((m) => m.slug === slug);
@@ -148,7 +151,7 @@ function WorkspaceManagePanel({ id, params }: TabProps) {
         <div onClick={() => setManage((v) => !v)}
           style={{ display: "flex", alignItems: "center", gap: 6, margin: "18px 0 12px", padding: "6px 0", cursor: "pointer", borderTop: "1px solid var(--line)", fontSize: 11, color: "var(--t3)", textTransform: "uppercase", letterSpacing: ".05em" }}>
           <Icon name="chevR" size={12} style={{ transform: manage ? "rotate(90deg)" : "none", transition: "transform .12s" }} />
-          <Icon name="gear" size={12} />Manage workspace
+          <Icon name="gear" size={12} />Çalışma alanını yönet
         </div>
         {manage && (<>
           <PurposeSection slug={slug} />
@@ -167,12 +170,12 @@ function WorkspaceManagePanel({ id, params }: TabProps) {
         </>)}
 
         {invite && (
-          <Modal title={`Share “${displayName}”`} onClose={() => setInvite(null)}>
+          <Modal title={`“${displayName}” çalışma alanını paylaş`} onClose={() => setInvite(null)}>
             <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
               {(["link", "email"] as const).map((m) => (
                 <button key={m} disabled={busy} onClick={() => setInvite({ ...invite, mode: m, link: null })}
                   style={{ ...btn(invite.mode === m ? "primary" : "ghost"), fontSize: 12 }}>
-                  {m === "link" ? "Invite link" : "Add by email"}
+                  {m === "link" ? "Davet bağlantısı" : "E-posta ile ekle"}
                 </button>
               ))}
             </div>
@@ -199,9 +202,9 @@ function ReadmeBody({ slug }: { slug: string }) {
     window.addEventListener("focus", load);
     return () => { live = false; clearInterval(iv); window.removeEventListener("focus", load); };
   }, [slug]);
-  if (error) return <div role="alert" style={{ fontSize: 12.5, color: "var(--danger)" }}>⚠ Couldn’t read the README — {error}</div>;
-  if (text === undefined) return <div style={{ fontSize: 12.5, color: "var(--t3)" }}>loading…</div>;
-  if (text === null) return <div style={{ fontSize: 12.5, color: "var(--t3)" }}>No README yet — ask the agent in Chat to start this workspace’s dashboard.</div>;
+  if (error) return <div role="alert" style={{ fontSize: 12.5, color: "var(--danger)" }}>⚠ README okunamadı — {error}</div>;
+  if (text === undefined) return <div style={{ fontSize: 12.5, color: "var(--t3)" }}>yükleniyor…</div>;
+  if (text === null) return <div style={{ fontSize: 12.5, color: "var(--t3)" }}>Henüz README yok — Sohbet bölümünden asistandan bu çalışma alanının kontrol panelini oluşturmasını isteyin.</div>;
   const body = text.replace(/^---\n[\s\S]*?\n---\n/, "");  // READMEs rarely carry frontmatter; strip if present
   return (
     <DocMetaContext.Provider value={{ path: "README.md", slug }}>
@@ -211,7 +214,7 @@ function ReadmeBody({ slug }: { slug: string }) {
 }
 
 const defaultRepoName = (name: string) =>
-  (name || "vexa-workspace").toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "vexa-workspace";
+  (name || "innova-workspace").toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "innova-workspace";
 
 // ── header: mount toggle + name (inline rename) · Share · ⋯ menu · one quiet meta row ──────────────
 function Header({ slug, shared, isSeed, displayName, mounted, archived, busy, onRun, reload, layout, tabId, onShare, onManage, meta }: {
@@ -231,14 +234,14 @@ function Header({ slug, shared, isSeed, displayName, mounted, archived, busy, on
   const doRename = (name: string) => onRun(async () => { await renameWorkspace(slug, name.trim()); setRenaming(false); layout.retargetTab(tabId, manageTabDescriptor(slug, { name: name.trim() || slug })); reload(); });
   const openMenu = (e: MouseEvent<HTMLSpanElement>) => { e.preventDefault(); setMenu({ x: e.clientX, y: e.clientY }); };
   const st = meta.status;
-  const sync = !st?.has_home ? null : !st.tracked ? "not fetched" : st.ahead || st.behind ? `${st.ahead ? `↑${st.ahead}` : ""}${st.ahead && st.behind ? " " : ""}${st.behind ? `↓${st.behind}` : ""}` : "up to date";
+  const sync = !st?.has_home ? null : !st.tracked ? "getirilmedi" : st.ahead || st.behind ? `${st.ahead ? `↑${st.ahead}` : ""}${st.ahead && st.behind ? " " : ""}${st.behind ? `↓${st.behind}` : ""}` : "güncel";
   const metaItem: React.CSSProperties = { display: "inline-flex", alignItems: "center", gap: 4, cursor: "pointer" };
   return (
     <div style={{ marginBottom: 14 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
         <Checkbox checked={mounted} disabled={busy} onChange={toggle}
-          title={mounted ? "Mounted into the agent — uncheck to switch off" : "Switched off — check to mount"}
-          label={`${displayName} — ${mounted ? "on" : "off"}`} />
+          title={mounted ? "Asistana bağlı — kapatmak için işareti kaldırın" : "Kapalı — bağlamak için işaretleyin"}
+          label={`${displayName} — ${mounted ? "açık" : "kapalı"}`} />
         {renaming && !shared ? (
           <input autoFocus defaultValue={displayName} disabled={busy}
             onKeyDown={(e) => { if (e.key === "Enter") { cancelled.current = false; e.currentTarget.blur(); } else if (e.key === "Escape") { cancelled.current = true; e.currentTarget.blur(); } }}
@@ -247,37 +250,37 @@ function Header({ slug, shared, isSeed, displayName, mounted, archived, busy, on
         ) : (
           <h1 style={{ margin: 0, fontSize: 19, fontWeight: 650, color: "var(--t1)", flex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{displayName}</h1>
         )}
-        <button disabled={busy} onClick={onShare} style={btn("primary")} title="Share this workspace — mint an invite link or add by email">
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><Icon name="link" size={13} />Share</span>
+        <button disabled={busy} onClick={onShare} style={btn("primary")} title="Bu çalışma alanını paylaş — davet bağlantısı oluştur veya e-posta ile ekle">
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><Icon name="link" size={13} />Paylaş</span>
         </button>
-        <span onClick={openMenu} title="Rename · Manage · Archive · Delete"
+        <span onClick={openMenu} title="Yeniden adlandır · Yönet · Arşivle · Sil"
           style={{ cursor: "pointer", color: "var(--t3)", padding: "2px 7px", fontSize: 16, lineHeight: 1, border: "1px solid var(--line)", borderRadius: 7 }}>⋯</span>
       </div>
       {/* ONE quiet meta row: members · GitHub sync · role/kind — each opens the manage fold. */}
       <div style={{ fontSize: 12, color: "var(--t3)", marginTop: 6, marginLeft: 26, display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
         {meta.members !== null && (
-          <span style={metaItem} onClick={onManage} title="Participants">
-            <Icon name="user" size={12} />{meta.members.length} member{meta.members.length === 1 ? "" : "s"}
+          <span style={metaItem} onClick={onManage} title="Üyeler">
+            <Icon name="user" size={12} />{meta.members.length} üye
           </span>
         )}
         {sync && (
-          <span style={metaItem} onClick={onManage} title="GitHub sync">
+          <span style={metaItem} onClick={onManage} title="GitHub eşitleme">
             <Icon name="github" size={12} />{sync}
           </span>
         )}
         <span style={{ ...metaItem, cursor: "default" }}>
-          {shared ? `shared${meta.myRole ? ` · ${meta.myRole}` : ""}` : isSeed ? "Personal" : meta.members !== null ? "shared by you" : "private"}
-          {archived ? " · archived" : ""}
-          {!mounted && " · not mounted"}
+          {shared ? `paylaşılan${meta.myRole ? ` · ${roleLabel(meta.myRole)}` : ""}` : isSeed ? "Kişisel" : meta.members !== null ? "siz paylaştınız" : "özel"}
+          {archived ? " · arşivlendi" : ""}
+          {!mounted && " · bağlı değil"}
         </span>
       </div>
       {menu && (
         <ContextMenu x={menu.x} y={menu.y} onClose={() => setMenu(null)} items={[
-          ...(!shared ? [{ id: "rename", label: "Rename", detail: "display label", onSelect: () => setRenaming(true) }] : []),
-          { id: "manage", label: "Manage workspace", detail: "purpose · GitHub · participants", onSelect: onManage },
+          ...(!shared ? [{ id: "rename", label: "Yeniden adlandır", detail: "görünen ad", onSelect: () => setRenaming(true) }] : []),
+          { id: "manage", label: "Çalışma alanını yönet", detail: "amaç · GitHub · üyeler", onSelect: onManage },
           ...(!shared && !isSeed ? [
-            { id: "archive", label: archived ? "Un-archive" : "Archive", detail: "collapse · keep data", onSelect: () => void onRun(async () => { await archiveWorkspace(slug, !archived); reload(); }, archived ? "Un-archived." : "Archived.") },
-            { id: "delete", label: "Delete", detail: "removes all data", onSelect: () => { if (window.confirm(`Delete "${displayName}"? This permanently removes the workspace and all its data.`)) void onRun(async () => { await deleteWorkspace(slug); layout.closeTab(tabId); }); } },
+            { id: "archive", label: archived ? "Arşivden çıkar" : "Arşivle", detail: "gizler · veriyi korur", onSelect: () => void onRun(async () => { await archiveWorkspace(slug, !archived); reload(); }, archived ? "Arşivden çıkarıldı." : "Arşivlendi.") },
+            { id: "delete", label: "Sil", detail: "tüm verileri siler", onSelect: () => { if (window.confirm(`“${displayName}” silinsin mi? Bu işlem çalışma alanını ve tüm verilerini kalıcı olarak siler.`)) void onRun(async () => { await deleteWorkspace(slug); layout.closeTab(tabId); }); } },
           ] : []),
         ]} />
       )}
@@ -300,23 +303,23 @@ function PurposeSection({ slug }: { slug: string }) {
     finally { setBusy(false); }
   };
   return (
-    <Section icon="info" title="Purpose"
+    <Section icon="info" title="Amaç"
       right={!editing && <span onClick={() => setEditing(true)} style={{ cursor: "pointer", color: "var(--t3)" }}><Icon name="edit" size={13} /></span>}>
       {err && <div role="alert" style={{ fontSize: 12, color: "var(--danger)", marginBottom: 6 }}>⚠ {err}</div>}
       {editing ? (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          <textarea autoFocus value={draft} disabled={busy} placeholder="What is this workspace for? (one line — the agent reads it to know where things belong)"
+          <textarea autoFocus value={draft} disabled={busy} placeholder="Bu çalışma alanı ne için? (tek satır — asistan, neyin nereye ait olduğunu buradan anlar)"
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void save(); } if (e.key === "Escape") { setDraft(purpose); setEditing(false); } }}
             rows={2} style={{ ...field, resize: "vertical", lineHeight: 1.5 }} />
           <div style={{ display: "flex", gap: 8 }}>
-            <button disabled={busy} onClick={() => void save()} style={btn("primary")}>{busy ? "Saving…" : "Save"}</button>
-            <button disabled={busy} onClick={() => { setDraft(purpose); setEditing(false); }} style={btn()}>Cancel</button>
+            <button disabled={busy} onClick={() => void save()} style={btn("primary")}>{busy ? "Kaydediliyor…" : "Kaydet"}</button>
+            <button disabled={busy} onClick={() => { setDraft(purpose); setEditing(false); }} style={btn()}>İptal</button>
           </div>
         </div>
       ) : (
         <div style={{ fontSize: 13.5, color: purpose ? "var(--t1)" : "var(--t3)", lineHeight: 1.5, cursor: "pointer" }} onClick={() => setEditing(true)}>
-          {purpose || "No purpose set — click to describe what this workspace is for."}
+          {purpose || "Amaç belirlenmedi — bu çalışma alanının ne için olduğunu yazmak için tıklayın."}
         </div>
       )}
     </Section>
@@ -337,9 +340,9 @@ function GitHubSection({ slug, status, published_url, defaultRepoName, busy, onR
   const hasHome = !!status?.has_home;
   const url = status?.url || published_url;
   // token: prompt value → else the saved token (backend fills it in when omitted).
-  const doPush = () => onRun(async () => { await pushWorkspace({ slug, token: pushTok.token.trim() || undefined }); setPushTok({ open: false, token: "" }); reload(); }, "Pushed to GitHub.");
-  const doPull = () => onRun(async () => { const r = await pullWorkspace({ slug, token: pullTok.token.trim() || undefined }); setPullTok({ open: false, token: "" }); reload(); return r; }, "Pulled — fast-forwarded from GitHub.");
-  const doPublish = (f: { name: string; priv: boolean; token: string }) => onRun(async () => { await publishWorkspace(f.name.trim(), f.priv, f.token.trim() || undefined, undefined, slug); setPub(null); reload(); }, "Published to GitHub.");
+  const doPush = () => onRun(async () => { await pushWorkspace({ slug, token: pushTok.token.trim() || undefined }); setPushTok({ open: false, token: "" }); reload(); }, "GitHub’a gönderildi.");
+  const doPull = () => onRun(async () => { const r = await pullWorkspace({ slug, token: pullTok.token.trim() || undefined }); setPullTok({ open: false, token: "" }); reload(); return r; }, "Çekildi — GitHub’dan fast-forward yapıldı.");
+  const doPublish = (f: { name: string; priv: boolean; token: string }) => onRun(async () => { await publishWorkspace(f.name.trim(), f.priv, f.token.trim() || undefined, undefined, slug); setPub(null); reload(); }, "GitHub’a yayımlandı.");
   // With a saved token, push/pull run straight away (no prompt); otherwise open the one-off token row.
   const onPush = () => { if (hasSaved) void doPush(); else { setPushTok({ open: true, token: "" }); setPullTok({ open: false, token: "" }); } };
   const onPull = () => { if (hasSaved) void doPull(); else { setPullTok({ open: true, token: "" }); setPushTok({ open: false, token: "" }); } };
@@ -348,43 +351,43 @@ function GitHubSection({ slug, status, published_url, defaultRepoName, busy, onR
     <Section icon="github" title="GitHub"
       right={status?.branch && <span style={{ fontFamily: "var(--mono)", fontSize: 11.5, color: "var(--t2)" }}>{status.branch}</span>}>
       {status === null ? (
-        <div style={{ fontSize: 12.5, color: "var(--t3)" }}>Checking the GitHub state…</div>
+        <div style={{ fontSize: 12.5, color: "var(--t3)" }}>GitHub durumu kontrol ediliyor…</div>
       ) : hasHome ? (<>
         <div style={{ display: "flex", alignItems: "center", gap: 12, fontSize: 12.5, color: "var(--t2)", marginBottom: 10, flexWrap: "wrap" }}>
-          {url && <a href={url} target="_blank" rel="noreferrer" style={{ color: "var(--accent)", display: "inline-flex", alignItems: "center", gap: 4 }}><Icon name="openIn" size={13} />Open on GitHub</a>}
+          {url && <a href={url} target="_blank" rel="noreferrer" style={{ color: "var(--accent)", display: "inline-flex", alignItems: "center", gap: 4 }}><Icon name="openIn" size={13} />GitHub&rsquo;da aç</a>}
           <AheadBehind ahead={status!.ahead} behind={status!.behind} tracked={status!.tracked} />
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <button disabled={busy} onClick={onPush} style={btn("primary")} title="Push this branch to its GitHub home (fast-forward only)"><span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><Icon name="upload" size={13} />Push{status!.ahead ? ` (↑${status!.ahead})` : ""}</span></button>
-          <button disabled={busy} onClick={onPull} style={btn()} title="Fetch + fast-forward from GitHub"><span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><Icon name="refresh" size={13} />Pull{status!.behind ? ` (↓${status!.behind})` : ""}</span></button>
-          {hasSaved && <span title="Using your saved GitHub token" style={{ fontSize: 11, color: "var(--t3)", display: "inline-flex", alignItems: "center", gap: 3 }}><Icon name="key" size={11} />saved token</span>}
+          <button disabled={busy} onClick={onPush} style={btn("primary")} title="Bu dalı GitHub’daki deposuna gönder (yalnızca fast-forward)"><span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><Icon name="upload" size={13} />Gönder{status!.ahead ? ` (↑${status!.ahead})` : ""}</span></button>
+          <button disabled={busy} onClick={onPull} style={btn()} title="GitHub’dan getir + fast-forward yap"><span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><Icon name="refresh" size={13} />Çek{status!.behind ? ` (↓${status!.behind})` : ""}</span></button>
+          {hasSaved && <span title="Kayıtlı GitHub belirteciniz kullanılıyor" style={{ fontSize: 11, color: "var(--t3)", display: "inline-flex", alignItems: "center", gap: 3 }}><Icon name="key" size={11} />kayıtlı belirteç</span>}
         </div>
         {pushTok.open && (
-          <TokenRow label="GitHub token (repo scope — used once, never stored)" value={pushTok.token} busy={busy}
+          <TokenRow label="GitHub belirteci (repo kapsamı — bir kez kullanılır, saklanmaz)" value={pushTok.token} busy={busy}
             onChange={(t) => setPushTok({ open: true, token: t })} onSubmit={doPush} onCancel={() => setPushTok({ open: false, token: "" })}
-            submitLabel={busy ? "Pushing…" : "Push"} required />
+            submitLabel={busy ? "Gönderiliyor…" : "Gönder"} required />
         )}
         {pullTok.open && (
-          <TokenRow label="GitHub token (optional — public repos need none)" value={pullTok.token} busy={busy}
+          <TokenRow label="GitHub belirteci (isteğe bağlı — herkese açık depolar için gerekmez)" value={pullTok.token} busy={busy}
             onChange={(t) => setPullTok({ open: true, token: t })} onSubmit={doPull} onCancel={() => setPullTok({ open: false, token: "" })}
-            submitLabel={busy ? "Pulling…" : "Pull"} />
+            submitLabel={busy ? "Çekiliyor…" : "Çek"} />
         )}
       </>) : (<>
         {/* No home yet ⇒ this is a vexa-born workspace (attached clones always have origin) — offer
             Publish on ANY of them, own or shared (the backend permission-checks the slug). */}
-        <div style={{ fontSize: 12.5, color: "var(--t2)", marginBottom: 10 }}>Not published yet — create a GitHub repo and push this workspace's full history.</div>
+        <div style={{ fontSize: 12.5, color: "var(--t2)", marginBottom: 10 }}>Henüz yayımlanmadı — bir GitHub deposu oluşturup bu çalışma alanının tüm geçmişini gönderin.</div>
         {pub === null ? (
-          <button disabled={busy} onClick={() => setPub({ name: defaultRepoName, priv: true, token: "" })} style={btn("primary")}>Publish to GitHub…</button>
+          <button disabled={busy} onClick={() => setPub({ name: defaultRepoName, priv: true, token: "" })} style={btn("primary")}>GitHub&rsquo;da yayımla…</button>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            <input autoFocus value={pub.name} placeholder="repo name" disabled={busy} onChange={(e) => setPub({ ...pub, name: e.target.value })} style={field} />
+            <input autoFocus value={pub.name} placeholder="depo adı" disabled={busy} onChange={(e) => setPub({ ...pub, name: e.target.value })} style={field} />
             <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, color: "var(--t2)", cursor: "pointer" }}>
-              <input type="checkbox" checked={pub.priv} disabled={busy} onChange={(e) => setPub({ ...pub, priv: e.target.checked })} /> private repo
+              <input type="checkbox" checked={pub.priv} disabled={busy} onChange={(e) => setPub({ ...pub, priv: e.target.checked })} /> özel depo
             </label>
-            <input type="password" value={pub.token} placeholder={hasSaved ? "GitHub token (optional — using your saved token)" : "GitHub token (repo scope — used once, never stored)"} disabled={busy} onChange={(e) => setPub({ ...pub, token: e.target.value })} style={field} />
+            <input type="password" value={pub.token} placeholder={hasSaved ? "GitHub belirteci (isteğe bağlı — kayıtlı belirteciniz kullanılıyor)" : "GitHub belirteci (repo kapsamı — bir kez kullanılır, saklanmaz)"} disabled={busy} onChange={(e) => setPub({ ...pub, token: e.target.value })} style={field} />
             <div style={{ display: "flex", gap: 8 }}>
-              <button disabled={busy || !pub.name.trim() || (!pub.token.trim() && !hasSaved)} onClick={() => doPublish(pub)} style={btn("primary")}>{busy ? "Publishing…" : "Publish"}</button>
-              <button disabled={busy} onClick={() => setPub(null)} style={btn()}>Cancel</button>
+              <button disabled={busy || !pub.name.trim() || (!pub.token.trim() && !hasSaved)} onClick={() => doPublish(pub)} style={btn("primary")}>{busy ? "Yayımlanıyor…" : "Yayımla"}</button>
+              <button disabled={busy} onClick={() => setPub(null)} style={btn()}>İptal</button>
             </div>
           </div>
         )}
@@ -394,12 +397,12 @@ function GitHubSection({ slug, status, published_url, defaultRepoName, busy, onR
 }
 
 function AheadBehind({ ahead, behind, tracked }: { ahead: number; behind: number; tracked: boolean }) {
-  if (!tracked) return <span style={{ color: "var(--t3)" }}>not yet fetched</span>;
-  if (!ahead && !behind) return <span style={{ color: "var(--green)" }}>up to date</span>;
+  if (!tracked) return <span style={{ color: "var(--t3)" }}>henüz getirilmedi</span>;
+  if (!ahead && !behind) return <span style={{ color: "var(--green)" }}>güncel</span>;
   return (
     <span style={{ display: "inline-flex", gap: 8, fontFamily: "var(--mono)" }}>
-      {ahead > 0 && <span style={{ color: "var(--accent)" }} title={`${ahead} local commit(s) to push`}>↑{ahead}</span>}
-      {behind > 0 && <span style={{ color: "var(--warn)" }} title={`${behind} remote commit(s) to pull`}>↓{behind}</span>}
+      {ahead > 0 && <span style={{ color: "var(--accent)" }} title={`gönderilecek ${ahead} yerel commit`}>↑{ahead}</span>}
+      {behind > 0 && <span style={{ color: "var(--warn)" }} title={`çekilecek ${behind} uzak commit`}>↓{behind}</span>}
     </span>
   );
 }
@@ -415,7 +418,7 @@ function TokenRow({ label, value, busy, onChange, onSubmit, onCancel, submitLabe
         style={field} />
       <div style={{ display: "flex", gap: 8 }}>
         <button disabled={busy || (required && !value.trim())} onClick={onSubmit} style={btn("primary")}>{submitLabel}</button>
-        <button disabled={busy} onClick={onCancel} style={btn()}>Cancel</button>
+        <button disabled={busy} onClick={onCancel} style={btn()}>İptal</button>
       </div>
     </div>
   );
@@ -435,11 +438,11 @@ function ParticipantsSection({ ownSlug, shared, shareWsId, myRole, setShareWsId,
   // An OWN workspace that isn't shared yet → the CTA that turns on sharing.
   if (!shareWsId) {
     return (
-      <Section icon="user" title="Participants">
-        <div style={{ fontSize: 12.5, color: "var(--t3)", marginBottom: 10 }}>Private to you. Share it to add members and collaborate.</div>
+      <Section icon="user" title="Üyeler">
+        <div style={{ fontSize: 12.5, color: "var(--t3)", marginBottom: 10 }}>Yalnızca size özel. Üye eklemek ve birlikte çalışmak için paylaşın.</div>
         <button disabled={busy || !ownSlug} style={btn("primary")}
-          onClick={() => ownSlug && onRun(async () => { const { workspace_id } = await shareEnableWorkspace(ownSlug); setShareWsId(workspace_id); reload(); }, "Sharing enabled.")}>
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><Icon name="link" size={13} />Share this workspace</span>
+          onClick={() => ownSlug && onRun(async () => { const { workspace_id } = await shareEnableWorkspace(ownSlug); setShareWsId(workspace_id); reload(); }, "Paylaşım açıldı.")}>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><Icon name="link" size={13} />Bu çalışma alanını paylaş</span>
         </button>
       </Section>
     );
@@ -456,7 +459,7 @@ function ParticipantsSection({ ownSlug, shared, shareWsId, myRole, setShareWsId,
   });
 
   return (
-    <Section icon="user" title="Participants" right={<span style={{ fontSize: 11.5, color: "var(--t3)" }}>{members.length} member{members.length === 1 ? "" : "s"}</span>}>
+    <Section icon="user" title="Üyeler" right={<span style={{ fontSize: 11.5, color: "var(--t3)" }}>{members.length} üye</span>}>
       <div style={{ display: "flex", flexDirection: "column", gap: 2, marginBottom: 10 }}>
         {members.map((m) => {
           const creator = m.role === "owner";
@@ -464,28 +467,28 @@ function ParticipantsSection({ ownSlug, shared, shareWsId, myRole, setShareWsId,
             <div key={m.subject} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 4px", borderBottom: "1px solid var(--line)" }}>
               <Icon name="user" size={14} style={{ color: "var(--t3)" }} />
               <span title={m.subject} style={{ flex: 1, fontSize: 13, color: "var(--t1)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{m.email || short(m.subject)}</span>
-              <span style={{ fontSize: 11, color: creator ? "var(--accent)" : "var(--t3)", textTransform: "uppercase", letterSpacing: ".03em" }}>{creator ? "creator" : "member"}</span>
+              <span style={{ fontSize: 11, color: creator ? "var(--accent)" : "var(--t3)", textTransform: "uppercase", letterSpacing: ".03em" }}>{creator ? "oluşturan" : "üye"}</span>
               {isOwner && !creator && (
-                <span onClick={() => onRun(async () => { await removeWorkspaceMember(shareWsId, m.subject); loadMembers(); }, "Member removed.")}
-                  title="Remove member" style={{ cursor: "pointer", color: "var(--t3)", padding: "0 3px" }}><Icon name="x" size={13} /></span>
+                <span onClick={() => onRun(async () => { await removeWorkspaceMember(shareWsId, m.subject); loadMembers(); }, "Üye çıkarıldı.")}
+                  title="Üyeyi çıkar" style={{ cursor: "pointer", color: "var(--t3)", padding: "0 3px" }}><Icon name="x" size={13} /></span>
               )}
             </div>
           );
         })}
-        {members.length === 0 && <div style={{ fontSize: 12.5, color: "var(--t3)", padding: "4px 0" }}>No members yet — invite someone below.</div>}
+        {members.length === 0 && <div style={{ fontSize: 12.5, color: "var(--t3)", padding: "4px 0" }}>Henüz üye yok — aşağıdan birini davet edin.</div>}
       </div>
 
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-        <button disabled={busy} onClick={() => setInvite({ mode: "link", role: "contributor", ttlDays: 7, emails: "", link: null })} style={btn("primary")}><span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><Icon name="link" size={13} />Invite link</span></button>
-        <button disabled={busy} onClick={() => setInvite({ mode: "email", role: "contributor", ttlDays: 7, emails: "", link: null })} style={btn()}><span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><Icon name="mail" size={13} />Add by email</span></button>
+        <button disabled={busy} onClick={() => setInvite({ mode: "link", role: "contributor", ttlDays: 7, emails: "", link: null })} style={btn("primary")}><span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><Icon name="link" size={13} />Davet bağlantısı</span></button>
+        <button disabled={busy} onClick={() => setInvite({ mode: "email", role: "contributor", ttlDays: 7, emails: "", link: null })} style={btn()}><span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><Icon name="mail" size={13} />E-posta ile ekle</span></button>
         {shared && (
           <button disabled={busy} style={{ ...btn(), marginLeft: "auto", color: "var(--danger)" }}
-            onClick={() => onRun(async () => { await leaveWorkspace(shareWsId); layout.closeTab(tabId); }, "Left the workspace.")}>
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><Icon name="logout" size={13} />Leave</span></button>
+            onClick={() => onRun(async () => { await leaveWorkspace(shareWsId); layout.closeTab(tabId); }, "Çalışma alanından ayrıldınız.")}>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}><Icon name="logout" size={13} />Ayrıl</span></button>
         )}
         {isOwner && shared && (
           <button disabled={busy} style={{ ...btn(), color: "var(--danger)" }}
-            onClick={() => { if (window.confirm("Stop sharing? All members lose access and it becomes your private workspace.")) onRun(async () => { await unshareWorkspace(shareWsId); layout.closeTab(tabId); }, "Unshared."); }}>Unshare</button>
+            onClick={() => { if (window.confirm("Paylaşım durdurulsun mu? Tüm üyeler erişimini kaybeder ve çalışma alanı yeniden size özel olur.")) onRun(async () => { await unshareWorkspace(shareWsId); layout.closeTab(tabId); }, "Paylaşım durduruldu."); }}>Paylaşımı durdur</button>
         )}
       </div>
 
@@ -503,28 +506,28 @@ function InviteDialog({ s, setS, onMint, busy, plain }: {
     <div style={plain
       ? { display: "flex", flexDirection: "column", gap: 8 }
       : { marginTop: 12, padding: "12px", background: "var(--panel2)", border: "1px solid var(--line)", borderRadius: 8, display: "flex", flexDirection: "column", gap: 8 }}>
-      {!plain && <div style={{ fontSize: 11, color: "var(--t3)", textTransform: "uppercase", letterSpacing: ".04em" }}>{s.mode === "email" ? "Add by email" : "Invite link"}</div>}
+      {!plain && <div style={{ fontSize: 11, color: "var(--t3)", textTransform: "uppercase", letterSpacing: ".04em" }}>{s.mode === "email" ? "E-posta ile ekle" : "Davet bağlantısı"}</div>}
       <div style={{ display: "flex", gap: 8 }}>
         <select value={s.role} disabled={busy} onChange={(e) => setS({ ...s, role: e.target.value, link: null })} style={{ ...field, flex: 1 }}>
-          <option value="contributor">member (read + write)</option>
-          <option value="viewer">viewer (read)</option>
+          <option value="contributor">üye (okuma + yazma)</option>
+          <option value="viewer">izleyici (okuma)</option>
         </select>
         <select value={s.ttlDays} disabled={busy} onChange={(e) => setS({ ...s, ttlDays: Number(e.target.value), link: null })} style={field}>
-          <option value={1}>1 day</option><option value={7}>7 days</option><option value={30}>30 days</option>
+          <option value={1}>1 gün</option><option value={7}>7 gün</option><option value={30}>30 gün</option>
         </select>
       </div>
       {s.mode === "email" && (
-        <input value={s.emails} placeholder="emails (comma-separated) — only these may redeem" disabled={busy}
+        <input value={s.emails} placeholder="e-posta adresleri (virgülle ayrılmış) — yalnızca bunlar kullanabilir" disabled={busy}
           onChange={(e) => setS({ ...s, emails: e.target.value, link: null })} style={field} />
       )}
       {s.link ? (
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <input readOnly value={s.link} onFocus={(e) => e.currentTarget.select()} style={{ ...field, flex: 1, fontSize: 11.5, color: "var(--t2)" }} />
-          <button onClick={() => void copyText(s.link!)} style={btn("primary")}>Copy</button>
+          <button onClick={() => void copyText(s.link!)} style={btn("primary")}>Kopyala</button>
         </div>
       ) : (
         <button disabled={busy || (s.mode === "email" && !s.emails.trim())} onClick={() => onMint(s)} style={btn("primary")}>
-          {busy ? "Creating…" : s.mode === "email" ? "Create email invite" : "Create link"}
+          {busy ? "Oluşturuluyor…" : s.mode === "email" ? "E-posta daveti oluştur" : "Bağlantı oluştur"}
         </button>
       )}
     </div>

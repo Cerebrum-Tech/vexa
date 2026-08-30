@@ -17,7 +17,7 @@ async function proxy(req: NextRequest, key: string, method: "GET" | "PUT") {
   const secret = process.env.VEXA_INTERNAL_API_SECRET || "";
   if (!adminApiUrl || !secret) {
     return NextResponse.json(
-      { error: "Admin API is not configured (VEXA_ADMIN_API_URL / VEXA_INTERNAL_API_SECRET)" },
+      { error: "Yönetici API’si yapılandırılmamış (VEXA_ADMIN_API_URL / VEXA_INTERNAL_API_SECRET)." },
       { status: 503, headers: { "Cache-Control": "no-store" } },
     );
   }

@@ -6,67 +6,67 @@ import { MdxDoc } from "../../ui-kit/MdxDoc";
 
 const SAMPLE = `# Jane Liu
 
-VP of Engineering at [[Company ACME]] — primary contact for the platform migration.
+[[Company ACME]] şirketinde Mühendislik Başkan Yardımcısı — platform geçişi için birincil iletişim kişisi.
 
 <Note>
-  Last synced from the **2026-06-30 sync call**. The agent updates this doc after every meeting.
+  En son **2026-06-30 tarihli durum toplantısından** eşitlendi. Asistan bu belgeyi her toplantıdan sonra günceller.
 </Note>
 
 <CardGroup cols={2}>
-  <Card title="Open tasks" icon="tasks" href="kg/entities/project/platform-migration.md">
-    3 items blocked on ACME's security review.
+  <Card title="Açık görevler" icon="tasks" href="kg/entities/project/platform-migration.md">
+    3 madde ACME’nin güvenlik incelemesine takılı durumda.
   </Card>
-  <Card title="Meeting notes" icon="cal" href="kg/entities/meeting/2026-06-30-sync.md">
-    Weekly sync — decisions on rollout phasing.
+  <Card title="Toplantı notları" icon="cal" href="kg/entities/meeting/2026-06-30-sync.md">
+    Haftalık durum toplantısı — devreye alma aşamalarına ilişkin kararlar.
   </Card>
 </CardGroup>
 
-Links: [migration plan](kg/entities/project/platform-migration.md) opens as a workspace
-tab; [ACME docs](https://example.com/acme) opens in the browser.
+Bağlantılar: [geçiş planı](kg/entities/project/platform-migration.md) çalışma alanı sekmesi
+olarak açılır; [ACME belgeleri](https://example.com/acme) tarayıcıda açılır.
 
-## Rollout plan
+## Devreye alma planı
 
 <Steps>
-  <Step title="Security review sign-off">
-    ACME infosec reviews the data-residency addendum. Owner: [[Jane Liu]].
+  <Step title="Güvenlik incelemesi onayı">
+    ACME bilgi güvenliği ekibi veri yerleşimi ek maddesini inceler. Sorumlu: [[Jane Liu]].
   </Step>
-  <Step title="Pilot cohort">
-    20 seats in the trading desk, two weeks, success = daily active use.
+  <Step title="Pilot grup">
+    İşlem masasında 20 kullanıcı, iki hafta, başarı ölçütü = günlük aktif kullanım.
   </Step>
-  <Step title="Org-wide rollout">
-    Gated on pilot metrics and the *quarterly budget checkpoint*.
+  <Step title="Kurum geneline yayılım">
+    Pilot ölçümlerine ve *çeyreklik bütçe kontrolüne* bağlı.
   </Step>
 </Steps>
 
-## Details
+## Ayrıntılar
 
 <Tabs>
-  <Tab title="Background">
-    Jane leads a 40-person platform org. Prefers async updates; escalate only via email.
+  <Tab title="Genel bilgi">
+    Jane, 40 kişilik bir platform ekibini yönetiyor. Eşzamansız güncellemeleri tercih ediyor; acil konuları yalnızca e-posta ile iletin.
 
-    - **Skills:** Rust, distributed systems
-    - **Location:** San Francisco
+    - **Yetkinlikler:** Rust, dağıtık sistemler
+    - **Konum:** San Francisco
   </Tab>
-  <Tab title="History">
-    | Date | Event |
+  <Tab title="Geçmiş">
+    | Tarih | Olay |
     | --- | --- |
-    | 2026-05-12 | Intro call |
-    | 2026-06-30 | Migration sync — agreed pilot scope |
+    | 2026-05-12 | Tanışma görüşmesi |
+    | 2026-06-30 | Geçiş toplantısı — pilot kapsamı üzerinde anlaşıldı |
   </Tab>
 </Tabs>
 
 <Warning>
-  Contract renewal is **45 days out** — surface pricing before the pilot ends.
+  Sözleşme yenilemesine **45 gün kaldı** — pilot bitmeden fiyatlandırmayı gündeme getirin.
 </Warning>
 `;
 
-const BROKEN = `# Fallback demo
+const BROKEN = `# Yedek görünüm gösterimi
 
-This file has invalid MDX (an unclosed <tag and stray {braces}), the kind of thing
-an agent occasionally writes. It still renders — as plain markdown.
+Bu dosya, asistanların ara sıra yazdığı türden geçersiz MDX içeriyor: kapatılmamış bir
+<etiket ve başıboş {süslü parantezler}. Yine de düz Markdown olarak görüntülenir.
 
-- the page never breaks
-- worst case we lose interactivity, not content
+- sayfa asla bozulmaz
+- en kötü ihtimalle etkileşimi kaybederiz, içeriği değil
 `;
 
 function Pane({ title, children }: { title: string; children: React.ReactNode }) {
@@ -82,24 +82,24 @@ export default function MdxDemo() {
   return (
     <div style={{ minHeight: "100vh", background: "var(--bg)", color: "var(--t1)", padding: "26px 28px", display: "flex", flexDirection: "column", gap: 18 }}>
       <div>
-        <div style={{ fontSize: 17, fontWeight: 600 }}>Workspace MDX renderer</div>
+        <div style={{ fontSize: 17, fontWeight: 600 }}>Çalışma alanı MDX görüntüleyicisi</div>
         <div style={{ fontSize: 12.5, color: "var(--t3)", marginTop: 3 }}>
-          agent-authored markdown (left) → live interface (right) · runtime-compiled with @mdx-js/mdx, closed component registry, plain-markdown fallback
+          asistanın yazdığı Markdown (solda) → canlı arayüz (sağda) · @mdx-js/mdx ile çalışma zamanında derlenir, kapalı bileşen kaydı, düz Markdown yedeği
         </div>
       </div>
       <div style={{ display: "flex", gap: 14, alignItems: "stretch", minHeight: 0 }}>
-        <Pane title="kg/entities/person/jane-liu.md (source)">
+        <Pane title="kg/entities/person/jane-liu.md (kaynak)">
           <pre style={{ fontFamily: "var(--mono)", fontSize: 11.5, lineHeight: 1.55, color: "var(--t2)", whiteSpace: "pre-wrap" }}>{SAMPLE}</pre>
         </Pane>
-        <Pane title="rendered">
+        <Pane title="çıktı">
           <div style={{ fontSize: 14, lineHeight: 1.6 }}><MdxDoc>{SAMPLE}</MdxDoc></div>
         </Pane>
       </div>
       <div style={{ display: "flex", gap: 14, alignItems: "stretch", minHeight: 0 }}>
-        <Pane title="malformed MDX (source)">
+        <Pane title="hatalı MDX (kaynak)">
           <pre style={{ fontFamily: "var(--mono)", fontSize: 11.5, lineHeight: 1.55, color: "var(--t2)", whiteSpace: "pre-wrap" }}>{BROKEN}</pre>
         </Pane>
-        <Pane title="rendered — graceful fallback">
+        <Pane title="çıktı — sorunsuz yedek görünüm">
           <div style={{ fontSize: 14, lineHeight: 1.6 }}><MdxDoc>{BROKEN}</MdxDoc></div>
         </Pane>
       </div>

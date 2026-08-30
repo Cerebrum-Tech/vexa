@@ -43,7 +43,7 @@ async function forward(req: NextRequest, params: Promise<{ path: string[] }>): P
   // Meetings-only mode (NEXT_PUBLIC_TERMINAL_MODE=meetings): the agent branch is refused at the edge —
   // hiding the surfaces client-side is not enough, a hand-crafted request must not reach agent-api.
   if (refusedInMeetingsMode(joined)) {
-    return new Response(JSON.stringify({ error: "not_found", detail: "agent endpoints are disabled in meetings mode" }), { status: 404, headers: { "Content-Type": "application/json" } });
+    return new Response(JSON.stringify({ error: "not_found", detail: "Asistan uç noktaları toplantı modunda devre dışı." }), { status: 404, headers: { "Content-Type": "application/json" } });
   }
   const { url, headers } = await upstreamFor(joined, req.nextUrl.search);
 

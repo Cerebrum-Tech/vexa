@@ -28,14 +28,14 @@ export function OpsNotice() {
 
   if (!status.active) return null;
   return (
-    <div title="Maintenance in progress — brief interruptions (chat pauses, reconnects) are expected until this notice clears."
+    <div title="Bakım çalışması sürüyor — bu bildirim kalkana kadar kısa kesintiler (sohbetin duraklaması, yeniden bağlanma) beklenen bir durumdur."
       style={{ display: "flex", alignItems: "center", gap: 7, padding: "3px 10px", borderRadius: 999,
         background: "color-mix(in srgb, var(--warn, #d4a72c) 18%, transparent)",
         border: "1px solid color-mix(in srgb, var(--warn, #d4a72c) 45%, transparent)",
         color: "var(--t1)", fontSize: 12, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 }}>
       <Icon name="zap" size={12} style={{ color: "var(--warn, #d4a72c)", flex: "none" }} />
       <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
-        {status.message || "Maintenance in progress — brief interruptions expected"}
+        {status.message || "Bakım çalışması sürüyor — kısa kesintiler olabilir"}
       </span>
     </div>
   );

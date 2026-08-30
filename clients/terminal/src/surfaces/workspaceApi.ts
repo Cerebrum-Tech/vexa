@@ -260,7 +260,7 @@ export async function readWorkspaceGit(opts?: { slug?: string }): Promise<GitSta
   // A 200 with the WRONG shape (an error/degraded body) is still a failure — throw loud rather than
   // hand the surface a malformed GitState (the GitSection crash). The surface shows it; never crashes.
   if (!g || !Array.isArray(g.changes) || !Array.isArray(g.commits)) {
-    throw new ApiError(200, "malformed git state (missing changes/commits)", "/api/workspace/git");
+    throw new ApiError(200, "git durumu bozuk (changes/commits alanları eksik)", "/api/workspace/git");
   }
   return g;
 }

@@ -198,7 +198,7 @@ export function Wikilink({ title }: { title: string }) {
   const c = (target?.type && ENTITY_CHIP[target.type]) || DEFAULT_ENTITY_CHIP;
   if (missing) {
     return (
-      <span title={`No entity doc found for “${title}” in the mounted workspaces`}
+      <span title={`Bağlı çalışma alanlarında “${title}” için varlık dosyası bulunamadı`}
         style={{ display: "inline-flex", alignItems: "center", gap: 5, verticalAlign: "baseline",
           background: "var(--panel2)", border: "1px dashed var(--line)", borderRadius: 999,
           padding: "0.5px 9px 0.5px 7px", color: "var(--t3)", fontSize: "0.92em",

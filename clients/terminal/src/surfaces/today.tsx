@@ -2,14 +2,14 @@
 /** Today — the Meetings surface's CENTER tab, v5 AGENDA TIMELINE (design-spec
  *  today-v5-agenda-timeline, owner-approved mockup). ONE time axis:
  *
- *    "Coming up"  — a day-grouped agenda card for the visible week (‹ › pages weeks). A live
+ *    "Yaklaşan"   — a day-grouped agenda card for the visible week (‹ › pages weeks). A live
  *                   meeting shows IN PLACE on its day row (green bar) — no separate NOW zone.
  *    past feed    — reverse-chron day-grouped rows below: faces · title · one state phrase.
  *
  *  RENDERING LAW (binding): a meeting row is ONE line — title + time (+ faces on past rows).
- *  The ONLY extra ink is ONE inline deviation phrase (`in meeting →` · `couldn't import` ·
- *  `no brief yet` · `recap ready`), each deep-linking to the right page. A prepared meeting is
- *  the quiet default and carries NO phrase. Depth lives on the per-state pages, not here.
+ *  The ONLY extra ink is ONE inline deviation phrase (`toplantıda →` · `içe aktarılamadı` ·
+ *  `hazırlık notu yok` · `özet hazır`), each deep-linking to the right page. A prepared meeting
+ *  is the quiet default and carries NO phrase. Depth lives on the per-state pages, not here.
  *  Supersedes the v4 zones (NOW/NEXT/THIS WEEK/LATER/TO REVIEW) — same intent, less vocabulary. */
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { registerTab } from "../contributions";
@@ -115,10 +115,10 @@ export function pastFeed(groups: MeetingGroup[], cap: number = PAST_CAP): PastDa
  *  workspace (frame-6 flow) is PREPARED — quiet, same as a bound workspace. */
 export function deviationPhrase(g: MeetingGroup, hasOwnBrief = false): { text: string; tone: "live" | "danger" | "accent" } | null {
   const m = g.current;
-  if (g.phase === "live") return { text: "in meeting →", tone: "live" };
-  if (m.auto_join_error) return { text: "couldn’t import — no meeting link", tone: "danger" };
-  if (!m.native_id && !m.meeting_url) return { text: "no meeting link", tone: "danger" };
-  if (!m.workspace_id && !hasOwnBrief) return { text: "no brief yet", tone: "accent" };
+  if (g.phase === "live") return { text: "toplantıda →", tone: "live" };
+  if (m.auto_join_error) return { text: "içe aktarılamadı — toplantı bağlantısı yok", tone: "danger" };
+  if (!m.native_id && !m.meeting_url) return { text: "toplantı bağlantısı yok", tone: "danger" };
+  if (!m.workspace_id && !hasOwnBrief) return { text: "hazırlık notu yok", tone: "accent" };
   return null;
 }
 
@@ -139,14 +139,18 @@ function useOwnWorkspaceTree(): string[] | null {
 }
 
 // ── rendering ─────────────────────────────────────────────────────────────────────────────────
+/** The UI locale. Every month, weekday and clock on this surface is formatted in Turkish —
+ *  Intl otherwise follows the BROWSER's locale, which would print English names in Turkish rows. */
+const LOCALE = "tr-TR";
+
 const label = (m: MeetingMock) => m.title_custom ?? (m.native_id ?? m.title).replace(/^Google Meet · /, "");
 
 const toneColor = { live: "var(--green)", danger: "var(--danger)", accent: "var(--accent)" } as const;
 
 function timeShort(at?: string): string {
-  if (!at) return "no time set";
-  try { return new Date(at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }); }
-  catch { return "scheduled"; }
+  if (!at) return "saat belirtilmedi";
+  try { return new Date(at).toLocaleTimeString(LOCALE, { hour: "numeric", minute: "2-digit" }); }
+  catch { return "zamanlandı"; }
 }
 
 function Faces({ m }: { m: MeetingMock }) {
@@ -206,14 +210,14 @@ function DayRow({ day, isToday, ownTree }: { day: AgendaDay; isToday: boolean; o
           {day.date.getDate()}
         </span>
         <span style={{ fontSize: 10, color: "var(--t3)", lineHeight: 1.3 }}>
-          {day.date.toLocaleString(undefined, { month: "long" })}
+          {day.date.toLocaleString(LOCALE, { month: "long" })}
           {isToday && <span style={{ display: "inline-block", width: 4, height: 4, borderRadius: "50%", background: "var(--accent)", marginLeft: 3, verticalAlign: 4 }} />}
-          <br />{day.date.toLocaleString(undefined, { weekday: "short" })}
+          <br />{day.date.toLocaleString(LOCALE, { weekday: "short" })}
         </span>
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 0 }}>
         {day.groups.length === 0
-          ? <span style={{ fontSize: 12.5, color: "var(--t3)", padding: "2px 0" }}>No events today</span>
+          ? <span style={{ fontSize: 12.5, color: "var(--t3)", padding: "2px 0" }}>Bugün toplantı yok</span>
           : day.groups.map((g) => <EventRow key={g.key} g={g} ownTree={ownTree} />)}
       </div>
     </div>
@@ -228,8 +232,8 @@ function PastLine({ m }: { m: MeetingMock }) {
     fetchDurableTranscript(m.id)
       .then((t) => {
         if (!on) return;
-        if (t.notes.length) setLine(`${t.notes.length} notes`);
-        else if (t.lines?.length) setLine(`${t.lines.length} lines`);
+        if (t.notes.length) setLine(`${t.notes.length} not`);
+        else if (t.lines?.length) setLine(`${t.lines.length} satır`);
       })
       .catch(() => {});
     return () => { on = false; };
@@ -237,10 +241,10 @@ function PastLine({ m }: { m: MeetingMock }) {
   const dur = (() => {
     if (!m.start_time || !m.end_time) return "";
     const min = Math.round((new Date(m.end_time).getTime() - new Date(m.start_time).getTime()) / 60000);
-    return min > 0 ? `${min}m` : "";
+    return min > 0 ? `${min}dk` : "";
   })();
   const when = m.start_time
-    ? new Date(m.start_time).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }) : "";
+    ? new Date(m.start_time).toLocaleTimeString(LOCALE, { hour: "numeric", minute: "2-digit" }) : "";
   return <>{[when, dur, line].filter(Boolean).join(" · ")}</>;
 }
 
@@ -250,8 +254,8 @@ function PastRow({ e, reviewedIds }: { e: PastEntry; reviewedIds: Set<string> })
   const open = () => { markReviewed(run.id); layout.openTab(meetingTab(run)); };
   const unreviewed = !reviewedIds.has(run.id);
   const phrase = run.has_recording
-    ? (unreviewed ? { text: "recap ready", color: "var(--accent)" } : null)
-    : { text: "nothing captured", color: "var(--t3)" };
+    ? (unreviewed ? { text: "özet hazır", color: "var(--accent)" } : null)
+    : { text: "kayıt alınmadı", color: "var(--t3)" };
   return (
     <div onClick={open}
       style={{ display: "grid", gridTemplateColumns: "auto 1fr auto", alignItems: "center", gap: 10,
@@ -292,15 +296,15 @@ function TodayView() {
     <div style={{ height: "100%", overflowY: "auto", padding: "18px 22px" }}>
       <div style={{ maxWidth: 720 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <span style={{ fontSize: 17, fontWeight: 700, color: "var(--t1)", flex: 1 }}>Coming up</span>
+          <span style={{ fontSize: 17, fontWeight: 700, color: "var(--t1)", flex: 1 }}>Yaklaşan toplantılar</span>
           {weekOffset > 0 && (
             <span style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--t3)" }}>
-              {days[0]?.date.toLocaleDateString(undefined, { month: "short", day: "numeric" }) ?? ""} →
+              {days[0]?.date.toLocaleDateString(LOCALE, { month: "short", day: "numeric" }) ?? ""} →
             </span>
           )}
-          <button aria-label="previous week" style={{ ...pager, opacity: weekOffset === 0 ? 0.4 : 1 }}
+          <button aria-label="önceki hafta" style={{ ...pager, opacity: weekOffset === 0 ? 0.4 : 1 }}
             disabled={weekOffset === 0} onClick={() => setWeekOffset((v) => Math.max(0, v - 1))}>‹</button>
-          <button aria-label="next week" style={pager} onClick={() => setWeekOffset((v) => Math.min(8, v + 1))}>›</button>
+          <button aria-label="sonraki hafta" style={pager} onClick={() => setWeekOffset((v) => Math.min(8, v + 1))}>›</button>
         </div>
 
         {empty ? (
@@ -312,7 +316,7 @@ function TodayView() {
             <MeetingsOnboarding variant="slim" />
             <div style={{ marginTop: 14, border: "1px solid var(--line)", borderRadius: 12, background: "var(--panel)" }}>
               {days.length === 0
-                ? <div style={{ padding: "14px 16px", fontSize: 12.5, color: "var(--t3)" }}>Nothing this week.</div>
+                ? <div style={{ padding: "14px 16px", fontSize: 12.5, color: "var(--t3)" }}>Bu hafta toplantı yok.</div>
                 : days.map((d) => <DayRow key={d.key} day={d} isToday={d.key === todayKey} ownTree={ownTree} />)}
             </div>
           </>
@@ -322,7 +326,7 @@ function TodayView() {
           <div key={day.key}>
             <div style={{ fontFamily: "var(--mono)", fontSize: 10, letterSpacing: ".1em", textTransform: "uppercase",
               color: "var(--t3)", margin: "18px 0 4px" }}>
-              {day.date.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}
+              {day.date.toLocaleDateString(LOCALE, { weekday: "short", month: "short", day: "numeric" })}
             </div>
             {day.entries.map((e) => <PastRow key={e.run.id} e={e} reviewedIds={reviewedIds} />)}
           </div>
@@ -330,7 +334,7 @@ function TodayView() {
 
         {!empty && (
           <div style={{ fontSize: 11.5, color: "var(--t3)", margin: "24px 2px 10px", lineHeight: 1.5 }}>
-            Older meetings live in Knowledge — ask the agent about anything that was said or decided.
+            Eski toplantılar Bilgi alanında bulunur — konuşulanlar ve kararlar hakkında asistana sorabilirsiniz.
           </div>
         )}
       </div>

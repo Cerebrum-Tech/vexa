@@ -75,7 +75,7 @@ function compile(source: string): CompileResult {
       "useState",
       "useMemo",
       "useEffect",
-      `"use strict";\nconst exports = {}; let actions;\n${moduleCode}\nconst ViewComponent = (typeof exports !== "undefined" && exports.default) || (typeof Component !== "undefined" && Component);\nif (typeof ViewComponent !== "function") throw new Error("Meeting Canvas source must default-export a React component.");\nreturn function CanvasCompiledView(){ actions = useActions(); return React.createElement(ViewComponent); };`,
+      `"use strict";\nconst exports = {}; let actions;\n${moduleCode}\nconst ViewComponent = (typeof exports !== "undefined" && exports.default) || (typeof Component !== "undefined" && Component);\nif (typeof ViewComponent !== "function") throw new Error("Toplantı görünümü kaynağı varsayılan olarak tek bir React bileşeni dışa aktarmalı.");\nreturn function CanvasCompiledView(){ actions = useActions(); return React.createElement(ViewComponent); };`,
     );
     const component = fn(React, ui, useMeeting, useTranscript, useSpeakers, useEntities, useSignals, useMeetingDocs, useMeetingNotes, useActions, React.useState, React.useMemo, React.useEffect) as ComponentType;
     const result: CompileResult = { ok: true, component, code: moduleCode };
@@ -83,7 +83,7 @@ function compile(source: string): CompileResult {
     return result;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    const result: CompileResult = { ok: false, errors: [`Canvas compile failed: ${msg}`] };
+    const result: CompileResult = { ok: false, errors: [`Görünüm derlenemedi: ${msg}`] };
     cache.set(source, result);
     return result;
   }
@@ -104,9 +104,9 @@ function FailureNotice({ failure, onDismiss }: { failure: CanvasFailure; onDismi
     >
       <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
         <span style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--danger)", flex: "none" }} />
-        <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>View update failed; keeping previous</span>
-        <button type="button" onClick={() => setOpen((next) => !next)} style={{ border: "none", background: "transparent", color: "var(--accent)", fontSize: 12, cursor: "pointer", padding: 0 }}>{open ? "Hide" : "Details"}</button>
-        <button type="button" onClick={onDismiss} style={{ border: "none", background: "transparent", color: "var(--t3)", fontSize: 12, cursor: "pointer", padding: 0 }}>Dismiss</button>
+        <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>Görünüm güncellenemedi — önceki görünüm korunuyor</span>
+        <button type="button" onClick={() => setOpen((next) => !next)} style={{ border: "none", background: "transparent", color: "var(--accent)", fontSize: 12, cursor: "pointer", padding: 0 }}>{open ? "Gizle" : "Ayrıntılar"}</button>
+        <button type="button" onClick={onDismiss} style={{ border: "none", background: "transparent", color: "var(--t3)", fontSize: 12, cursor: "pointer", padding: 0 }}>Kapat</button>
       </div>
       {open && <pre style={{ margin: "8px 0 0", maxHeight: 150, overflow: "auto", whiteSpace: "pre-wrap", color: "var(--t3)", fontSize: 11, lineHeight: 1.45 }}>{detail}</pre>}
     </div>
@@ -181,13 +181,13 @@ export function CanvasRuntime({ source }: { source: string }) {
   const failTrial = useCallback((candidate: ActiveView, error: Error) => {
     const message = error.message || String(error);
     setPending((current) => current?.source === candidate.source ? null : current);
-    setFailure({ source: candidate.source, errors: [`Canvas render failed: ${message}`] });
+    setFailure({ source: candidate.source, errors: [`Görünüm çizilemedi: ${message}`] });
     console.warn("meeting canvas trial render failed", message);
   }, []);
 
   const activeError = useCallback((candidate: ActiveView, error: Error) => {
     const message = error.message || String(error);
-    setFailure({ source: candidate.source, errors: [`Canvas render failed after promotion: ${message}`] });
+    setFailure({ source: candidate.source, errors: [`Görünüm yayına alındıktan sonra çizilemedi: ${message}`] });
     console.warn("meeting canvas visible render failed", message);
   }, []);
 
@@ -201,12 +201,12 @@ export function CanvasRuntime({ source }: { source: string }) {
         <RenderBoundary
           resetKey={`active:${active.source}`}
           onError={(error) => activeError(active, error)}
-          fallback={() => <ui.Empty title="Canvas view paused" body="The last promoted view hit a render issue. The agent can inspect the update note." />}
+          fallback={() => <ui.Empty title="Görünüm duraklatıldı" body="Yayına alınan son görünümde bir çizim sorunu oluştu. Asistan güncelleme notunu inceleyebilir." />}
         >
           <Active />
         </RenderBoundary>
       ) : (
-        <ui.Empty title="Loading canvas view" body="The harness is checking the view before showing it." />
+        <ui.Empty title="Görünüm yükleniyor" body="Görünüm gösterilmeden önce denetleniyor." />
       )}
       {pending && <HiddenTrial candidate={pending} onSuccess={promote} onError={failTrial} />}
     </div>

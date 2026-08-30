@@ -66,8 +66,8 @@ export function meetingHealth(
 
 export function formatElapsed(ms: number): string {
   const s = Math.floor(ms / 1000);
-  if (s < 60) return `${s}s`;
+  if (s < 60) return `${s} sn`;
   const m = Math.floor(s / 60);
   const rem = s % 60;
-  return rem ? `${m}m ${rem}s` : `${m}m`;
+  return rem ? `${m} dk ${rem} sn` : `${m} dk`;
 }

@@ -10,16 +10,16 @@ describe('defaultBotName', () => {
     delete process.env.NEXT_PUBLIC_DEFAULT_BOT_NAME;
   });
 
-  it('returns "Vexa" when env is unset', () => {
-    expect(defaultBotName()).toBe('Vexa');
+  it('returns the Innova meeting assistant name when env is unset', () => {
+    expect(defaultBotName()).toBe('Innova Toplantı Asistanı');
   });
 
   it('reads env at call time', () => {
-    expect(defaultBotName()).toBe('Vexa');
+    expect(defaultBotName()).toBe('Innova Toplantı Asistanı');
     process.env.NEXT_PUBLIC_DEFAULT_BOT_NAME = 'MyBot';
     expect(defaultBotName()).toBe('MyBot');
     delete process.env.NEXT_PUBLIC_DEFAULT_BOT_NAME;
-    expect(defaultBotName()).toBe('Vexa');
+    expect(defaultBotName()).toBe('Innova Toplantı Asistanı');
   });
 
   it('trims whitespace', () => {

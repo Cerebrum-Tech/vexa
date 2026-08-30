@@ -27,37 +27,37 @@ const FIX = {
 
 describe("presentError — ApiError → user truth (fixture range)", () => {
   it("network (status 0) → couldn't reach the server", () => {
-    expect(presentError(FIX.network).headline).toBe("Couldn't reach the Vexa server — check that the stack is running.");
+    expect(presentError(FIX.network).headline).toBe("Innova Toplantı Asistanı sunucusuna ulaşılamadı — servislerin çalıştığını kontrol edin.");
   });
   it("gateway-down 502 → backend-unreachable truth, NOT the plumbing string", () => {
     const p = presentError(FIX.gatewayDown);
-    expect(p.headline).toBe("The Vexa server can't reach a backend service right now.");
+    expect(p.headline).toBe("Innova Toplantı Asistanı şu anda bir arka uç servisine ulaşamıyor.");
     expect(p.headline).not.toContain("502");
     expect(p.headline).not.toContain("ConnectError");
     expect(p.headline).not.toContain("/api/");
   });
   it("upstream-timeout 504 → same backend-unreachable truth", () => {
-    expect(presentError(FIX.upstreamTimeout).headline).toBe("The Vexa server can't reach a backend service right now.");
+    expect(presentError(FIX.upstreamTimeout).headline).toBe("Innova Toplantı Asistanı şu anda bir arka uç servisine ulaşamıyor.");
   });
   it("auth 401 → key rejected, sign in again", () => {
-    expect(presentError(FIX.auth).headline).toBe("Your API key was rejected — sign in again.");
+    expect(presentError(FIX.auth).headline).toBe("API anahtarınız reddedildi — yeniden giriş yapın.");
   });
   it("scope 403 → no access", () => {
-    expect(presentError(FIX.scope).headline).toBe("Your key doesn't have access to this.");
+    expect(presentError(FIX.scope).headline).toBe("Anahtarınızın buna erişim yetkisi yok.");
   });
   it("validation 422 with a JSON payload detail → generic (payloads are operator-only)", () => {
     const p = presentError(FIX.validation422Json);
-    expect(p.headline).toBe("The request failed (422).");
+    expect(p.headline).toBe("İstek tamamlanamadı (422).");
     expect(p.headline).not.toContain("{");
   });
   it("rate-limit 429 → rate limit truth", () => {
-    expect(presentError(FIX.rateLimit).headline).toBe("Rate limit hit — try again in a moment.");
+    expect(presentError(FIX.rateLimit).headline).toBe("İstek sınırına ulaşıldı — birazdan yeniden deneyin.");
   });
   it("A3: a typed backend 503 detail passes through VERBATIM — never genericized", () => {
     expect(presentError(FIX.typed503).headline).toBe(FIX.typed503.detail);
   });
   it("non-JSON body (empty detail) → generic with the status", () => {
-    expect(presentError(FIX.emptyDetail).headline).toBe("The request failed (500).");
+    expect(presentError(FIX.emptyDetail).headline).toBe("İstek tamamlanamadı (500).");
   });
 });
 
@@ -83,19 +83,19 @@ describe("presentError — loudness no-regression (A4, P18)", () => {
 
 describe("presentError — non-ApiError failures", () => {
   it("a fetch()-level TypeError reads as the network truth", () => {
-    expect(presentError(new TypeError("Failed to fetch")).headline).toBe("Couldn't reach the Vexa server — check that the stack is running.");
+    expect(presentError(new TypeError("Failed to fetch")).headline).toBe("Innova Toplantı Asistanı sunucusuna ulaşılamadı — servislerin çalıştığını kontrol edin.");
   });
   it("a prose Error message (a client edge's own user-facing reason) passes through", () => {
     expect(presentError(new Error("That doesn't look like a valid ICS address.")).headline).toBe("That doesn't look like a valid ICS address.");
   });
   it("a payload-shaped Error message → generic", () => {
     const p = presentError(new Error('{"detail":"boom"}'));
-    expect(p.headline).toBe("Something went wrong — details are in the browser console.");
+    expect(p.headline).toBe("İşlem tamamlanamadı — ayrıntılar tarayıcı konsolunda.");
     expect(p.detail).toBe('{"detail":"boom"}');
   });
   it("a non-Error throw → generic, stringified on detail", () => {
     const p = presentError("boom");
-    expect(p.headline).toBe("Something went wrong — details are in the browser console.");
+    expect(p.headline).toBe("İşlem tamamlanamadı — ayrıntılar tarayıcı konsolunda.");
     expect(p.detail).toBe("boom");
   });
 });

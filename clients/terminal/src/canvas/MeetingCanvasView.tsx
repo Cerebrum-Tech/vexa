@@ -2,10 +2,11 @@
 import { useState } from "react";
 import { CanvasActionsProvider, useActions, OPEN_ENTITY_EVENT } from "./actions";
 import { MeetingHealthBanner } from "./MeetingHealthBanner";
-import { LiveTranscriptEngine, type EngineActions, type EngineEntity, type EngineSignal } from "./LiveTranscriptEngine";
+import { LiveTranscriptEngine, entityKindLabel, signalLabel, type EngineActions, type EngineEntity, type EngineSignal } from "./LiveTranscriptEngine";
 import { useMeetingNotes } from "./notes";
 import { deriveProcessingView } from "./processingView";
-import { MeetingScopeProvider, MeetingSourceProvider, useEntities, useMeeting, useSignals } from "./useMeeting";
+import { MeetingScopeProvider, MeetingSourceProvider, useEntities, useMeeting, useMeetingDocs, useSignals } from "./useMeeting";
+import { AutomaticMeetingRecap } from "./AutomaticMeetingRecap";
 
 export const MEETING_CANVAS_CONTENT_INSET = 18;
 
@@ -50,16 +51,16 @@ function ProcessedTranscript() {
 
   const engineActions: EngineActions = {
     // Research in the VISIBLE chat (so the user sees it), not a hidden fire-and-forget session.
-    research: (e) => actions.ask(`Research the ${e.kind} "${e.name}" using the web and my knowledge graph. Write or update its entity doc and commit, then summarize what you found.`),
+    research: (e) => actions.ask(`"${e.name}" adlı ${entityKindLabel(e.kind)} hakkında web’de ve bilgi grafiğimde araştırma yap. Varlık belgesini yaz ya da güncelle ve commit et, sonra bulduklarını özetle.`),
     // Open the entity's doc — by its path if known, else resolve by name; reveals the center if needed.
     openEntityDoc: (e) => { if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent(OPEN_ENTITY_EVENT, { detail: { path: e.docPath, wikilink: e.name } })); },
-    onSignal: (sig) => actions.ask(`Create a task / fact-check this ${sig.kind}: ${sig.label}`),
+    onSignal: (sig) => actions.ask(`Bu ${signalLabel(sig.kind)} için görev oluştur ya da doğruluğunu kontrol et: ${sig.label}`),
   };
 
   return (
     <LiveTranscriptEngine
       segments={segments}
-      emptyLabel="Processing transcript…"
+      emptyLabel="Transkript işleniyor…"
       entities={entities}
       signals={signals}
       actions={engineActions}
@@ -69,6 +70,7 @@ function ProcessedTranscript() {
 
 function MeetingCanvasBody({ meetingId }: { meetingId?: string }) {
   const { meeting, transcript } = useMeeting();
+  const docs = useMeetingDocs();
   const live = meeting.live === true;
   const hasNotes = (transcript.notes?.length ?? 0) > 0;
   // Durable truth wins over a stale list `live` flag ([N8] — the row can stay stuck on a live
@@ -102,7 +104,7 @@ function MeetingCanvasBody({ meetingId }: { meetingId?: string }) {
   };
 
   // Completed meetings get view names (nothing is "processing" any more); live keeps the arm/disarm wording.
-  const label = effectiveLive ? `Processing ${processing ? "on" : "off"}` : (processing ? "Processed" : "Raw");
+  const label = effectiveLive ? `İşleme ${processing ? "açık" : "kapalı"}` : (processing ? "İşlenmiş" : "Ham");
 
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column", minHeight: 0, background: "var(--bg)" }}>
@@ -111,7 +113,7 @@ function MeetingCanvasBody({ meetingId }: { meetingId?: string }) {
           type="button"
           onClick={toggleProcessing}
           aria-pressed={processing}
-          title={processing ? "Showing the cleaned, copilot-processed view" : (effectiveLive ? "Showing the raw transcript — flip on for processing" : "Showing the raw transcript")}
+          title={processing ? "Temizlenmiş asistan görünümü gösteriliyor" : (effectiveLive ? "Ham transkript gösteriliyor — işlemek için açın" : "Ham transkript gösteriliyor")}
           style={{
             display: "flex", alignItems: "center", gap: 7, cursor: "pointer",
             background: processing ? "var(--accent)" : "transparent",
@@ -123,11 +125,12 @@ function MeetingCanvasBody({ meetingId }: { meetingId?: string }) {
           <span style={{ width: 7, height: 7, borderRadius: "50%", background: processing ? "var(--on-accent)" : "var(--t3)", flex: "none" }} />
           {label}
         </button>
-        <span style={{ fontSize: 11.5, color: "var(--t3)" }}>{processing ? "cleaned + copilot" : "raw transcript"}</span>
+        <span style={{ fontSize: 11.5, color: "var(--t3)" }}>{processing ? "temizlenmiş + asistan" : "Ham transkript"}</span>
       </div>
       <MeetingHealthBanner />
       <main style={{ flex: 1, minHeight: 0, overflow: "auto" }}>
         <div style={{ padding: MEETING_CANVAS_CONTENT_INSET }}>
+          <AutomaticMeetingRecap status={meeting.status} reportPath={docs.report.path} />
           {processing ? <ProcessedTranscript /> : <RawTranscript />}
         </div>
       </main>

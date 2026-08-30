@@ -34,7 +34,7 @@ function adminConfig(): { url: string; key: string } | null {
 
 async function adminRequest<T>(path: string, init: RequestInit = {}, timeout = 15000): Promise<AdminResult<T>> {
   const cfg = adminConfig();
-  if (!cfg) return { ok: false, status: 503, error: "Admin API is not configured (VEXA_ADMIN_API_URL / VEXA_ADMIN_API_KEY)" };
+  if (!cfg) return { ok: false, status: 503, error: "Yönetici API’si yapılandırılmamış (VEXA_ADMIN_API_URL / VEXA_ADMIN_API_KEY)." };
 
   try {
     const res = await fetch(`${cfg.url}${path}`, {
@@ -47,13 +47,13 @@ async function adminRequest<T>(path: string, init: RequestInit = {}, timeout = 1
     if (res.status === 404) return { ok: false, status: 404, notFound: true };
     if (!res.ok) {
       const detail = (await res.text().catch(() => "")).slice(0, 500);
-      return { ok: false, status: res.status, error: detail || `admin-api returned ${res.status}` };
+      return { ok: false, status: res.status, error: detail || `Yönetici API’si ${res.status} döndürdü.` };
     }
     if (res.status === 204) return { ok: true, status: 204 };
     return { ok: true, status: res.status, data: (await res.json()) as T };
   } catch (err) {
     const e = err as Error;
-    return { ok: false, status: 0, error: e.name === "TimeoutError" ? "admin-api request timed out" : e.message };
+    return { ok: false, status: 0, error: e.name === "TimeoutError" ? "Yönetici API’si zaman aşımına uğradı." : e.message };
   }
 }
 
@@ -87,7 +87,7 @@ export async function validateAuthToken(token: string): Promise<ValidatedUser> {
   const secret = process.env.VEXA_INTERNAL_API_SECRET || "";
   if (!url || !secret) {
     // Fail closed — an unconfigured oracle must never fall back to trusting client-sendable data.
-    return { ok: false, status: 503, error: "Auth validation is not configured (VEXA_ADMIN_API_URL / VEXA_INTERNAL_API_SECRET)" };
+    return { ok: false, status: 503, error: "Kimlik doğrulama yapılandırılmamış (VEXA_ADMIN_API_URL / VEXA_INTERNAL_API_SECRET)." };
   }
 
   try {
@@ -98,16 +98,16 @@ export async function validateAuthToken(token: string): Promise<ValidatedUser> {
       cache: "no-store",
       signal: AbortSignal.timeout(8000),
     });
-    if (res.status === 401) return { ok: false, status: 401, error: "Not authenticated" };
-    if (!res.ok) return { ok: false, status: 503, error: `Token validation failed (admin-api returned ${res.status})` };
+    if (res.status === 401) return { ok: false, status: 401, error: "Oturumunuz doğrulanamadı — yeniden giriş yapın." };
+    if (!res.ok) return { ok: false, status: 503, error: `Oturum doğrulanamadı (admin-api ${res.status} döndürdü).` };
     const data = (await res.json()) as { user_id?: string | number; email?: string; is_admin?: boolean };
     if (data.user_id === undefined || data.user_id === null || !data.email) {
-      return { ok: false, status: 502, error: "Token validation returned no identity" };
+      return { ok: false, status: 502, error: "Oturum doğrulaması kimlik döndürmedi." };
     }
     return { ok: true, userId: data.user_id, email: data.email, isAdmin: data.is_admin === true };
   } catch (err) {
     const e = err as Error;
-    return { ok: false, status: 503, error: e.name === "TimeoutError" ? "Token validation timed out" : "Token validation unavailable" };
+    return { ok: false, status: 503, error: e.name === "TimeoutError" ? "Oturum doğrulaması zaman aşımına uğradı." : "Oturum doğrulaması şu anda kullanılamıyor." };
   }
 }
 
@@ -303,12 +303,12 @@ export async function findOrCreateUserToken(
   } else if (found.notFound) {
     const created = await createUser(email);
     if (!created.ok || !created.data) {
-      return { ok: false, status: created.status || 500, error: created.error || "Failed to create user" };
+      return { ok: false, status: created.status || 500, error: created.error || "Kullanıcı hesabı oluşturulamadı." };
     }
     user = created.data;
     justCreated = true;
   } else {
-    return { ok: false, status: found.status || 503, error: found.error || "Failed to look up user" };
+    return { ok: false, status: found.status || 503, error: found.error || "Kullanıcı hesabı sorgulanamadı." };
   }
 
   // Mint the login token with a stable `terminal-login` name so it is distinguishable from
@@ -316,7 +316,7 @@ export async function findOrCreateUserToken(
   // with no name and no cap → one live token per sign-in, forever).
   const minted = await mintUserToken(user.id, { scopes: ["bot", "tx", "browser"], name: TERMINAL_LOGIN_TOKEN_NAME });
   if (!minted.ok || !minted.data?.token) {
-    return { ok: false, status: minted.status || 500, error: minted.error || "Failed to mint API token" };
+    return { ok: false, status: minted.status || 500, error: minted.error || "Erişim belirteci oluşturulamadı." };
   }
   // Bound the user's login tokens to the newest N (best-effort; never blocks sign-in).
   await pruneLoginTokens(user.id);

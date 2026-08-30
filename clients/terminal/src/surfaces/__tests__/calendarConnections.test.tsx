@@ -82,22 +82,22 @@ describe("pure helpers", () => {
     const bad = syncLine({ last_sync: "2026-08-14T15:30:00Z", last_error: "HTTP 401 fetching the feed" });
     expect(bad.ok).toBe(false);
     expect(bad.text).toContain("HTTP 401 fetching the feed");
-    expect(bad.text).not.toContain("Synced");
-    expect(syncLine(undefined).text).toBe("Not synced yet");
-    expect(syncLine({ last_sync: "2026-08-14T15:30:00Z", counts: { created: 2, updated: 1 } }).text).toContain("2 imported, 1 updated");
+    expect(bad.text).not.toContain("Son eşitleme:");
+    expect(syncLine(undefined).text).toBe("Henüz eşitlenmedi");
+    expect(syncLine({ last_sync: "2026-08-14T15:30:00Z", counts: { created: 2, updated: 1 } }).text).toContain("2 içe aktarıldı, 1 güncellendi");
   });
 
   it("feedLine — set/not-set, and the mask is the only recognition hint", () => {
-    expect(feedLine(cal())).toBe("Feed set · calendar.google.com/….ics");
-    expect(feedLine(cal({ ics_url_masked: null }))).toBe("Feed set");
-    expect(feedLine(cal({ ics_url_set: false, ics_url_masked: null }))).toBe("No feed set");
+    expect(feedLine(cal())).toBe("Akış tanımlı · calendar.google.com/….ics");
+    expect(feedLine(cal({ ics_url_masked: null }))).toBe("Akış tanımlı");
+    expect(feedLine(cal({ ics_url_set: false, ics_url_masked: null }))).toBe("Akış tanımlı değil");
   });
 
   it("disconnectWarning names what is destroyed and what survives", () => {
     const w = disconnectWarning("Work");
     expect(w).toContain("Work");
-    expect(w).toMatch(/removed from Meetings and will not be joined/);
-    expect(w).toMatch(/planned by hand, stay/);
+    expect(w).toMatch(/Toplantılar listesinden kaldırılır ve bu toplantılara katılınmaz/);
+    expect(w).toMatch(/elle planladığınız toplantılar kalır/);
   });
 });
 
@@ -107,23 +107,23 @@ describe("the list", () => {
     render(<CalendarConnectionsPanel />);
     await waitFor(() => expect(screen.getByText("Work")).toBeTruthy());
     expect(screen.getByText("Personal")).toBeTruthy();
-    expect(screen.getByText("2 of 10 calendars connected")).toBeTruthy();
+    expect(screen.getByText("2 / 10 takvim bağlı")).toBeTruthy();
     expect(screen.getByText(/Work Notes/)).toBeTruthy();
     // per-calendar policy is per-row, not global
-    const autoJoins = screen.getAllByLabelText(/Auto-join/i, { selector: "input" });
+    const autoJoins = screen.getAllByLabelText(/Otomatik katılım/i, { selector: "input" });
     expect(autoJoins.map((i) => (i as HTMLInputElement).checked)).toEqual([true, false]);
   });
 
   it("empty state is honest", async () => {
     stubApi([]);
     render(<CalendarConnectionsPanel />);
-    await waitFor(() => expect(screen.getByText("No calendars connected yet.")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Henüz bağlı takvim yok.")).toBeTruthy());
   });
 
   it("a failed list is LOUD, never a fake empty", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ detail: "admin-api is down" }), { status: 502 })));
     render(<CalendarConnectionsPanel />);
-    await waitFor(() => expect(screen.getByRole("alert").textContent).toMatch(/can't reach a backend service/i));
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toMatch(/arka uç servisine ulaşamıyor/i));
   });
 });
 
@@ -135,11 +135,11 @@ describe("the feed address is write-only", () => {
     await waitFor(() => expect(screen.getByText("Work")).toBeTruthy());
     expect(container.textContent).not.toContain("SUPERSECRET");
 
-    fireEvent.click(screen.getByText("Edit"));
-    const replace = screen.getByLabelText("Replace feed address for Work") as HTMLInputElement;
+    fireEvent.click(screen.getByText("Düzenle"));
+    const replace = screen.getByLabelText("Work için akış adresini değiştir") as HTMLInputElement;
     expect(replace.value).toBe("");
     expect(replace.type).toBe("password");
-    expect(screen.getByText(/never shown again/)).toBeTruthy();
+    expect(screen.getByText(/bir daha gösterilmez/)).toBeTruthy();
   });
 });
 
@@ -147,19 +147,19 @@ describe("the ten-connection cap", () => {
   it("Add is refused locally at the cap, with the reason", async () => {
     stubApi(Array.from({ length: 10 }, (_, i) => cal({ id: `cal-${i}`, name: `Cal ${i}` })));
     render(<CalendarConnectionsPanel />);
-    await waitFor(() => expect(screen.getByText("10 of 10 calendars connected")).toBeTruthy());
-    expect((screen.getByText("+ Add calendar") as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByText(/disconnect one to add another/)).toBeTruthy();
+    await waitFor(() => expect(screen.getByText("10 / 10 takvim bağlı")).toBeTruthy());
+    expect((screen.getByText("+ Takvim ekle") as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText(/birinin bağlantısını kesin/)).toBeTruthy();
   });
 
   it("under the cap Add is live, and a backend 409 still surfaces verbatim", async () => {
     stubApi([cal()], { createStatus: 409, createDetail: "Ten active calendar connections already exist." });
     render(<CalendarConnectionsPanel />);
-    await waitFor(() => expect(screen.getByText("+ Add calendar")).toBeTruthy());
-    fireEvent.click(screen.getByText("+ Add calendar"));
-    fireEvent.change(screen.getByLabelText("Calendar name"), { target: { value: "Second" } });
-    fireEvent.change(screen.getByLabelText("Secret ICS address"), { target: { value: SECRET } });
-    fireEvent.click(screen.getByText("Connect"));
+    await waitFor(() => expect(screen.getByText("+ Takvim ekle")).toBeTruthy());
+    fireEvent.click(screen.getByText("+ Takvim ekle"));
+    fireEvent.change(screen.getByLabelText("Takvim adı"), { target: { value: "Second" } });
+    fireEvent.change(screen.getByLabelText("Gizli ICS adresi"), { target: { value: SECRET } });
+    fireEvent.click(screen.getByText("Bağlan"));
     await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("Ten active calendar connections already exist."));
   });
 });
@@ -168,14 +168,14 @@ describe("add", () => {
   it("POSTs the connection then syncs THAT id, and reports what it found", async () => {
     const calls = stubApi([]);
     render(<CalendarConnectionsPanel />);
-    await waitFor(() => expect(screen.getByText("+ Add calendar")).toBeTruthy());
-    fireEvent.click(screen.getByText("+ Add calendar"));
-    fireEvent.change(screen.getByLabelText("Calendar name"), { target: { value: "Work" } });
-    fireEvent.change(screen.getByLabelText("Secret ICS address"), { target: { value: SECRET } });
-    fireEvent.change(screen.getByLabelText("Bot name for the new calendar"), { target: { value: "Work Notes" } });
-    fireEvent.click(screen.getByText("Connect"));
+    await waitFor(() => expect(screen.getByText("+ Takvim ekle")).toBeTruthy());
+    fireEvent.click(screen.getByText("+ Takvim ekle"));
+    fireEvent.change(screen.getByLabelText("Takvim adı"), { target: { value: "Work" } });
+    fireEvent.change(screen.getByLabelText("Gizli ICS adresi"), { target: { value: SECRET } });
+    fireEvent.change(screen.getByLabelText("Yeni takvim için bot adı"), { target: { value: "Work Notes" } });
+    fireEvent.click(screen.getByText("Bağlan"));
 
-    await waitFor(() => expect(screen.getByRole("status").textContent).toMatch(/3 upcoming meetings imported/));
+    await waitFor(() => expect(screen.getByRole("status").textContent).toMatch(/3 yaklaşan toplantı içe aktarıldı/));
     const post = calls.find((c) => c.url.endsWith("/api/user/calendars") && c.method === "POST")!;
     expect(JSON.parse(post.body!)).toEqual({ name: "Work", ics_url: SECRET, auto_join: true, bot_name: "Work Notes" });
     expect(calls.some((c) => c.url.endsWith("/api/user/calendars/cal-new/sync") && c.method === "POST")).toBe(true);
@@ -184,13 +184,13 @@ describe("add", () => {
   it("a 422 from the backend is shown verbatim, and the form stays open", async () => {
     stubApi([], { createStatus: 422, createDetail: "That is an embed page, not an ICS feed." });
     render(<CalendarConnectionsPanel />);
-    await waitFor(() => expect(screen.getByText("+ Add calendar")).toBeTruthy());
-    fireEvent.click(screen.getByText("+ Add calendar"));
-    fireEvent.change(screen.getByLabelText("Calendar name"), { target: { value: "Work" } });
-    fireEvent.change(screen.getByLabelText("Secret ICS address"), { target: { value: "https://calendar.google.com/embed?src=x" } });
-    fireEvent.click(screen.getByText("Connect"));
+    await waitFor(() => expect(screen.getByText("+ Takvim ekle")).toBeTruthy());
+    fireEvent.click(screen.getByText("+ Takvim ekle"));
+    fireEvent.change(screen.getByLabelText("Takvim adı"), { target: { value: "Work" } });
+    fireEvent.change(screen.getByLabelText("Gizli ICS adresi"), { target: { value: "https://calendar.google.com/embed?src=x" } });
+    fireEvent.click(screen.getByText("Bağlan"));
     await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("That is an embed page, not an ICS feed."));
-    expect(screen.getByLabelText("Secret ICS address")).toBeTruthy();
+    expect(screen.getByLabelText("Gizli ICS adresi")).toBeTruthy();
   });
 });
 
@@ -199,7 +199,7 @@ describe("edit", () => {
     const calls = stubApi([cal(), cal({ id: "cal-2", name: "Personal" })]);
     render(<CalendarConnectionsPanel />);
     await waitFor(() => expect(screen.getByText("Personal")).toBeTruthy());
-    fireEvent.click(screen.getAllByLabelText(/Auto-join/i, { selector: "input" })[1]);
+    fireEvent.click(screen.getAllByLabelText(/Otomatik katılım/i, { selector: "input" })[1]);
 
     await waitFor(() => expect(calls.some((c) => c.url.endsWith("/api/user/calendars/cal-2") && c.method === "PATCH")).toBe(true));
     const patch = calls.find((c) => c.method === "PATCH")!;
@@ -213,7 +213,7 @@ describe("edit", () => {
     const calls = stubApi([cal()]);
     render(<CalendarConnectionsPanel />);
     await waitFor(() => expect(screen.getByText("Work")).toBeTruthy());
-    fireEvent.click(screen.getByLabelText(/Enabled/i, { selector: "input" }));
+    fireEvent.click(screen.getByLabelText(/Etkin/i, { selector: "input" }));
     await waitFor(() => expect(calls.some((c) => c.method === "PATCH")).toBe(true));
     expect(JSON.parse(calls.find((c) => c.method === "PATCH")!.body!)).toEqual({ enabled: false });
     expect(calls.some((c) => c.method === "DELETE")).toBe(false);
@@ -223,9 +223,9 @@ describe("edit", () => {
     const calls = stubApi([cal()]);
     render(<CalendarConnectionsPanel />);
     await waitFor(() => expect(screen.getByText("Work")).toBeTruthy());
-    fireEvent.click(screen.getByText("Edit"));
-    fireEvent.change(screen.getByLabelText("Name for Work"), { target: { value: "Customer calls" } });
-    fireEvent.click(screen.getByText("Save"));
+    fireEvent.click(screen.getByText("Düzenle"));
+    fireEvent.change(screen.getByLabelText("Work için ad"), { target: { value: "Customer calls" } });
+    fireEvent.click(screen.getByText("Kaydet"));
 
     await waitFor(() => expect(calls.some((c) => c.method === "PATCH")).toBe(true));
     expect(JSON.parse(calls.find((c) => c.method === "PATCH")!.body!)).toEqual({ name: "Customer calls" });
@@ -237,9 +237,9 @@ describe("edit", () => {
     const calls = stubApi([cal()]);
     render(<CalendarConnectionsPanel />);
     await waitFor(() => expect(screen.getByText("Work")).toBeTruthy());
-    fireEvent.click(screen.getByText("Edit"));
-    fireEvent.change(screen.getByLabelText("Replace feed address for Work"), { target: { value: SECRET } });
-    fireEvent.click(screen.getByText("Save"));
+    fireEvent.click(screen.getByText("Düzenle"));
+    fireEvent.change(screen.getByLabelText("Work için akış adresini değiştir"), { target: { value: SECRET } });
+    fireEvent.click(screen.getByText("Kaydet"));
     await waitFor(() => expect(calls.some((c) => c.method === "PATCH")).toBe(true));
     expect(JSON.parse(calls.find((c) => c.method === "PATCH")!.body!)).toEqual({ ics_url: SECRET });
     await waitFor(() => expect(calls.some((c) => c.url.endsWith("/api/user/calendars/cal-1/sync") && c.method === "POST")).toBe(true));
@@ -251,8 +251,8 @@ describe("sync now", () => {
     const calls = stubApi([cal()], { syncStamp: { last_sync: "2026-08-14T15:30:00Z", counts: { created: 5, updated: 0 } } });
     render(<CalendarConnectionsPanel />);
     await waitFor(() => expect(screen.getByText("Work")).toBeTruthy());
-    fireEvent.click(screen.getByText("Sync now"));
-    await waitFor(() => expect(screen.getByText(/5 imported, 0 updated/)).toBeTruthy());
+    fireEvent.click(screen.getByText("Şimdi eşitle"));
+    await waitFor(() => expect(screen.getByText(/5 içe aktarıldı, 0 güncellendi/)).toBeTruthy());
     expect(calls.filter((c) => c.url.endsWith("/api/user/calendars/cal-1/sync") && c.method === "POST").length).toBe(1);
   });
 
@@ -260,8 +260,8 @@ describe("sync now", () => {
     stubApi([cal()], { syncStamp: { last_sync: "2026-08-14T15:30:00Z", last_error: "HTTP 404 fetching the feed" } });
     render(<CalendarConnectionsPanel />);
     await waitFor(() => expect(screen.getByText("Work")).toBeTruthy());
-    fireEvent.click(screen.getByText("Sync now"));
-    await waitFor(() => expect(screen.getByText(/Last sync failed: HTTP 404 fetching the feed/)).toBeTruthy());
+    fireEvent.click(screen.getByText("Şimdi eşitle"));
+    await waitFor(() => expect(screen.getByText(/Son eşitleme başarısız: HTTP 404 fetching the feed/)).toBeTruthy());
   });
 });
 
@@ -271,22 +271,22 @@ describe("disconnect", () => {
     render(<CalendarConnectionsPanel />);
     await waitFor(() => expect(screen.getByText("Work")).toBeTruthy());
 
-    fireEvent.click(screen.getByText("Disconnect"));
-    expect(screen.getByText(/Meetings this calendar alone imported are removed/)).toBeTruthy();
+    fireEvent.click(screen.getByText("Bağlantıyı kes"));
+    expect(screen.getByText(/Yalnızca bu takvimden içe aktarılan toplantılar Toplantılar listesinden kaldırılır/)).toBeTruthy();
     expect(calls.some((c) => c.method === "DELETE")).toBe(false);   // nothing fired on the FIRST click
 
-    fireEvent.click(screen.getByText("Yes, disconnect"));
+    fireEvent.click(screen.getByText("Evet, bağlantıyı kes"));
     await waitFor(() => expect(calls.some((c) => c.url.endsWith("/api/user/calendars/cal-1") && c.method === "DELETE")).toBe(true));
-    await waitFor(() => expect(screen.getByText("No calendars connected yet.")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Henüz bağlı takvim yok.")).toBeTruthy());
   });
 
-  it("'Keep it' backs out without touching the server", async () => {
+  it("'Kalsın' backs out without touching the server", async () => {
     const calls = stubApi([cal()]);
     render(<CalendarConnectionsPanel />);
     await waitFor(() => expect(screen.getByText("Work")).toBeTruthy());
-    fireEvent.click(screen.getByText("Disconnect"));
-    fireEvent.click(screen.getByText("Keep it"));
-    await waitFor(() => expect(screen.queryByText(/Meetings this calendar alone imported/)).toBeNull());
+    fireEvent.click(screen.getByText("Bağlantıyı kes"));
+    fireEvent.click(screen.getByText("Kalsın"));
+    await waitFor(() => expect(screen.queryByText(/Yalnızca bu takvimden içe aktarılan toplantılar/)).toBeNull());
     expect(calls.some((c) => c.method === "DELETE")).toBe(false);
     expect(screen.getByText("Work")).toBeTruthy();
   });

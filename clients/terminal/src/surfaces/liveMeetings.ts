@@ -139,18 +139,22 @@ let wsUnsub: (() => void) | null = null;
 let connUnsub: (() => void) | null = null;
 let storeRevision = 0;
 
+/** The UI locale. Every date this surface prints is Turkish — Intl otherwise follows the
+ *  BROWSER's locale, which would put English month names on rows in a Turkish list. */
+const LOCALE = "tr-TR";
+
 function whenLabel(d: MeetingRowDTO, live: boolean): string {
-  if (live) return "Now · live";
-  // a PLANNED meeting's row shows its planned time, not "Recorded"
+  if (live) return "Şimdi · canlı";
+  // a PLANNED meeting's row shows its planned time, not "Kayıt alındı"
   if ((d.status === "scheduled" || d.status === "idle") && !d.start_time) {
     const at = d.data?.scheduled_at;
-    if (!at) return "No time set";
-    try { return new Date(at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }); }
-    catch { return "Scheduled"; }
+    if (!at) return "saat belirtilmedi";
+    try { return new Date(at).toLocaleString(LOCALE, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }); }
+    catch { return "Zamanlandı"; }
   }
-  if (!d.start_time) return "Recorded";
-  try { return new Date(d.start_time).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }); }
-  catch { return "Recorded"; }
+  if (!d.start_time) return "Kayıt alındı";
+  try { return new Date(d.start_time).toLocaleString(LOCALE, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }); }
+  catch { return "Kayıt alındı"; }
 }
 
 function toMock(d: MeetingRowDTO): MeetingMock {
@@ -173,7 +177,7 @@ function toMock(d: MeetingRowDTO): MeetingMock {
     // Honest fallbacks (design-spec W3): a link-less plan is "Untitled meeting", never
     // "unknown · (no link)"; a linked one reads "Google Meet · abc-defg-hij".
     title: d.data?.title
-      || (native ? `${d.platform === "google_meet" ? "Google Meet" : d.platform} · ${native}` : "Untitled meeting"),
+      || (native ? `${d.platform === "google_meet" ? "Google Meet" : d.platform} · ${native}` : "Başlıksız toplantı"),
     title_custom: d.data?.title ?? undefined,
     when: whenLabel(d, live),
     status: live ? "live" : "past",
@@ -241,7 +245,7 @@ function applyFrame(f: { meeting_id?: number | string; native?: string; status: 
   );
   if (i < 0) { void snapshot(); return; }
   // a DELETED row (calendar sync retiring a planned meeting) leaves the store — patching it in
-  // place made a cancelled future meeting masquerade as "Recorded" until the next snapshot
+  // place would make a cancelled future meeting masquerade as "Kayıt alındı" until the next snapshot
   if (f.status === "deleted") {
     meetings = [...meetings.slice(0, i), ...meetings.slice(i + 1)];
     subs.forEach((fn) => fn());
@@ -298,7 +302,7 @@ export async function fetchDurableTranscript(meetingId: string): Promise<Durable
     const list = body.segments || [];
     const lines = list
       .filter((s) => (s.text ?? "").trim())
-      .map((s) => ({ t: formatTranscriptTime(s.start), speaker: s.speaker || "Speaker", text: s.text ?? "" }));
+      .map((s) => ({ t: formatTranscriptTime(s.start), speaker: s.speaker || "Konuşmacı", text: s.text ?? "" }));
     return { lines, notes: processedNotesOf(body) };
   } catch {
     return EMPTY_DURABLE;

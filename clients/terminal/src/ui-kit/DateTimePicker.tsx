@@ -2,20 +2,23 @@
 /** DateTimePicker — a compact, dependency-free date+time picker (popover calendar + time slots).
  *
  *  Replaces the native `datetime-local` input (tiny hit-targets, locale-hostile formatting) on the
- *  planned-meeting surfaces. One button shows the friendly value ("Mon, Jul 13 · 10:00"); clicking
+ *  planned-meeting surfaces. One button shows the friendly value ("13 Tem Pzt · 10:00"); clicking
  *  opens a popover with quick-pick chips, a month grid, and a 15-minute time list. Emits an ISO
  *  string via `onChange` when BOTH halves are chosen (picking a day keeps the current time;
- *  picking a time keeps the current day). `onClear` (optional) renders a "No time" action —
+ *  picking a time keeps the current day). `onClear` (optional) renders a "Saati kaldır" action —
  *  clearing a planned meeting's time flips it back to `idle`.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 
-const DAYS = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"];
-const MONTHS = ["January", "February", "March", "April", "May", "June",
-  "July", "August", "September", "October", "November", "December"];
+// The surface is Turkish, so every rendered date/time is formatted against tr-TR — the browser's
+// default locale never decides what a Turkish user reads.
+const LOCALE = "tr-TR";
+const DAYS = ["Pt", "Sa", "Ça", "Pe", "Cu", "Ct", "Pa"];
+const MONTHS = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran",
+  "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"];
 
 function fmtValue(d: Date): string {
-  return `${d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })} · ${d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}`;
+  return `${d.toLocaleDateString(LOCALE, { weekday: "short", month: "short", day: "numeric" })} · ${d.toLocaleTimeString(LOCALE, { hour: "2-digit", minute: "2-digit" })}`;
 }
 function sameDay(a: Date, b: Date): boolean {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
@@ -35,7 +38,7 @@ const chipStyle = {
   background: "var(--panel)", color: "var(--t2)", cursor: "pointer", whiteSpace: "nowrap",
 } as const;
 
-export function DateTimePicker({ value, onChange, onClear, disabled, placeholder = "Pick a time" }: {
+export function DateTimePicker({ value, onChange, onClear, disabled, placeholder = "Saat seçin" }: {
   value?: string;                       // ISO8601 (or undefined = unset)
   onChange: (iso: string) => void;
   onClear?: () => void;
@@ -78,10 +81,10 @@ export function DateTimePicker({ value, onChange, onClear, disabled, placeholder
   const today = new Date();
 
   const quick: { label: string; d: Date }[] = [
-    { label: "In 1 hour", d: nextHalfHour(new Date(Date.now() + 3600_000)) },
-    { label: "Today 17:00", d: atTime(today, 17, 0) },
-    { label: "Tomorrow 09:00", d: atTime(new Date(Date.now() + 86400_000), 9, 0) },
-    { label: "Tomorrow 14:00", d: atTime(new Date(Date.now() + 86400_000), 14, 0) },
+    { label: "1 saat sonra", d: nextHalfHour(new Date(Date.now() + 3600_000)) },
+    { label: "Bugün 17:00", d: atTime(today, 17, 0) },
+    { label: "Yarın 09:00", d: atTime(new Date(Date.now() + 86400_000), 9, 0) },
+    { label: "Yarın 14:00", d: atTime(new Date(Date.now() + 86400_000), 14, 0) },
   ].filter((q) => q.d.getTime() > Date.now());
 
   return (
@@ -97,7 +100,7 @@ export function DateTimePicker({ value, onChange, onClear, disabled, placeholder
         {selected ? fmtValue(selected) : placeholder}
       </button>
       {open && (
-        <div role="dialog" aria-label="Pick date and time"
+        <div role="dialog" aria-label="Tarih ve saat seçin"
           style={{ position: "absolute", top: "100%", left: 0, marginTop: 6, zIndex: 60, width: 336,
             background: "var(--panel)", border: "1px solid var(--line2)", borderRadius: 10,
             boxShadow: "0 10px 32px rgba(0,0,0,.35)", padding: 12 }}>
@@ -117,13 +120,13 @@ export function DateTimePicker({ value, onChange, onClear, disabled, placeholder
             {/* calendar */}
             <div style={{ flex: "none", width: 196 }}>
               <div style={{ display: "flex", alignItems: "center", marginBottom: 6 }}>
-                <button type="button" aria-label="Previous month"
+                <button type="button" aria-label="Önceki ay"
                   onClick={() => setViewMonth(new Date(viewMonth.getFullYear(), viewMonth.getMonth() - 1, 1))}
                   style={{ background: "transparent", border: "none", color: "var(--t2)", cursor: "pointer", fontSize: 13, padding: "0 6px" }}>‹</button>
                 <span style={{ flex: 1, textAlign: "center", fontSize: 12, fontWeight: 600, color: "var(--t1)" }}>
                   {MONTHS[viewMonth.getMonth()]} {viewMonth.getFullYear()}
                 </span>
-                <button type="button" aria-label="Next month"
+                <button type="button" aria-label="Sonraki ay"
                   onClick={() => setViewMonth(new Date(viewMonth.getFullYear(), viewMonth.getMonth() + 1, 1))}
                   style={{ background: "transparent", border: "none", color: "var(--t2)", cursor: "pointer", fontSize: 13, padding: "0 6px" }}>›</button>
               </div>
@@ -182,7 +185,7 @@ export function DateTimePicker({ value, onChange, onClear, disabled, placeholder
             <div style={{ marginTop: 10, display: "flex", justifyContent: "flex-end" }}>
               <button type="button" onClick={() => { onClear(); setOpen(false); }}
                 style={{ fontSize: 11.5, background: "transparent", border: "none", color: "var(--t3)", cursor: "pointer", textDecoration: "underline" }}>
-                No time (plan stays idle)
+                Saati kaldır (plan beklemede kalır)
               </button>
             </div>
           )}

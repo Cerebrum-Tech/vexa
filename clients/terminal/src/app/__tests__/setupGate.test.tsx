@@ -51,7 +51,7 @@ describe("SetupGate", () => {
   it("admin on a fresh instance gets the wizard, not the workbench", async () => {
     stubSetupProbe({ status: 200, value: {} });
     render(<SetupGate><div data-testid="workbench" /></SetupGate>);
-    await waitFor(() => expect(screen.getByText("How should the agent think?")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Asistan hangi modeli kullansın?")).toBeTruthy());
     expect(screen.queryByTestId("workbench")).toBeNull();
   });
 

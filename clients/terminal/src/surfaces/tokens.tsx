@@ -14,17 +14,21 @@ import { getGitToken, setGitToken, type SavedGitToken } from "./workspaceApi";
 import { presentError } from "./apiClient";
 
 const EXPIRIES: Array<{ label: string; seconds?: number }> = [
-  { label: "never expires" },
-  { label: "1 hour", seconds: 3600 },
-  { label: "24 hours", seconds: 86400 },
-  { label: "30 days", seconds: 30 * 86400 },
-  { label: "90 days", seconds: 90 * 86400 },
+  { label: "süresiz" },
+  { label: "1 saat", seconds: 3600 },
+  { label: "24 saat", seconds: 86400 },
+  { label: "30 gün", seconds: 30 * 86400 },
+  { label: "90 gün", seconds: 90 * 86400 },
 ];
 
-const fmtDate = (iso?: string | null) => (iso ? new Date(iso).toLocaleDateString() : null);
+/** The UI locale. Every date this surface prints is Turkish — Intl otherwise follows the
+ *  BROWSER's locale, which would put an en-US date on a Turkish token row. */
+const LOCALE = "tr-TR";
+
+const fmtDate = (iso?: string | null) => (iso ? new Date(iso).toLocaleDateString(LOCALE) : null);
 
 // Scopes speak CAPABILITIES to the user (the raw scope id rides in the tooltip + the API).
-const SCOPE_LABELS: Record<string, string> = { bot: "Join meetings", tx: "Read transcripts", browser: "Browse web" };
+const SCOPE_LABELS: Record<string, string> = { bot: "Toplantılara katıl", tx: "Transkriptleri oku", browser: "Web’de gezin" };
 const scopeLabel = (s: string) => SCOPE_LABELS[s] ?? s;
 
 function TokenRow({ token, onRevoke }: { token: TokenInfo; onRevoke: (id: number) => void }) {
@@ -36,19 +40,19 @@ function TokenRow({ token, onRevoke }: { token: TokenInfo; onRevoke: (id: number
       <Icon name="key" size={13} />
       <div style={{ minWidth: 0, flex: 1, lineHeight: 1.3 }}>
         <div style={{ color: "var(--t1)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {token.name || `token #${token.id}`}
+          {token.name || `belirteç #${token.id}`}
         </div>
         <div style={{ fontSize: 11, color: "var(--t3)" }}>
-          {token.scopes.map(scopeLabel).join(" · ")}{created ? ` · created ${created}` : ""}{expires ? ` · expires ${expires}` : ""}
+          {token.scopes.map(scopeLabel).join(" · ")}{created ? ` · oluşturuldu: ${created}` : ""}{expires ? ` · sona eriyor: ${expires}` : ""}
         </div>
       </div>
       {confirming ? (
         <>
-          <button onClick={() => onRevoke(token.id)} style={{ background: "none", border: "none", color: "var(--danger)", cursor: "pointer", fontSize: 11.5, padding: 2 }}>revoke</button>
-          <button onClick={() => setConfirming(false)} style={{ background: "none", border: "none", color: "var(--t3)", cursor: "pointer", fontSize: 11.5, padding: 2 }}>keep</button>
+          <button onClick={() => onRevoke(token.id)} style={{ background: "none", border: "none", color: "var(--danger)", cursor: "pointer", fontSize: 11.5, padding: 2 }}>sil</button>
+          <button onClick={() => setConfirming(false)} style={{ background: "none", border: "none", color: "var(--t3)", cursor: "pointer", fontSize: 11.5, padding: 2 }}>vazgeç</button>
         </>
       ) : (
-        <button title="Revoke token" onClick={() => setConfirming(true)} style={{ background: "none", border: "none", color: "var(--t3)", cursor: "pointer", display: "flex", padding: 2 }}>
+        <button title="Belirteci sil" onClick={() => setConfirming(true)} style={{ background: "none", border: "none", color: "var(--t3)", cursor: "pointer", display: "flex", padding: 2 }}>
           <Icon name="x" size={13} />
         </button>
       )}
@@ -63,14 +67,14 @@ function MintedTokenCard({ minted, onDismiss }: { minted: MintedToken; onDismiss
   return (
     <div style={{ margin: "8px 4px", padding: 10, borderRadius: 8, border: "1px solid var(--line)", background: "var(--panel2)" }}>
       <div style={{ fontSize: 11.5, color: "var(--t2)", marginBottom: 6 }}>
-        Token created — copy it now, it will <b>not</b> be shown again.
+        Belirteç oluşturuldu — şimdi kopyalayın, bir daha <b>gösterilmeyecek</b>.
       </div>
       <code style={{ display: "block", fontSize: 11, color: "var(--t1)", wordBreak: "break-all", marginBottom: 8 }}>{minted.token}</code>
       <div style={{ display: "flex", gap: 8 }}>
         <button onClick={copy} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11.5, padding: "3px 8px", borderRadius: 6, border: "1px solid var(--line)", background: "transparent", color: "var(--t1)", cursor: "pointer" }}>
-          <Icon name="copy" size={12} />{copied ? "copied" : "copy"}
+          <Icon name="copy" size={12} />{copied ? "kopyalandı" : "kopyala"}
         </button>
-        <button onClick={onDismiss} style={{ fontSize: 11.5, padding: "3px 8px", borderRadius: 6, border: "none", background: "transparent", color: "var(--t3)", cursor: "pointer" }}>done</button>
+        <button onClick={onDismiss} style={{ fontSize: 11.5, padding: "3px 8px", borderRadius: 6, border: "none", background: "transparent", color: "var(--t3)", cursor: "pointer" }}>tamam</button>
       </div>
     </div>
   );
@@ -104,10 +108,10 @@ function CreateTokenForm({ onCreated }: { onCreated: (t: MintedToken) => void })
   const field = { width: "100%", fontSize: 12, padding: "5px 8px", borderRadius: 6, border: "1px solid var(--line)", background: "var(--panel2)", color: "var(--t1)" } as const;
   return (
     <div style={{ margin: "4px 4px 10px", padding: 10, borderRadius: 8, border: "1px solid var(--line)" }}>
-      <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name (optional)" style={{ ...field, marginBottom: 8 }} />
+      <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Ad (isteğe bağlı)" style={{ ...field, marginBottom: 8 }} />
       <div style={{ display: "flex", gap: 10, marginBottom: 8 }}>
         {TOKEN_SCOPES.map((s) => (
-          <label key={s} title={`scope: ${s}`} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, color: "var(--t2)", cursor: "pointer" }}>
+          <label key={s} title={`kapsam: ${s}`} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 12, color: "var(--t2)", cursor: "pointer" }}>
             <input type="checkbox" checked={scopes.includes(s)} onChange={() => toggle(s)} />{scopeLabel(s)}
           </label>
         ))}
@@ -118,7 +122,7 @@ function CreateTokenForm({ onCreated }: { onCreated: (t: MintedToken) => void })
       {error && <div role="alert" style={{ fontSize: 11.5, color: "var(--danger)", marginBottom: 8 }}>⚠ {error}</div>}
       <button onClick={() => void submit()} disabled={busy || scopes.length === 0}
         style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, padding: "4px 10px", borderRadius: 6, border: "1px solid var(--line)", background: "var(--panel2)", color: "var(--t1)", cursor: busy || scopes.length === 0 ? "default" : "pointer", opacity: busy || scopes.length === 0 ? 0.6 : 1 }}>
-        <Icon name="plus" size={12} />{busy ? "creating…" : "Create token"}
+        <Icon name="plus" size={12} />{busy ? "Oluşturuluyor…" : "Belirteç oluştur"}
       </button>
     </div>
   );
@@ -159,18 +163,19 @@ export function GitHubTokenCard() {
 
   return (
     <div style={{ margin: "4px 4px 14px", padding: 10, borderRadius: 8, border: "1px solid var(--line)" }}>
-      <div style={{ fontSize: 12.5, color: "var(--t1)", marginBottom: 3 }}>GitHub token</div>
+      <div style={{ fontSize: 12.5, color: "var(--t1)", marginBottom: 3 }}>GitHub belirteci</div>
       <div style={{ fontSize: 11, color: "var(--t3)", lineHeight: 1.45, marginBottom: 9 }}>
-        Saved once and reused for push · pull · publish · attach across all your repos. Stored server-side —
-        never shown again. Use a fine-grained, minimally-scoped PAT you can revoke on GitHub anytime.
+        Bir kez kaydedilir ve tüm depolarınızda push · pull · publish · attach işlemleri için yeniden
+        kullanılır. Sunucu tarafında saklanır — bir daha gösterilmez. GitHub üzerinden istediğiniz zaman
+        iptal edebileceğiniz, dar kapsamlı bir fine-grained PAT kullanın.
       </div>
       {error && <div role="alert" style={{ fontSize: 11.5, color: "var(--danger)", marginBottom: 8 }}>⚠ {error}</div>}
       {state?.set && !showForm && (
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <Icon name="key" size={13} style={{ color: "var(--accent)" }} />
           <span style={{ flex: 1, fontSize: 12.5, color: "var(--t2)", fontFamily: "var(--mono)" }}>{state.masked}</span>
-          <button disabled={busy} onClick={() => { setEditing(true); setValue(""); }} style={btn}>Replace</button>
-          <button disabled={busy} onClick={() => void clear()} style={{ ...btn, color: "var(--danger)" }}>Clear</button>
+          <button disabled={busy} onClick={() => { setEditing(true); setValue(""); }} style={btn}>Değiştir</button>
+          <button disabled={busy} onClick={() => void clear()} style={{ ...btn, color: "var(--danger)" }}>Temizle</button>
         </div>
       )}
       {showForm && (
@@ -178,8 +183,8 @@ export function GitHubTokenCard() {
           <input type="password" autoFocus value={value} placeholder="ghp_… (fine-grained PAT)" disabled={busy}
             onChange={(e) => setValue(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") void save(); if (e.key === "Escape") { setEditing(false); setValue(""); } }} style={field} />
           <div style={{ display: "flex", gap: 8 }}>
-            <button disabled={busy || !value.trim()} onClick={() => void save()} style={{ ...btn, background: "var(--accent)", color: "var(--on-accent)", border: "none", opacity: busy || !value.trim() ? 0.5 : 1 }}>{busy ? "Saving…" : "Save token"}</button>
-            {state?.set && <button disabled={busy} onClick={() => { setEditing(false); setValue(""); }} style={btn}>Cancel</button>}
+            <button disabled={busy || !value.trim()} onClick={() => void save()} style={{ ...btn, background: "var(--accent)", color: "var(--on-accent)", border: "none", opacity: busy || !value.trim() ? 0.5 : 1 }}>{busy ? "Kaydediliyor…" : "Belirteci kaydet"}</button>
+            {state?.set && <button disabled={busy} onClick={() => { setEditing(false); setValue(""); }} style={btn}>İptal</button>}
           </div>
         </div>
       )}
@@ -204,11 +209,11 @@ export function TokensPanel() {
 
   return (
     <div style={{ padding: "8px" }}>
-      {error && <div role="alert" style={{ fontSize: 12, color: "var(--danger)", padding: "6px 9px" }}>⚠ Couldn’t load tokens — {error}</div>}
+      {error && <div role="alert" style={{ fontSize: 12, color: "var(--danger)", padding: "6px 9px" }}>⚠ Belirteçler yüklenemedi — {error}</div>}
       {minted && <MintedTokenCard minted={minted} onDismiss={() => setMinted(null)} />}
       <CreateTokenForm onCreated={onCreated} />
       {tokens.map((t) => <TokenRow key={t.id} token={t} onRevoke={onRevoke} />)}
-      {tokens.length === 0 && !error && <div style={{ padding: "8px 4px", color: "var(--t3)", fontSize: 12 }}>No API tokens yet.</div>}
+      {tokens.length === 0 && !error && <div style={{ padding: "8px 4px", color: "var(--t3)", fontSize: 12 }}>Henüz API belirteci yok.</div>}
     </div>
   );
 }

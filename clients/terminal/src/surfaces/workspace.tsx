@@ -19,6 +19,9 @@ import { readWorkspaceFile, listWorkspaceTree, readWorkspaceGit, readWorkspaceGi
 import { manageTabDescriptor } from "./workspaceManage";
 import { presentError } from "./apiClient";
 const base = (p: string) => p.split("/").pop() ?? p;
+// Membership roles arrive as backend slugs (owner · contributor · viewer); the UI names them in Turkish.
+const ROLE_LABEL: Record<string, string> = { owner: "sahip", contributor: "üye", viewer: "izleyici" };
+const roleLabel = (role: string) => ROLE_LABEL[role] ?? role;
 // `slug` (Lane A) opens a file from a SHARED workspace the user is a member of; omitted → own workspace.
 // The tab id includes the slug so the same path in two workspaces gets distinct tabs.
 const docTab = (path: string, slug?: string) => ({
@@ -62,7 +65,7 @@ function revealInTree(dir: string): void {
   window.dispatchEvent(new CustomEvent(REVEAL_PATH_EVENT, { detail: { dir } }));
 }
 async function readFile(path: string, slug?: string): Promise<string> {
-  return (await readWorkspaceFile(path, slug ? { slug } : undefined)) ?? "(not found)";
+  return (await readWorkspaceFile(path, slug ? { slug } : undefined)) ?? "(bulunamadı)";
 }
 
 // ── session-persisted UI flags ───────────────────────────────────────────────────
@@ -87,25 +90,25 @@ function DiffView({ text }: { text: string }) {
 function CommitRow({ c, wsLabel, onOpen }: { c: GitCommit; wsLabel?: string; onOpen?: (path: string) => void }) {
   const kind = c.kind ?? "you";
   const isMember = kind === "member";
-  const who = kind === "you" ? "you" : kind === "system" ? "system" : (c.author || "member");
+  const who = kind === "you" ? "siz" : kind === "system" ? "sistem" : (c.author || "üye");
   const whoColor = isMember ? "var(--accent)" : "var(--t3)";
   return (
     <div style={{ padding: "4px 9px", fontSize: 12 }}>
       <div style={{ color: "var(--t1)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.msg}</div>
       <div style={{ fontSize: 11, color: "var(--t3)", display: "flex", gap: 8, alignItems: "center" }}>
-        <span title={isMember ? `edited by ${c.author}` : undefined} style={{ display: "inline-flex", alignItems: "center", gap: 3, color: whoColor, fontWeight: isMember ? 600 : 400, maxWidth: "55%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        <span title={isMember ? `${c.author} tarafından düzenlendi` : undefined} style={{ display: "inline-flex", alignItems: "center", gap: 3, color: whoColor, fontWeight: isMember ? 600 : 400, maxWidth: "55%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           {isMember && <Icon name="user" size={11} />}{who}
         </span>
         <span style={{ fontFamily: "var(--mono)", color: "var(--green)", flex: "none" }}>{c.sha}</span>
         <span style={{ flex: "none" }}>{c.when}</span>
-        {wsLabel && <span title={`in ${wsLabel}`} style={{ marginLeft: "auto", color: "var(--accent)", fontSize: 10, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "40%", textTransform: "uppercase", letterSpacing: ".03em" }}>{wsLabel}</span>}
+        {wsLabel && <span title={`${wsLabel} içinde`} style={{ marginLeft: "auto", color: "var(--accent)", fontSize: 10, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "40%", textTransform: "uppercase", letterSpacing: ".03em" }}>{wsLabel}</span>}
       </div>
       {/* the files this commit touched — clickable links that OPEN the file (its exact diff is one click
           away in the doc header's "Changes"). */}
       {onOpen && (c.files?.length ?? 0) > 0 && (
         <div style={{ marginTop: 2, display: "flex", flexDirection: "column", gap: 1 }}>
           {c.files!.map((f) => (
-            <div key={f} onClick={() => onOpen(f)} title={`Open ${f}`}
+            <div key={f} onClick={() => onOpen(f)} title={`${f} dosyasını aç`}
               onMouseEnter={(e) => (e.currentTarget.style.color = "var(--accent)")}
               onMouseLeave={(e) => (e.currentTarget.style.color = "var(--t2)")}
               style={{ display: "flex", alignItems: "center", gap: 5, cursor: "pointer", fontSize: 11.5, color: "var(--t2)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
@@ -215,13 +218,13 @@ function MountSection({ mount }: { mount: ActiveMount }) {
   const pinDoc = (p: string) => layout.openTab(docTab(p, mount.slug));
   return (
     <div style={{ marginTop: 2 }}>
-      <div onClick={() => setOpen((v) => !v)} title="Shared workspace — read-only"
+      <div onClick={() => setOpen((v) => !v)} title="Paylaşılan çalışma alanı — salt okunur"
         style={{ display: "flex", alignItems: "center", gap: 5, padding: "6px 8px", cursor: "pointer",
           fontSize: 11, color: "var(--t3)", textTransform: "uppercase", letterSpacing: ".04em" }}>
         <Icon name="chevR" size={12} style={{ transform: open ? "rotate(90deg)" : "none", transition: "transform .12s" }} />
         <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{mount.name || mount.slug}</span>
         {mount.role === "shared" && (
-          <span title={mount.write ? "Shared · read-write" : "Shared · read-only"}
+          <span title={mount.write ? "Paylaşıldı · okuma-yazma" : "Paylaşıldı · salt okunur"}
             style={{ marginLeft: "auto", display: "flex", alignItems: "center", color: mount.write ? "var(--accent)" : "var(--t3)" }}>
             <Icon name={mount.write ? "user" : "eye"} size={12} />
           </span>
@@ -231,7 +234,7 @@ function MountSection({ mount }: { mount: ActiveMount }) {
         {error && <div role="alert" style={{ margin: "0 8px 6px", fontSize: 11.5, color: "var(--danger)" }}>⚠ {error}</div>}
         {nodes.map((n) => <TreeRow key={n.path} node={n} depth={0} expanded={expanded} toggle={toggleDir}
           openFile={openDoc} pinFile={pinDoc} openMenu={() => {}} />)}
-        {!error && tree.length === 0 && <div style={{ padding: "3px 12px", color: "var(--t3)", fontSize: 12 }}>Empty.</div>}
+        {!error && tree.length === 0 && <div style={{ padding: "3px 12px", color: "var(--t3)", fontSize: 12 }}>Boş.</div>}
         {/* No per-workspace activity strip — all members' pushes surface in the ONE aggregated RECENT
             ACTIVITY feed (GitSection) + the "new updates" badge on the Knowledge nav. */}
       </>)}
@@ -385,28 +388,28 @@ export function FilesList() {  // exported for the surface test
         })
         .slice(0, 60)
     : [];
-  const homeLabel = homeMount ? (homeMount.name || (homeMount.slug === "seed" ? "Personal" : homeMount.slug)) : null;
+  const homeLabel = homeMount ? (homeMount.name || (homeMount.slug === "seed" ? "Kişisel" : homeMount.slug)) : null;
   return (
     <div style={{ padding: "6px 8px" }}>
       {/* WORKSPACES FIRST — the top-level object of Knowledge; the file tree recedes below. */}
       <WorkspaceSwitcher onSwapped={() => setReloadKey((k) => k + 1)} />
       <div style={{ marginTop: 14, borderTop: "1px solid var(--line)", paddingTop: 8 }} />
       <div style={{ fontSize: 11, color: "var(--t3)", textTransform: "uppercase", letterSpacing: ".04em", padding: "2px 8px 6px", display: "flex", alignItems: "center", gap: 6 }}>
-        <span onClick={toggleFiles} title={filesOpen ? "Collapse the file tree" : "Browse the workspace files"}
+        <span onClick={toggleFiles} title={filesOpen ? "Dosya ağacını daralt" : "Çalışma alanı dosyalarına göz at"}
           style={{ display: "flex", alignItems: "center", gap: 5, cursor: "pointer", minWidth: 0 }}>
           <Icon name="chevR" size={12} style={{ transform: filesOpen ? "rotate(90deg)" : "none", transition: "transform .12s", flex: "none" }} />
-          <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>files{homeLabel ? ` · ${homeLabel}` : ""}</span>
+          <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>dosyalar{homeLabel ? ` · ${homeLabel}` : ""}</span>
         </span>
-        <span onClick={() => setReloadKey((k) => k + 1)} title="Refresh the file list"
+        <span onClick={() => setReloadKey((k) => k + 1)} title="Dosya listesini yenile"
           style={{ marginLeft: "auto", display: "flex", cursor: "pointer", color: "var(--t3)" }}>
           <Icon name="refresh" size={13} />
         </span>
-        <span onClick={toggleKgOnly} title={kgOnly ? "Show all workspace files" : "Show only the knowledge graph"}
+        <span onClick={toggleKgOnly} title={kgOnly ? "Tüm çalışma alanı dosyalarını göster" : "Yalnızca bilgi grafiğini göster"}
           style={{ display: "flex", cursor: "pointer", color: kgOnly ? "var(--accent)" : "var(--t3)" }}>
           <Icon name={kgOnly ? "eye" : "eyeOff"} size={13} />
         </span>
         <span onClick={() => setShowSystem((v) => { const n = !v; writeSS(SS_SYSTEM, n ? "1" : "0"); return n; })}
-          title={showSystem ? "Hide the private system workspace" : "Show the private system workspace (_system)"}
+          title={showSystem ? "Özel sistem çalışma alanını gizle" : "Özel sistem çalışma alanını göster (_system)"}
           style={{ display: "flex", cursor: "pointer", color: showSystem ? "var(--accent)" : "var(--t3)" }}>
           <Icon name="key" size={13} />
         </span>
@@ -420,12 +423,12 @@ export function FilesList() {  // exported for the surface test
             if (e.key === "Escape") { e.stopPropagation(); setQuery(""); e.currentTarget.blur(); }
             if (e.key === "Enter" && matches[0]) layout.openPreview(docTab(matches[0].p, matches[0].slug));
           }}
-          placeholder="Find file…"
+          placeholder="Dosya ara…"
           spellCheck={false}
           style={{ width: "100%", boxSizing: "border-box", fontSize: 12.5, padding: "5px 8px 5px 26px", background: "var(--panel)", border: "1px solid var(--line)", borderRadius: 7, color: "var(--t1)", outline: "none" }}
         />
       </div>
-      {error && <div role="alert" style={{ margin: "0 8px 8px", fontSize: 12, color: "var(--danger)", background: "var(--panel)", border: "1px solid var(--danger)", borderRadius: 8, padding: "8px 10px" }}>⚠ Couldn’t load the workspace — {error}</div>}
+      {error && <div role="alert" style={{ margin: "0 8px 8px", fontSize: 12, color: "var(--danger)", background: "var(--panel)", border: "1px solid var(--danger)", borderRadius: 8, padding: "8px 10px" }}>⚠ Çalışma alanı yüklenemedi — {error}</div>}
       {q ? (<>
         {matches.map((h) => (
           <div key={(h.slug || "") + ":" + h.p} onClick={() => layout.openPreview(docTab(h.p, h.slug))} onDoubleClick={() => layout.openTab(docTab(h.p, h.slug))} onContextMenu={(e) => openMenu(e, h.p)}
@@ -434,26 +437,26 @@ export function FilesList() {  // exported for the surface test
             <Icon name="file" size={13} style={{ color: "var(--t3)", flex: "none" }} />
             <span style={{ color: "var(--t1)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: "none", maxWidth: h.ws ? "45%" : "60%" }}>{base(h.p)}</span>
             <span style={{ color: "var(--t3)", fontSize: 11, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", direction: "rtl", flex: 1, minWidth: 0 }}>{h.p.slice(0, -base(h.p).length).replace(/\/$/, "")}</span>
-            {h.ws && <span title={`in shared workspace ${h.ws}`} style={{ flex: "none", color: "var(--accent)", fontSize: 10, whiteSpace: "nowrap", textTransform: "uppercase", letterSpacing: ".03em" }}>{h.ws}</span>}
+            {h.ws && <span title={`${h.ws} paylaşılan çalışma alanında`} style={{ flex: "none", color: "var(--accent)", fontSize: 10, whiteSpace: "nowrap", textTransform: "uppercase", letterSpacing: ".03em" }}>{h.ws}</span>}
           </div>
         ))}
-        {matches.length === 0 && <div style={{ padding: 8, color: "var(--t3)", fontSize: 12 }}>No files match “{query.trim()}”.</div>}
+        {matches.length === 0 && <div style={{ padding: 8, color: "var(--t3)", fontSize: 12 }}>&ldquo;{query.trim()}&rdquo; ile eşleşen dosya yok.</div>}
       </>) : filesOpen ? (<>
         {nodes.map((n) => <TreeRow key={n.path} node={n} depth={0} expanded={expanded} toggle={toggle} openFile={(p) => layout.openPreview(docTab(p, homeMount?.slug))} pinFile={(p) => layout.openTab(docTab(p, homeMount?.slug))} openMenu={openMenu} />)}
-        {!error && homeMount === null && <div style={{ padding: 8, color: "var(--t3)", fontSize: 12 }}>No active workspace — turn one on in Workspaces above.</div>}
-        {!error && hasHome && tree.length === 0 && <div style={{ padding: 8, color: "var(--t3)", fontSize: 12 }}>Empty — ask the agent in Chat to record something.</div>}
+        {!error && homeMount === null && <div style={{ padding: 8, color: "var(--t3)", fontSize: 12 }}>Etkin çalışma alanı yok — yukarıdaki Çalışma alanları bölümünden birini açın.</div>}
+        {!error && hasHome && tree.length === 0 && <div style={{ padding: 8, color: "var(--t3)", fontSize: 12 }}>Boş — Sohbet bölümünden asistandan bir şeyler kaydetmesini isteyin.</div>}
       </>) : null}
       {menu && (
         <ContextMenu x={menu.x} y={menu.y} onClose={() => setMenu(null)} items={[
-          { id: "copy-reference", label: "Copy reference", detail: `@file:${menu.path}`, onSelect: () => copyText(`@file:${menu.path}`) },
-          { id: "copy-path", label: "Copy path", detail: menu.path, onSelect: () => copyText(menu.path) },
+          { id: "copy-reference", label: "Referansı kopyala", detail: `@file:${menu.path}`, onSelect: () => copyText(`@file:${menu.path}`) },
+          { id: "copy-path", label: "Yolu kopyala", detail: menu.path, onSelect: () => copyText(menu.path) },
         ]} />
       )}
       {/* Lane A: every non-primary mount (other private + shared) as a KNOWLEDGE section — mirrors the
           mount set. Part of the files area, so it follows the FILES collapse. */}
       {!q && filesOpen && extraMounts.map((mount) => <MountSection key={mount.slug} mount={mount} />)}
       {/* The private SYSTEM workspace (_system, RW) — hidden by default, surfaced via the key toggle. */}
-      {!q && filesOpen && showSystem && <MountSection key="_system" mount={{ slug: "_system", repo: null, ref: null, role: "system", path: "", write: true, primary: false, name: "System · private" }} />}
+      {!q && filesOpen && showSystem && <MountSection key="_system" mount={{ slug: "_system", repo: null, ref: null, role: "system", path: "", write: true, primary: false, name: "Sistem · özel" }} />}
       <GitSection />
     </div>
   );
@@ -545,7 +548,7 @@ export function WorkspaceSwitcher({ onSwapped }: { onSwapped: () => void }) {  /
 
   // UN-SHARE (owner only): move the workspace back to your private store — the mirror of Share.
   const doUnshare = async (workspaceId: string) => {
-    if (typeof window !== "undefined" && !window.confirm(`Stop sharing "${workspaceId}"? Other members will lose access; it becomes a private workspace of yours.`)) return;
+    if (typeof window !== "undefined" && !window.confirm(`“${workspaceId}” paylaşımı durdurulsun mu? Diğer üyeler erişimini kaybeder ve çalışma alanı yeniden size özel olur.`)) return;
     setBusy(true); setErr(null);
     try { await unshareWorkspace(workspaceId); load(); onSwapped(); }
     catch (e) { setErr(presentError(e).headline); }
@@ -561,7 +564,7 @@ export function WorkspaceSwitcher({ onSwapped }: { onSwapped: () => void }) {  /
   };
   // Delete one of your workspaces — irreversible (hard confirm).
   const doDelete = async (slug: string, display: string) => {
-    if (typeof window !== "undefined" && !window.confirm(`Delete "${display}"? This permanently removes the workspace and all its data.`)) return;
+    if (typeof window !== "undefined" && !window.confirm(`“${display}” silinsin mi? Bu işlem çalışma alanını ve tüm verilerini kalıcı olarak siler.`)) return;
     setBusy(true); setErr(null);
     try { await deleteWorkspace(slug); load(); onSwapped(); }
     catch (e) { setErr(presentError(e).headline); }
@@ -609,20 +612,20 @@ export function WorkspaceSwitcher({ onSwapped }: { onSwapped: () => void }) {  /
   if (!allSlots.some(([s]) => s === "seed")) allSlots.unshift(["seed", { repo: null, ref: null }]);
   const slots = allSlots.filter(([, meta]) => !meta.archived);           // live rows
   const archivedSlots = allSlots.filter(([, meta]) => meta.archived);    // collapsed 'Archived' group
-  const label = (slug: string, repo: string | null) => (slug === "seed" ? "Personal" : repo ?? slug);
+  const label = (slug: string, repo: string | null) => (slug === "seed" ? "Kişisel" : repo ?? slug);
 
   // Publish applies to a VEXA-BORN active workspace only — one attached from an external repo already
   // has a home (the backend refuses it too). Default repo name: the workspace's display name, slugified.
   const activeSlug = view.active ?? "seed";
   const activeBorn = !view.slots[activeSlug]?.repo;
-  const defaultRepoName = (view.slots[activeSlug]?.name ?? (activeSlug === "seed" ? "vexa-workspace" : activeSlug))
-    .toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "vexa-workspace";
+  const defaultRepoName = (view.slots[activeSlug]?.name ?? (activeSlug === "seed" ? "innova-workspace" : activeSlug))
+    .toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "innova-workspace";
 
   return (
     <div style={{ paddingTop: 2 }}>
       <div onClick={toggle} style={{ fontSize: 11, color: "var(--t3)", textTransform: "uppercase", letterSpacing: ".04em", padding: "2px 8px 6px", display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
         <Icon name="chevR" size={12} style={{ transform: open ? "rotate(90deg)" : "none", transition: "transform .12s" }} />
-        <Icon name="folder" size={12} />workspaces
+        <Icon name="folder" size={12} />çalışma alanları
       </div>
       {open && (<>
         {err && <div role="alert" style={{ padding: "2px 9px", fontSize: 12, color: "var(--danger)" }}>⚠ {err}</div>}
@@ -635,22 +638,22 @@ export function WorkspaceSwitcher({ onSwapped }: { onSwapped: () => void }) {  /
           const mounted = mountedSlugs.has(slug);
           const isRenaming = renaming === slug;
           const display = meta.name || label(slug, meta.repo);
-          const toggleTitle = mounted ? "Mounted into the agent — uncheck to unmount (park)" : "Available — check to mount into the agent";
+          const toggleTitle = mounted ? "Asistana bağlı — ayırmak için işareti kaldırın (beklemeye alınır)" : "Kullanılabilir — asistana bağlamak için işaretleyin";
           return (
             <div key={slug}
               style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 9px", borderRadius: 6, fontSize: 12, opacity: busy ? 0.6 : 1 }}
               onMouseEnter={(e) => { if (!isRenaming) e.currentTarget.style.background = "var(--panel2)"; }} onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}>
               <Checkbox checked={mounted} disabled={busy}
                 onChange={() => void toggleActive(slug, mounted)}
-                title={toggleTitle} label={`${display} — ${mounted ? "mounted into the agent" : "available (parked)"}`} />
+                title={toggleTitle} label={`${display} — ${mounted ? "asistana bağlı" : "kullanılabilir (beklemede)"}`} />
               {isRenaming ? (
-                <input autoFocus defaultValue={meta.name ?? ""} placeholder="display name" disabled={busy}
+                <input autoFocus defaultValue={meta.name ?? ""} placeholder="görünen ad" disabled={busy}
                   onKeyDown={(e) => { if (e.key === "Enter") { cancelled.current = false; e.currentTarget.blur(); } else if (e.key === "Escape") { cancelled.current = true; e.currentTarget.blur(); } }}
                   onBlur={(e) => { if (cancelled.current) { cancelled.current = false; setRenaming(null); } else { void doRename(slug, e.currentTarget.value); } }}
                   style={{ flex: 1, fontSize: 12, padding: "3px 6px", background: "var(--panel)", border: "1px solid var(--line)", borderRadius: 5, color: "var(--t1)" }} />
               ) : (
                 <span onClick={() => !busy && openManage(slug, { name: display })}
-                  title="Open the manage panel (rename · on/off · GitHub · purpose · participants)"
+                  title="Yönetim panelini aç (yeniden adlandırma · açma/kapatma · GitHub · amaç · katılımcılar)"
                   style={{ flex: 1, color: mounted ? "var(--t1)" : "var(--t2)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", cursor: busy ? "default" : "pointer" }}>{display}</span>
               )}
               {/* Row is intentionally minimal: the CHECKBOX mounts/parks, the NAME opens the manage
@@ -671,10 +674,10 @@ export function WorkspaceSwitcher({ onSwapped }: { onSwapped: () => void }) {  /
               onMouseEnter={(e) => (e.currentTarget.style.background = "var(--panel2)")} onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}>
               <Checkbox checked={mounted} disabled={busy}
                 onChange={() => void toggleShared(wsId, !mounted)}
-                title={mounted ? "Mounted — uncheck to switch off (you stay a member)" : "Switched off — check to mount"}
-                label={`${wsId} — shared (${mem.role})`} />
+                title={mounted ? "Bağlı — kapatmak için işareti kaldırın (üyeliğiniz sürer)" : "Kapalı — bağlamak için işaretleyin"}
+                label={`${wsId} — paylaşılan (${roleLabel(mem.role)})`} />
               <span onClick={() => openManage(wsId, { shared: true, name: wsId })}
-                title="Open the manage panel (GitHub · purpose · participants)"
+                title="Yönetim panelini aç (GitHub · amaç · katılımcılar)"
                 style={{ flex: 1, color: mounted ? "var(--t1)" : "var(--t2)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", cursor: "pointer" }}>{wsId}</span>
               {/* Management (role · share · unshare · participants) lives in the manage panel opened by
                   the name — no per-row action icons. */}
@@ -684,28 +687,28 @@ export function WorkspaceSwitcher({ onSwapped }: { onSwapped: () => void }) {  /
         {/* Attach repo is a LIST-LEVEL action; the FORM opens in a modal (portaled overlay) rather than
             expanding inline in the sidebar — see the Modal block below. */}
         <div onClick={() => setForm({ repo: "", ref: "", token: "" })} style={{ padding: "5px 9px", fontSize: 12, color: "var(--accent)", cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
-          <Icon name="plus" size={12} /> Attach repo…
+          <Icon name="plus" size={12} /> Depo ekle…
         </div>
         {form !== null && (
-          <Modal title="Attach a git repo" onClose={() => setForm(null)}>
+          <Modal title="Git deposu ekle" onClose={() => setForm(null)}>
             {(() => {
               const field: CSSProperties = { width: "100%", fontSize: 13, padding: "8px 10px", background: "var(--bg)", border: "1px solid var(--line)", borderRadius: 8, color: "var(--t1)" };
               const submit = () => { if (form.repo.trim()) void doAttach(form.repo.trim(), form.ref.trim() || undefined, form.token.trim() || undefined); };
               return (
                 <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
-                  <input autoFocus value={form.repo} placeholder="git repo URL" disabled={busy}
+                  <input autoFocus value={form.repo} placeholder="git deposu URL’si" disabled={busy}
                     onChange={(e) => setForm({ ...form, repo: e.target.value })}
                     onKeyDown={(e) => { if (e.key === "Enter") submit(); }} style={field} />
-                  <input value={form.ref} placeholder="ref (optional, default main)" disabled={busy}
+                  <input value={form.ref} placeholder="ref (isteğe bağlı, varsayılan main)" disabled={busy}
                     onChange={(e) => setForm({ ...form, ref: e.target.value })}
                     onKeyDown={(e) => { if (e.key === "Enter") submit(); }} style={field} />
-                  <input type="password" value={form.token} placeholder="access token (optional, for private repos)" disabled={busy}
+                  <input type="password" value={form.token} placeholder="erişim belirteci (isteğe bağlı, özel depolar için)" disabled={busy}
                     onChange={(e) => setForm({ ...form, token: e.target.value })}
                     onKeyDown={(e) => { if (e.key === "Enter") submit(); }} style={field} />
                   <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
                     <button disabled={busy || !form.repo.trim()} onClick={submit}
-                      style={{ fontSize: 13, padding: "8px 16px", background: "var(--accent)", color: "var(--on-accent)", border: "none", borderRadius: 8, cursor: "pointer", fontWeight: 600, opacity: busy || !form.repo.trim() ? 0.5 : 1 }}>{busy ? "Attaching…" : "Attach"}</button>
-                    <button disabled={busy} onClick={() => setForm(null)} style={{ fontSize: 13, padding: "8px 16px", background: "transparent", color: "var(--t2)", border: "1px solid var(--line)", borderRadius: 8, cursor: "pointer" }}>Cancel</button>
+                      style={{ fontSize: 13, padding: "8px 16px", background: "var(--accent)", color: "var(--on-accent)", border: "none", borderRadius: 8, cursor: "pointer", fontWeight: 600, opacity: busy || !form.repo.trim() ? 0.5 : 1 }}>{busy ? "Ekleniyor…" : "Ekle"}</button>
+                    <button disabled={busy} onClick={() => setForm(null)} style={{ fontSize: 13, padding: "8px 16px", background: "transparent", color: "var(--t2)", border: "1px solid var(--line)", borderRadius: 8, cursor: "pointer" }}>İptal</button>
                   </div>
                 </div>
               );
@@ -718,32 +721,32 @@ export function WorkspaceSwitcher({ onSwapped }: { onSwapped: () => void }) {  /
             the two ways to bring a new workspace into the set. No confirmation: creating a workspace is
             non-destructive. The new row appears CHECKED (it joined the active set). */}
         <div onClick={() => { if (!busy) void doNewWorkspace(); }}
-          title="New workspace — create a blank workspace and add it to your set (nothing is replaced)"
+          title="Yeni çalışma alanı — boş bir çalışma alanı oluşturur ve etkin listenize ekler (mevcut hiçbir şeyin yerini almaz)"
           style={{ padding: "5px 9px", fontSize: 12, color: "var(--accent)", cursor: "pointer", display: "flex", alignItems: "center", gap: 6, opacity: busy ? 0.6 : 1 }}>
-          <Icon name="plus" size={12} /> New workspace…
+          <Icon name="plus" size={12} /> Yeni çalışma alanı…
         </div>
         {/* SHARE dialog — mint an invite link (open/restricted · role · TTL) and copy it. */}
         {share !== null && (
           <div style={{ padding: "8px 9px", display: "flex", flexDirection: "column", gap: 7, borderTop: "1px solid var(--line)", marginTop: 4 }}>
-            <div style={{ fontSize: 11, color: "var(--t3)", textTransform: "uppercase", letterSpacing: ".04em" }}>Share “{share.wsId}”</div>
+            <div style={{ fontSize: 11, color: "var(--t3)", textTransform: "uppercase", letterSpacing: ".04em" }}>&ldquo;{share.wsId}&rdquo; çalışma alanını paylaş</div>
             <div style={{ display: "flex", gap: 6 }}>
               <select value={share.role} disabled={busy} onChange={(e) => setShare({ ...share, role: e.target.value, link: null })}
                 style={{ flex: 1, fontSize: 12, padding: "4px 6px", background: "var(--panel)", border: "1px solid var(--line)", borderRadius: 6, color: "var(--t1)" }}>
-                <option value="viewer">viewer (read)</option>
-                <option value="contributor">contributor (read+write)</option>
+                <option value="viewer">izleyici (okuma)</option>
+                <option value="contributor">üye (okuma + yazma)</option>
               </select>
               <select value={share.mode} disabled={busy} onChange={(e) => setShare({ ...share, mode: e.target.value, link: null })}
                 style={{ flex: 1, fontSize: 12, padding: "4px 6px", background: "var(--panel)", border: "1px solid var(--line)", borderRadius: 6, color: "var(--t1)" }}>
-                <option value="open">anyone with link</option>
-                <option value="restricted">restricted (emails)</option>
+                <option value="open">bağlantısı olan herkes</option>
+                <option value="restricted">kısıtlı (e-posta ile)</option>
               </select>
               <select value={share.ttlDays} disabled={busy} onChange={(e) => setShare({ ...share, ttlDays: Number(e.target.value), link: null })}
                 style={{ fontSize: 12, padding: "4px 6px", background: "var(--panel)", border: "1px solid var(--line)", borderRadius: 6, color: "var(--t1)" }}>
-                <option value={1}>1 day</option><option value={7}>7 days</option><option value={30}>30 days</option>
+                <option value={1}>1 gün</option><option value={7}>7 gün</option><option value={30}>30 gün</option>
               </select>
             </div>
             {share.mode === "restricted" && (
-              <input value={share.emails} placeholder="allowed emails (comma-separated)" disabled={busy}
+              <input value={share.emails} placeholder="izin verilen e-posta adresleri (virgülle ayrılmış)" disabled={busy}
                 onChange={(e) => setShare({ ...share, emails: e.target.value, link: null })}
                 style={{ fontSize: 12, padding: "5px 7px", background: "var(--panel)", border: "1px solid var(--line)", borderRadius: 6, color: "var(--t1)" }} />
             )}
@@ -752,16 +755,16 @@ export function WorkspaceSwitcher({ onSwapped }: { onSwapped: () => void }) {  /
                 <input readOnly value={share.link} onFocus={(e) => e.currentTarget.select()}
                   style={{ flex: 1, fontSize: 11.5, padding: "5px 7px", background: "var(--panel)", border: "1px solid var(--line)", borderRadius: 6, color: "var(--t2)" }} />
                 <button onClick={() => void copyText(share.link!)}
-                  style={{ fontSize: 12, padding: "4px 10px", background: "var(--accent)", color: "var(--bg)", border: "none", borderRadius: 6, cursor: "pointer" }}>Copy</button>
+                  style={{ fontSize: 12, padding: "4px 10px", background: "var(--accent)", color: "var(--bg)", border: "none", borderRadius: 6, cursor: "pointer" }}>Kopyala</button>
               </div>
             ) : (
               <div style={{ display: "flex", gap: 8 }}>
                 <button disabled={busy} onClick={() => void doMintLink(share)}
-                  style={{ fontSize: 12, padding: "4px 10px", background: "var(--accent)", color: "var(--bg)", border: "none", borderRadius: 6, cursor: "pointer", opacity: busy ? 0.5 : 1 }}>{busy ? "Creating…" : "Create link"}</button>
-                <button disabled={busy} onClick={() => setShare(null)} style={{ fontSize: 12, padding: "4px 10px", background: "transparent", color: "var(--t2)", border: "1px solid var(--line)", borderRadius: 6, cursor: "pointer" }}>Cancel</button>
+                  style={{ fontSize: 12, padding: "4px 10px", background: "var(--accent)", color: "var(--bg)", border: "none", borderRadius: 6, cursor: "pointer", opacity: busy ? 0.5 : 1 }}>{busy ? "Oluşturuluyor…" : "Bağlantı oluştur"}</button>
+                <button disabled={busy} onClick={() => setShare(null)} style={{ fontSize: 12, padding: "4px 10px", background: "transparent", color: "var(--t2)", border: "1px solid var(--line)", borderRadius: 6, cursor: "pointer" }}>İptal</button>
               </div>
             )}
-            {share.link && <div onClick={() => setShare(null)} style={{ fontSize: 11, color: "var(--t3)", cursor: "pointer", alignSelf: "flex-end" }}>Done</div>}
+            {share.link && <div onClick={() => setShare(null)} style={{ fontSize: 11, color: "var(--t3)", cursor: "pointer", alignSelf: "flex-end" }}>Tamam</div>}
           </div>
         )}
         {/* Publish / push-updates form — opened from the ACTIVE row's ↑ action (no list-level trigger:
@@ -775,33 +778,33 @@ export function WorkspaceSwitcher({ onSwapped }: { onSwapped: () => void }) {  /
             <div style={{ padding: "6px 9px", display: "flex", flexDirection: "column", gap: 6 }}>
               {pushMode ? (
                 <div title={pubForm.remoteUrl} style={{ fontSize: 12, color: "var(--t2)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                  push updates → {pubForm.remoteUrl}
+                  güncellemeleri gönder → {pubForm.remoteUrl}
                 </div>
               ) : (<>
-                <input autoFocus value={pubForm.name} placeholder="repo name" disabled={busy}
+                <input autoFocus value={pubForm.name} placeholder="depo adı" disabled={busy}
                   onChange={(e) => setPubForm({ ...pubForm, name: e.target.value })} onKeyDown={onKey}
                   style={{ fontSize: 12, padding: "5px 7px", background: "var(--panel)", border: "1px solid var(--line)", borderRadius: 6, color: "var(--t1)" }} />
                 <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--t2)", cursor: "pointer" }}>
                   <input type="checkbox" checked={pubForm.priv} disabled={busy} onChange={(e) => setPubForm({ ...pubForm, priv: e.target.checked })} />
-                  private repo
+                  özel depo
                 </label>
               </>)}
-              <input autoFocus={pushMode} type="password" value={pubForm.token} placeholder="GitHub token (repo scope — used once, never stored)" disabled={busy}
+              <input autoFocus={pushMode} type="password" value={pubForm.token} placeholder="GitHub belirteci (repo kapsamı — bir kez kullanılır, saklanmaz)" disabled={busy}
                 onChange={(e) => setPubForm({ ...pubForm, token: e.target.value })} onKeyDown={onKey}
                 style={{ fontSize: 12, padding: "5px 7px", background: "var(--panel)", border: "1px solid var(--line)", borderRadius: 6, color: "var(--t1)" }} />
               <div style={{ display: "flex", gap: 8 }}>
                 <button disabled={busy || !ready} onClick={() => void doPublish(pubForm)}
                   style={{ fontSize: 12, padding: "4px 10px", background: "var(--accent)", color: "var(--bg)", border: "none", borderRadius: 6, cursor: "pointer", opacity: busy || !ready ? 0.5 : 1 }}>
-                  {busy ? (pushMode ? "Pushing…" : "Publishing…") : (pushMode ? "Push updates" : "Publish")}
+                  {busy ? (pushMode ? "Gönderiliyor…" : "Yayımlanıyor…") : (pushMode ? "Güncellemeleri gönder" : "Yayımla")}
                 </button>
-                <button disabled={busy} onClick={() => setPubForm(null)} style={{ fontSize: 12, padding: "4px 10px", background: "transparent", color: "var(--t2)", border: "1px solid var(--line)", borderRadius: 6, cursor: "pointer" }}>Cancel</button>
+                <button disabled={busy} onClick={() => setPubForm(null)} style={{ fontSize: 12, padding: "4px 10px", background: "transparent", color: "var(--t2)", border: "1px solid var(--line)", borderRadius: 6, cursor: "pointer" }}>İptal</button>
               </div>
             </div>
           );
         })()}
         {published && (
           <div style={{ padding: "4px 9px", fontSize: 12, color: "var(--t2)", display: "flex", alignItems: "center", gap: 6 }}>
-            <span style={{ color: "var(--green)" }}>✓</span> published →&nbsp;
+            <span style={{ color: "var(--green)" }}>✓</span> yayımlandı →&nbsp;
             <a href={published.repo_url} target="_blank" rel="noreferrer" style={{ color: "var(--accent)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{published.repo_url}</a>
           </div>
         )}
@@ -811,14 +814,14 @@ export function WorkspaceSwitcher({ onSwapped }: { onSwapped: () => void }) {  /
             <div onClick={() => setShowArchived((v) => !v)}
               style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 9px", cursor: "pointer", fontSize: 11, color: "var(--t3)", textTransform: "uppercase", letterSpacing: ".04em" }}>
               <Icon name="chevR" size={12} style={{ transform: showArchived ? "rotate(90deg)" : "none", transition: "transform .12s" }} />
-              Archived ({archivedSlots.length})
+              Arşivlenenler ({archivedSlots.length})
             </div>
             {showArchived && archivedSlots.map(([slug, meta]) => (
               <div key={`arch:${slug}`} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 9px 4px 24px", fontSize: 12, color: "var(--t3)", opacity: busy ? 0.6 : 1 }}
                 onMouseEnter={(e) => (e.currentTarget.style.background = "var(--panel2)")} onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}>
                 <span style={{ flex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{meta.name || label(slug, meta.repo)}</span>
-                <span onClick={() => void doArchive(slug, false)} title="Un-archive" style={{ flex: "none", color: "var(--accent)", cursor: "pointer", fontSize: 11 }}>restore</span>
-                <span onClick={() => void doDelete(slug, meta.name || label(slug, meta.repo))} title="Delete permanently" style={{ flex: "none", color: "var(--t3)", cursor: "pointer", fontSize: 13, padding: "0 3px" }}>×</span>
+                <span onClick={() => void doArchive(slug, false)} title="Arşivden çıkar" style={{ flex: "none", color: "var(--accent)", cursor: "pointer", fontSize: 11 }}>geri yükle</span>
+                <span onClick={() => void doDelete(slug, meta.name || label(slug, meta.repo))} title="Kalıcı olarak sil" style={{ flex: "none", color: "var(--t3)", cursor: "pointer", fontSize: 13, padding: "0 3px" }}>×</span>
               </div>
             ))}
           </div>
@@ -826,8 +829,8 @@ export function WorkspaceSwitcher({ onSwapped }: { onSwapped: () => void }) {  /
         {/* Per-row … menu: archive / delete. */}
         {rowMenu && (
           <ContextMenu x={rowMenu.x} y={rowMenu.y} onClose={() => setRowMenu(null)} items={[
-            { id: "archive", label: "Archive", detail: "collapse · keep data", onSelect: () => void doArchive(rowMenu.slug, true) },
-            { id: "delete", label: "Delete", detail: "removes all data", onSelect: () => void doDelete(rowMenu.slug, rowMenu.display) },
+            { id: "archive", label: "Arşivle", detail: "gizler · veriyi korur", onSelect: () => void doArchive(rowMenu.slug, true) },
+            { id: "delete", label: "Sil", detail: "tüm verileri siler", onSelect: () => void doDelete(rowMenu.slug, rowMenu.display) },
           ]} />
         )}
       </>)}
@@ -873,14 +876,14 @@ function GitSection() {
     <div style={{ marginTop: 14, borderTop: "1px solid var(--line)", paddingTop: 8 }}>
       <div onClick={toggle} style={{ fontSize: 11, color: "var(--t3)", textTransform: "uppercase", letterSpacing: ".04em", padding: "2px 8px 6px", display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
         <Icon name="chevR" size={12} style={{ transform: open ? "rotate(90deg)" : "none", transition: "transform .12s" }} />
-        <Icon name="zap" size={12} />source control
+        <Icon name="zap" size={12} />sürüm kontrolü
         {git.branch && <span style={{ marginLeft: "auto", fontFamily: "var(--mono)", color: "var(--t2)", textTransform: "none" }}>{git.branch}</span>}
       </div>
-      {open && gitError && <div role="alert" style={{ padding: "2px 9px", fontSize: 12, color: "var(--danger)" }}>⚠ git unavailable — {gitError}</div>}
+      {open && gitError && <div role="alert" style={{ padding: "2px 9px", fontSize: 12, color: "var(--danger)" }}>⚠ git kullanılamıyor — {gitError}</div>}
       {!open || gitError ? null : (!git.branch && feed.length === 0) ? (
-        <div style={{ padding: "2px 9px", fontSize: 12, color: "var(--t3)" }}>Not a repo yet.</div>
+        <div style={{ padding: "2px 9px", fontSize: 12, color: "var(--t3)" }}>Henüz bir depo değil.</div>
       ) : (<>
-      {git.changes.length > 0 && <div style={{ fontSize: 10.5, color: "var(--t3)", padding: "2px 9px" }}>CHANGES</div>}
+      {git.changes.length > 0 && <div style={{ fontSize: 10.5, color: "var(--t3)", padding: "2px 9px" }}>Değişiklikler</div>}
       {git.changes.map((c) => (
         <div key={c.path} onClick={() => layout.openPreview(docTab(c.path))} onDoubleClick={() => layout.openTab(docTab(c.path))} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 9px", borderRadius: 6, cursor: "pointer", fontSize: 12 }}
           onMouseEnter={(e) => (e.currentTarget.style.background = "var(--panel2)")} onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}>
@@ -888,7 +891,7 @@ function GitSection() {
           <span style={{ color: "var(--t2)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{base(c.path)}</span>
         </div>
       ))}
-      {feed.length > 0 && <div style={{ fontSize: 10.5, color: "var(--t3)", padding: "8px 9px 2px" }}>RECENT ACTIVITY</div>}
+      {feed.length > 0 && <div style={{ fontSize: 10.5, color: "var(--t3)", padding: "8px 9px 2px" }}>Son etkinlik</div>}
       {feed.map((c) => <CommitRow key={(c.slug || "") + ":" + c.sha} c={c} wsLabel={c.ws} onOpen={(f) => layout.openPreview(docTab(f, c.slug))} />)}
       </>)}
     </div>
@@ -924,7 +927,7 @@ function PathBreadcrumb({ path }: { path: string }) {
           <span key={prefix} style={{ display: "inline-flex", alignItems: "center" }}>
             {i > 0 && <span style={{ padding: "0 2px", userSelect: "none" }}>/</span>}
             <span {...hover} style={seg}
-              title={`Reveal ${prefix}${isFile ? "" : "/"} in the sidebar · right-click to copy a reference`}
+              title={`${prefix}${isFile ? "" : "/"} yolunu kenar çubuğunda göster · referans kopyalamak için sağ tıklayın`}
               onClick={() => reveal(prefix)}
               onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setMenu({ x: e.clientX, y: e.clientY, target: prefix }); }}>
               {name}
@@ -934,8 +937,8 @@ function PathBreadcrumb({ path }: { path: string }) {
       })}
       {menu && (
         <ContextMenu x={menu.x} y={menu.y} onClose={() => setMenu(null)} items={[
-          { id: "copy-reference", label: "Copy reference", detail: `@file:${menu.target}`, onSelect: () => copyText(`@file:${menu.target}`) },
-          { id: "copy-path", label: "Copy path", detail: menu.target, onSelect: () => copyText(menu.target) },
+          { id: "copy-reference", label: "Referansı kopyala", detail: `@file:${menu.target}`, onSelect: () => copyText(`@file:${menu.target}`) },
+          { id: "copy-path", label: "Yolu kopyala", detail: menu.target, onSelect: () => copyText(menu.target) },
         ]} />
       )}
     </div>
@@ -997,7 +1000,7 @@ function FrontmatterCard({ fm }: { fm: [string, string][] }) {
 /** ‹ › nav arrow, Obsidian-style: enabled only when the pane history has somewhere to go. */
 function NavArrow({ dir, enabled, onGo }: { dir: -1 | 1; enabled: boolean; onGo: () => void }) {
   return (
-    <button aria-label={dir === -1 ? "Back" : "Forward"} title={dir === -1 ? "Back" : "Forward"}
+    <button aria-label={dir === -1 ? "Geri" : "İleri"} title={dir === -1 ? "Geri" : "İleri"}
       onClick={onGo} disabled={!enabled}
       style={{ background: "none", border: "none", padding: 3, display: "flex", borderRadius: 6,
         color: enabled ? "var(--t1)" : "var(--t3)", opacity: enabled ? 1 : 0.35,
@@ -1056,9 +1059,9 @@ function DocTab({ id, params }: TabProps) {
     void readWorkspaceGit(slug ? { slug } : undefined)
       .then(async (g) => {
         const c = g.commits.find((k) => (k.files ?? []).includes(path));
-        if (!c) { setDiff("(no recent commit touched this file)"); return; }
+        if (!c) { setDiff("(bu dosyayı değiştiren yakın tarihli bir commit yok)"); return; }
         const d = await readWorkspaceGitDiff({ sha: c.sha, slug, path });
-        setDiff(d.diff || "(no textual changes)");
+        setDiff(d.diff || "(metinsel değişiklik yok)");
       })
       .catch((e: unknown) => setDiff(`⚠ ${presentError(e).headline}`));
   };
@@ -1099,22 +1102,22 @@ function DocTab({ id, params }: TabProps) {
               <NavArrow dir={1} enabled={nav.idx < nav.stack.length - 1} onGo={() => go(1)} />
             </span>
             <div style={{ minWidth: 0, flex: 1 }}><PathBreadcrumb path={path} /></div>
-            <span onClick={loadDiff} title="Show the exact lines changed in the latest commit"
+            <span onClick={loadDiff} title="Son commit’te değişen satırları göster"
               style={{ flex: "none", display: "inline-flex", alignItems: "center", gap: 4, cursor: "pointer", fontSize: 11.5, color: showDiff ? "var(--accent)" : "var(--t3)" }}>
-              <Icon name="git" size={12} />Changes
+              <Icon name="git" size={12} />Değişiklikler
             </span>
           </div>
           {updated && (
             <div onClick={loadDiff} role="status"
               style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10, padding: "5px 10px", cursor: "pointer", background: "var(--panel)", border: "1px solid var(--accent)", borderRadius: 7, fontSize: 12, color: "var(--accent)" }}>
-              <Icon name="zap" size={12} />Updated just now — view the exact lines changed
+              <Icon name="zap" size={12} />Az önce güncellendi — değişen satırları görüntüleyin
             </div>
           )}
           {showDiff && (diff === null || diff === ""
-            ? <div style={{ fontSize: 12, color: "var(--t3)", marginBottom: 10 }}>loading changes…</div>
+            ? <div style={{ fontSize: 12, color: "var(--t3)", marginBottom: 10 }}>değişiklikler yükleniyor…</div>
             : <div style={{ marginBottom: 12 }}><DiffView text={diff} /></div>)}
           {fm.length > 0 && <FrontmatterCard fm={fm} />}
-          <div style={{ fontSize: 14, color: "var(--t1)", lineHeight: 1.6 }}>{content === null ? "loading…" : <MdxDoc>{body}</MdxDoc>}</div>
+          <div style={{ fontSize: 14, color: "var(--t1)", lineHeight: 1.6 }}>{content === null ? "yükleniyor…" : <MdxDoc>{body}</MdxDoc>}</div>
         </div>
       </div>
     </DocMetaContext.Provider>
@@ -1124,6 +1127,6 @@ function DocTab({ id, params }: TabProps) {
 
 // Agent surface — absent in meetings-only mode (NEXT_PUBLIC_TERMINAL_MODE=meetings).
 if (!meetingsOnly()) {
-  registerList({ id: "files", label: "Knowledge", icon: "panel", order: 30, component: FilesList });
+  registerList({ id: "files", label: "Bilgi", icon: "panel", order: 30, component: FilesList });
   registerTab("doc", DocTab);
 }

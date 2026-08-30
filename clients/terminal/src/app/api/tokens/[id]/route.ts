@@ -19,20 +19,20 @@ export async function DELETE(_request: Request, ctx: { params: Promise<{ id: str
   const { id } = await ctx.params;
   const tokenId = Number(id);
   if (!Number.isInteger(tokenId)) {
-    return NextResponse.json({ error: "Invalid token id" }, { status: 400, headers: NO_STORE });
+    return NextResponse.json({ error: "Geçersiz API anahtarı kimliği." }, { status: 400, headers: NO_STORE });
   }
 
   const listed = await listUserTokens(me.userId);
   if (!listed.ok) {
-    return NextResponse.json({ error: listed.error || "Failed to verify token ownership" }, { status: listed.status || 502, headers: NO_STORE });
+    return NextResponse.json({ error: listed.error || "API anahtarının sahipliği doğrulanamadı." }, { status: listed.status || 502, headers: NO_STORE });
   }
   if (!(listed.data ?? []).some((t) => t.id === tokenId)) {
-    return NextResponse.json({ error: "Token not found" }, { status: 404, headers: NO_STORE });
+    return NextResponse.json({ error: "API anahtarı bulunamadı." }, { status: 404, headers: NO_STORE });
   }
 
   const revoked = await revokeToken(tokenId);
   if (!revoked.ok) {
-    return NextResponse.json({ error: revoked.error || "Failed to revoke token" }, { status: revoked.status || 502, headers: NO_STORE });
+    return NextResponse.json({ error: revoked.error || "API anahtarı iptal edilemedi." }, { status: revoked.status || 502, headers: NO_STORE });
   }
   return NextResponse.json({ success: true }, { headers: NO_STORE });
 }

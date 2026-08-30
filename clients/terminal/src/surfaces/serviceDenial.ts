@@ -13,9 +13,11 @@
  *  This is the THIRD twin of one hand-maintained mapping. The other two:
  *    · Vexa-ai/vexa           services/dashboard/src/lib/service-denial.ts
  *    · Vexa-ai/vexa-platform  services/webapp/apps/webapp/lib/service-denial-view.ts
- *  All three surfaces must say the same sentence about the same account, so the copy below is kept
- *  byte-aligned with those modules; change one, change all three. The pin test at
- *  `src/surfaces/__tests__/serviceDenialVocabulary.test.ts` is what stops the drift.
+ *  The REASON CODES and the kind/action mapping are shared with those modules; change one, change
+ *  all three. The customer-facing WORDS are not: this deployment ships a Turkish terminal, so the
+ *  copy below is Turkish and the byte-alignment with the two English surfaces is deliberately
+ *  broken. The pin test at `src/surfaces/__tests__/serviceDenialVocabulary.test.ts` still guards the
+ *  vocabulary itself.
  *
  *  Deliberately free of React and of network access.
  */
@@ -69,10 +71,10 @@ export interface ServiceDenialFacts {
   planLabel?: string | null;
 }
 
-const ADD_FUNDS: ServiceDenialAction = { label: "Add funds", href: "/account?tab=bots" };
-const FINISH_SETUP: ServiceDenialAction = { label: "Finish billing setup", href: "/account?tab=bots" };
-const UPDATE_PAYMENT: ServiceDenialAction = { label: "Update payment method", href: "/account?tab=balance" };
-const REVIEW_SPEND_CAP: ServiceDenialAction = { label: "Review spend cap", href: "/account?tab=balance" };
+const ADD_FUNDS: ServiceDenialAction = { label: "Bakiye yükle", href: "/account?tab=bots" };
+const FINISH_SETUP: ServiceDenialAction = { label: "Faturalandırma kurulumunu tamamla", href: "/account?tab=bots" };
+const UPDATE_PAYMENT: ServiceDenialAction = { label: "Ödeme yöntemini güncelle", href: "/account?tab=balance" };
+const REVIEW_SPEND_CAP: ServiceDenialAction = { label: "Harcama limitini gözden geçir", href: "/account?tab=balance" };
 
 /** Account + billing live on the hosted webapp origin, not on the terminal (which is
  *  self-hostable). Same origin the setup gate already sends people to for a hosted token. */
@@ -90,20 +92,22 @@ function usd(cents: number): string {
 function balanceSentence(facts: ServiceDenialFacts): string {
   const cents = facts.balanceCents;
   if (typeof cents !== "number" || !Number.isSafeInteger(cents) || cents < 0) {
-    return "Your prepaid balance is empty.";
+    return "Ön ödemeli bakiyeniz boş.";
   }
-  const plan = facts.planLabel ? ` on ${facts.planLabel}` : "";
-  return `Your prepaid balance${plan} is ${usd(cents)}.`;
+  const plan = facts.planLabel
+    ? `${facts.planLabel} planındaki ön ödemeli bakiyeniz`
+    : "Ön ödemeli bakiyeniz";
+  return `${plan} ${usd(cents)}.`;
 }
 
 function concurrencySentence(facts: ServiceDenialFacts): string {
   const ceiling = facts.concurrencyCeiling;
   if (typeof ceiling !== "number" || !Number.isSafeInteger(ceiling) || ceiling < 0) {
-    return "Every bot your plan allows is already in a meeting.";
+    return "Planınızın izin verdiği tüm botlar şu anda bir toplantıda.";
   }
   return (
-    `Your plan runs ${ceiling} bot${ceiling === 1 ? "" : "s"} at once, ` +
-    "and they are all in meetings."
+    `Planınız aynı anda ${ceiling} bot çalıştırıyor ` +
+    "ve hepsi şu anda toplantıda."
   );
 }
 
@@ -120,8 +124,8 @@ export function serviceDenialPresentation(
       return {
         reason,
         kind: "unknown",
-        title: "Service not allowed",
-        body: `service not allowed: ${reason}`,
+        title: "Hizmet izni verilmedi",
+        body: `Hizmet izni verilmedi: ${reason}`,
         action: null,
         retryable: true,
       };
@@ -129,10 +133,10 @@ export function serviceDenialPresentation(
       return {
         reason,
         kind: "paywall",
-        title: "Out of credit",
+        title: "Bakiyeniz tükendi",
         body:
-          `${balanceSentence(facts)} Add funds and the bot joins ` +
-          "immediately — nothing else about your account needs changing.",
+          `${balanceSentence(facts)} Bakiye yüklediğinizde bot toplantıya ` +
+          "hemen katılır — hesabınızda başka hiçbir şeyi değiştirmeniz gerekmez.",
         action: ADD_FUNDS,
         retryable: false,
       };
@@ -140,10 +144,10 @@ export function serviceDenialPresentation(
       return {
         reason,
         kind: "setup",
-        title: "Billing setup not finished",
+        title: "Faturalandırma kurulumu tamamlanmadı",
         body:
-          "Your billing account is still being set up, so bots cannot " +
-          "join yet. Finishing setup takes a minute.",
+          "Faturalandırma hesabınızın kurulumu sürüyor, bu nedenle botlar " +
+          "henüz toplantılara katılamıyor. Kurulumu tamamlamak bir dakikanızı alır.",
         action: FINISH_SETUP,
         retryable: false,
       };
@@ -151,10 +155,10 @@ export function serviceDenialPresentation(
       return {
         reason,
         kind: "paywall",
-        title: "Payment past due",
+        title: "Ödemeniz gecikti",
         body:
-          "Your last payment did not go through, so bots are paused. " +
-          "Updating the payment method resumes them.",
+          "Son ödemeniz alınamadı, bu nedenle botlar duraklatıldı. " +
+          "Ödeme yönteminizi güncellediğinizde botlar yeniden çalışır.",
         action: UPDATE_PAYMENT,
         retryable: false,
       };
@@ -162,10 +166,10 @@ export function serviceDenialPresentation(
       return {
         reason,
         kind: "limit",
-        title: "Monthly spend cap reached",
+        title: "Aylık harcama limitine ulaşıldı",
         body:
-          "You set a hard spend cap and this month has reached it. " +
-          "Raising or clearing the cap resumes bots.",
+          "Kesin bir harcama limiti belirlemiştiniz ve bu ay o limite ulaşıldı. " +
+          "Limiti yükseltmek veya kaldırmak botları yeniden çalıştırır.",
         action: REVIEW_SPEND_CAP,
         retryable: false,
       };
@@ -173,8 +177,8 @@ export function serviceDenialPresentation(
       return {
         reason,
         kind: "limit",
-        title: "All bots are busy",
-        body: `${concurrencySentence(facts)} One will free up when a meeting ends.`,
+        title: "Tüm botlar meşgul",
+        body: `${concurrencySentence(facts)} Bir toplantı sona erdiğinde biri boşa çıkar.`,
         action: null,
         retryable: true,
       };
@@ -182,10 +186,10 @@ export function serviceDenialPresentation(
       return {
         reason,
         kind: "retryable",
-        title: "Billing system temporarily unavailable",
+        title: "Faturalandırma sistemi geçici olarak kullanılamıyor",
         body:
-          "Your account is fine — we could not reach the billing ledger " +
-          "just now. Try again shortly.",
+          "Hesabınızda bir sorun yok — şu anda faturalandırma kayıtlarına " +
+          "ulaşamadık. Lütfen kısa bir süre sonra yeniden deneyin.",
         action: null,
         retryable: true,
       };
@@ -195,23 +199,25 @@ export function serviceDenialPresentation(
 }
 
 function unknownServiceDenial(reason: string): ServiceDenialPresentation {
-  const label = reason.trim() || "unspecified";
+  const code = reason.trim();
   // Fail loud in the logs, PRODUCTION INCLUDED — never in the customer's face.
   // An unmapped reason is a prod-only event by definition: it means the service authority
   // (Vexa-ai/vexa-platform lib/billing-spend-policy.ts) shipped a reason ahead of this module's
   // copy. A dev-only console.error is silent exactly where the drift actually happens, so the net
   // has no signal.
   console.error(
-    `[service-denial] unmapped service-authority reason: ${label}. ` +
+    `[service-denial] unmapped service-authority reason: ${code || "unspecified"}. ` +
       "Add it to serviceDenialPresentation before it reaches a customer.",
   );
+  // A real reason code is shown verbatim; only the empty case gets Turkish words.
+  const label = code || "belirtilmemiş";
   return {
     reason,
     kind: "unknown",
-    title: "Service not allowed",
+    title: "Hizmet izni verilmedi",
     body:
-      `service not allowed: ${label}. If this keeps happening, send us ` +
-      "this code and we will tell you exactly what it means.",
+      `Hizmet izni verilmedi: ${label}. Bu durum tekrarlanırsa bu kodu bize ` +
+      "iletin; tam olarak ne anlama geldiğini size açıklayalım.",
     action: null,
     retryable: true,
   };
@@ -254,10 +260,10 @@ export function serviceDenialFromResponseBody(
     return {
       reason: reason ?? SERVICE_AUTHORITY_UNAVAILABLE_CODE,
       kind: "retryable",
-      title: "Billing system temporarily unavailable",
+      title: "Faturalandırma sistemi geçici olarak kullanılamıyor",
       body:
-        "Your account is fine — we could not reach the billing ledger " +
-        "just now. Try again shortly.",
+        "Hesabınızda bir sorun yok — şu anda faturalandırma kayıtlarına " +
+        "ulaşamadık. Lütfen kısa bir süre sonra yeniden deneyin.",
       action: null,
       retryable: true,
     };

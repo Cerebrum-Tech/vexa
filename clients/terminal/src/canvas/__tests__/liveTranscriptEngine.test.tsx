@@ -33,7 +33,7 @@ describe("LiveTranscriptEngine — processed v2 inline rendering", () => {
     expect(mark).not.toBeNull();
     expect(mark.textContent).toBe("shared words");
     expect(mark.style.fontStyle).toBe("italic");
-    expect(mark.getAttribute("aria-label")).toBe("Unresolved live transcript");
+    expect(mark.getAttribute("aria-label")).toBe("Kesinleşmemiş canlı transkript");
     expect(container.textContent).toContain("before");
     expect(container.textContent).toContain("after");
     expect(container.textContent).not.toContain("⟦");
@@ -55,7 +55,7 @@ describe("LiveTranscriptEngine — processed v2 inline rendering", () => {
 
     act(() => { mention.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
     const items = [...container.querySelectorAll('[role="menuitem"]')];
-    const researchItem = items.find((el) => el.textContent === "Research") as HTMLElement;
+    const researchItem = items.find((el) => el.textContent === "Araştır") as HTMLElement;
     expect(researchItem).toBeDefined();
 
     act(() => { researchItem.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
@@ -73,7 +73,7 @@ describe("LiveTranscriptEngine — processed v2 inline rendering", () => {
         actions={{ onSignal }}
       />,
     );
-    const badge = container.querySelector('[aria-label="signals"] button') as HTMLElement;
+    const badge = container.querySelector('[aria-label="sinyaller"] button') as HTMLElement;
     expect(badge).not.toBeNull();
     act(() => { badge.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
     expect(onSignal).toHaveBeenCalledWith({ id: "sig1", kind: "decision", label: "Ship Friday" });

@@ -35,8 +35,8 @@ export class ApiError extends Error {
  *  error text) for the operator channel — a `title=` affordance and the browser console. */
 export interface PresentedError { headline: string; detail: string }
 
-const NETWORK_HEADLINE = "Couldn't reach the Vexa server — check that the stack is running.";
-const GENERIC_HEADLINE = "Something went wrong — details are in the browser console.";
+const NETWORK_HEADLINE = "Innova Toplantı Asistanı sunucusuna ulaşılamadı — servislerin çalıştığını kontrol edin.";
+const GENERIC_HEADLINE = "İşlem tamamlanamadı — ayrıntılar tarayıcı konsolunda.";
 
 // A fetch()-level network failure surfaces as one of these engine-specific messages.
 const NETWORK_MESSAGE = /failed to fetch|networkerror|load failed|network request failed/i;
@@ -58,14 +58,14 @@ export function presentError(e: unknown): PresentedError {
     const detail = e.message;
     console.warn("api failure", detail);
     if (e.status === 0) return { headline: NETWORK_HEADLINE, detail };
-    if (e.status === 502 || e.status === 504) return { headline: "The Vexa server can't reach a backend service right now.", detail };
-    if (e.status === 401) return { headline: "Your API key was rejected — sign in again.", detail };
-    if (e.status === 403) return { headline: "Your key doesn't have access to this.", detail };
-    if (e.status === 429) return { headline: "Rate limit hit — try again in a moment.", detail };
+    if (e.status === 502 || e.status === 504) return { headline: "Innova Toplantı Asistanı şu anda bir arka uç servisine ulaşamıyor.", detail };
+    if (e.status === 401) return { headline: "API anahtarınız reddedildi — yeniden giriş yapın.", detail };
+    if (e.status === 403) return { headline: "Anahtarınızın buna erişim yetkisi yok.", detail };
+    if (e.status === 429) return { headline: "İstek sınırına ulaşıldı — birazdan yeniden deneyin.", detail };
     // Remaining 4xx/5xx: a prose `detail` is the backend's own user-facing reason — pass it
     // through VERBATIM (e.g. a typed transcription 503). A payload-shaped detail stays operator-only.
     if (isProse(e.detail)) return { headline: e.detail.trim(), detail };
-    return { headline: `The request failed (${e.status}).`, detail };
+    return { headline: `İstek tamamlanamadı (${e.status}).`, detail };
   }
   if (e instanceof Error) {
     const detail = e.message || String(e);

@@ -23,15 +23,15 @@ export async function POST(req: Request): Promise<NextResponse> {
   // Auth gate: this forwards to the shared transcription service with a server-side
   // bearer token. Without a check it's an open, credentialed Whisper proxy (cost/abuse
   // vector) — require the same per-user key every other proxy route resolves.
-  if (!(await resolveApiKey())) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!(await resolveApiKey())) return NextResponse.json({ error: "Oturumunuz doğrulanamadı — yeniden giriş yapın." }, { status: 401 });
 
   const base = (process.env.TRANSCRIPTION_SERVICE_URL ?? "").replace(/\/+$/, "");
-  if (!base) return NextResponse.json({ error: "Transcription is not configured (TRANSCRIPTION_SERVICE_URL)" }, { status: 503 });
+  if (!base) return NextResponse.json({ error: "Transkripsiyon yapılandırılmamış (TRANSCRIPTION_SERVICE_URL)." }, { status: 503 });
   const endpoint = sttEndpoint(base);
 
   const wav = await req.arrayBuffer();
-  if (wav.byteLength < 100) return NextResponse.json({ error: "Empty recording" }, { status: 400 });
-  if (wav.byteLength > MAX_BYTES) return NextResponse.json({ error: "Recording too long" }, { status: 413 });
+  if (wav.byteLength < 100) return NextResponse.json({ error: "Kayıt boş." }, { status: 400 });
+  if (wav.byteLength > MAX_BYTES) return NextResponse.json({ error: "Kayıt çok uzun." }, { status: 413 });
 
   const prompt = new URL(req.url).searchParams.get("prompt") ?? "";
 
@@ -52,7 +52,7 @@ export async function POST(req: Request): Promise<NextResponse> {
     const r = await fetch(endpoint, { method: "POST", headers, body: form, signal: AbortSignal.timeout(30000) });
     if (!r.ok) {
       const detail = await r.text().catch(() => "");
-      return NextResponse.json({ error: `Transcription failed (${r.status})`, detail: detail.slice(0, 300) }, { status: 502 });
+      return NextResponse.json({ error: `Transkripsiyon tamamlanamadı (${r.status}).`, detail: detail.slice(0, 300) }, { status: 502 });
     }
     const data = (await r.json()) as { text?: string; segments?: UpstreamSegment[] };
     const words = (data.segments ?? []).flatMap((s) => s.words ?? [])
@@ -61,6 +61,6 @@ export async function POST(req: Request): Promise<NextResponse> {
     return NextResponse.json({ text: (data.text ?? "").trim(), words });
   } catch (err) {
     const timeout = err instanceof Error && err.name === "TimeoutError";
-    return NextResponse.json({ error: timeout ? "Transcription timed out" : "Transcription unreachable" }, { status: 502 });
+    return NextResponse.json({ error: timeout ? "Transkripsiyon zaman aşımına uğradı." : "Transkripsiyon hizmetine ulaşılamadı." }, { status: 502 });
   }
 }

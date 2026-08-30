@@ -3,14 +3,14 @@ import "./globals.css";
 import { Analytics } from "./AnalyticsScript";
 
 export const metadata: Metadata = {
-  title: "Vexa Terminal",
+  title: "Innova Toplantı Asistanı",
   description:
-    "AI-first knowledge-worker terminal — Claude Code × Outlook on Vexa's meeting-bot + agentic-runtime backend.",
+    "Yerel transkripsiyon ve toplantı raporlama asistanı.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="tr">
       <head>
         {/* apply the saved theme before first paint so day mode doesn't flash dark on reload */}
         <script dangerouslySetInnerHTML={{ __html: `try{if(localStorage.getItem('vexa.terminal.theme')==='light')document.documentElement.setAttribute('data-theme','light')}catch(e){}` }} />

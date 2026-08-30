@@ -22,12 +22,12 @@ import { ASK_CHAT_EVENT, ONBOARDING_KICKOFF_MARK, ONBOARDING_SEED_EVENT, ONBOARD
 function toolOp(tool: string): Op {
   const t = tool.toLowerCase();
   // verb-first labels: the op line reads as what the agent is DOING, not an internal tool name
-  const [icon, verb] = /read|cat|open/.test(t) ? [opIcon.read, "Reading"]
-    : /glob|search|grep|find|ls\b/.test(t) ? [opIcon.search, "Searching"]
-    : /edit|write|append/.test(t) ? [opIcon.edit, "Writing"]
-    : /git|commit/.test(t) ? [opIcon.git, "Committing"]
-    : /web|fetch|http/.test(t) ? [opIcon.web, "Browsing"]
-    : /bash|exec|run/.test(t) ? [opIcon.tool, "Running"]
+  const [icon, verb] = /read|cat|open/.test(t) ? [opIcon.read, "Okunuyor"]
+    : /glob|search|grep|find|ls\b/.test(t) ? [opIcon.search, "Aranıyor"]
+    : /edit|write|append/.test(t) ? [opIcon.edit, "Yazılıyor"]
+    : /git|commit/.test(t) ? [opIcon.git, "Commit ediliyor"]
+    : /web|fetch|http/.test(t) ? [opIcon.web, "Göz atılıyor"]
+    : /bash|exec|run/.test(t) ? [opIcon.tool, "Çalıştırılıyor"]
     : [opIcon.tool, tool];
   return { icon, label: verb === tool ? tool : `${verb} · ${tool}`, status: "done" };
 }
@@ -94,7 +94,7 @@ function patchAgentTurn(key: string, agentId: string, fn: (turn: AgentTurn) => A
 }
 
 /** map a backend op label (read/search/edit/git/web/tool) to a frontend Op (icon from opIcon) */
-const OP_VERB: Record<string, string> = { read: "Reading", search: "Searching", edit: "Writing", git: "Committing", web: "Browsing", tool: "Working" };
+const OP_VERB: Record<string, string> = { read: "Okunuyor", search: "Aranıyor", edit: "Yazılıyor", git: "Commit ediliyor", web: "Göz atılıyor", tool: "Çalıştırılıyor" };
 function historyOp(op: { label: string }): Op {
   return { icon: opIcon[op.label] ?? opIcon.tool, label: OP_VERB[op.label] ?? op.label, status: "done" };
 }
@@ -121,7 +121,7 @@ function resizeComposerTextarea(el: HTMLTextAreaElement) {
 
 function attachmentPrompt(prompt: string, files: UploadedWorkspaceFile[]): string {
   if (files.length === 0) return prompt.trim();
-  const attached = ["Attached files:", ...files.map((f) => `- @file:${f.path}`)].join("\n");
+  const attached = ["Eklenen dosyalar:", ...files.map((f) => `- @file:${f.path}`)].join("\n");
   return prompt.trim() ? `${prompt.trim()}\n\n${attached}` : attached;
 }
 
@@ -244,7 +244,8 @@ function compactStoredUserText(text: string): string {
   if (legacyMeeting) {
     return appendReferenceToken(legacyMeeting[2], { kind: "meeting", value: legacyMeeting[1], raw: `@meeting:${legacyMeeting[1]}` });
   }
-  const activeFile = raw.match(/^Active context: the user is viewing the workspace file ([^\n]+?)\. Read it[\s\S]*?\n\n---\n([\s\S]*)$/);
+  const activeFile = raw.match(/^Etkin bağlam: kullanıcı şu anda ([^\n]+?) çalışma alanı dosyasını görüntülüyor\.[\s\S]*?\n\n---\n([\s\S]*)$/)
+    ?? raw.match(/^Active context: the user is viewing the workspace file ([^\n]+?)\. Read it[\s\S]*?\n\n---\n([\s\S]*)$/);
   if (activeFile) {
     return appendReferenceToken(activeFile[2], { kind: "file", value: activeFile[1], raw: `@file:${activeFile[1]}` });
   }
@@ -275,7 +276,7 @@ function ChatHeader({ subject, session, onSelectSession, onNewChat, onClose }: {
         if (!cancelled) { setSessions(list); setError(null); }
       } catch (e) {
         // Fail loud: surface the backend error instead of silently showing an empty list.
-        if (!cancelled) setError(e instanceof Error ? e.message : "Couldn't load sessions");
+        if (!cancelled) setError(e instanceof Error ? e.message : "Bilinmeyen hata");
       }
     };
     void load();
@@ -290,7 +291,7 @@ function ChatHeader({ subject, session, onSelectSession, onNewChat, onClose }: {
         const list = await listSessions();
         if (!cancelled) { setSessions(list); setError(null); }
       } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : "Couldn't load sessions");
+        if (!cancelled) setError(e instanceof Error ? e.message : "Bilinmeyen hata");
       }
     };
     void load();
@@ -322,7 +323,7 @@ function ChatHeader({ subject, session, onSelectSession, onNewChat, onClose }: {
   return (
     <div ref={menuRef} style={{ height: 38, flex: "none", position: "relative", display: "flex", alignItems: "center", gap: 4, padding: "0 8px", borderBottom: "1px solid var(--line)", background: "var(--panel)", minWidth: 0 }}>
       <button
-        aria-label="Switch chat session"
+        aria-label="Sohbet oturumunu değiştir"
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
         style={{ flex: 1, minWidth: 0, height: 28, borderRadius: 7, border: "1px solid transparent", background: open ? "var(--panel2)" : "transparent", color: "var(--t1)", display: "flex", alignItems: "center", gap: 7, padding: "0 8px", cursor: "pointer" }}
@@ -331,12 +332,12 @@ function ChatHeader({ subject, session, onSelectSession, onNewChat, onClose }: {
         <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 12.5, lineHeight: 1 }}>{currentTitle}</span>
         <Icon name="chevR" size={12} style={{ color: "var(--t3)", transform: open ? "rotate(-90deg)" : "rotate(90deg)", transition: "transform .12s" }} />
       </button>
-      <button aria-label="New chat" title="New chat" onClick={onNewChat} style={iconButton}><Icon name="plus" size={15} /></button>
-      <button aria-label="Close chat" title="Close chat" onClick={onClose} style={iconButton}><Icon name="x" size={14} /></button>
+      <button aria-label="Yeni sohbet" title="Yeni sohbet" onClick={onNewChat} style={iconButton}><Icon name="plus" size={15} /></button>
+      <button aria-label="Sohbeti kapat" title="Sohbeti kapat" onClick={onClose} style={iconButton}><Icon name="x" size={14} /></button>
 
       {open && (
         <div role="menu" style={{ position: "absolute", zIndex: 30, top: 36, left: 8, right: 8, maxHeight: 260, overflowY: "auto", border: "1px solid var(--line)", borderRadius: 8, background: "var(--panel)", boxShadow: "0 14px 34px rgba(0,0,0,.32)", padding: 4 }}>
-          {error && <div role="alert" style={{ padding: "8px", color: "var(--danger)", fontSize: 12 }}>⚠ Couldn&apos;t load sessions — {error}</div>}
+          {error && <div role="alert" style={{ padding: "8px", color: "var(--danger)", fontSize: 12 }}>⚠ Oturumlar yüklenemedi — {error}</div>}
           {visibleSessions.map((s) => {
             const active = s.session === session;
             return (
@@ -352,7 +353,7 @@ function ChatHeader({ subject, session, onSelectSession, onNewChat, onClose }: {
               </button>
             );
           })}
-          {visibleSessions.length === 0 && <div style={{ padding: "8px", color: "var(--t3)", fontSize: 12 }}>No recent sessions</div>}
+          {visibleSessions.length === 0 && <div style={{ padding: "8px", color: "var(--t3)", fontSize: 12 }}>Yakın zamanda oturum yok</div>}
         </div>
       )}
     </div>
@@ -390,8 +391,8 @@ function AttachmentChips({ attachments, onRemove }: { attachments: ComposerAttac
           {a.previewUrl
             ? <img src={a.previewUrl} alt="" style={{ width: 24, height: 24, borderRadius: 4, objectFit: "cover", flex: "none", background: "var(--bg)" }} />
             : <span style={{ width: 24, height: 24, borderRadius: 4, display: "flex", alignItems: "center", justifyContent: "center", flex: "none", background: "var(--bg)", color: "var(--t3)" }}><Icon name="file" size={13} /></span>}
-          <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.file.name || "upload"}</span>
-          <button aria-label={`Remove ${a.file.name || "attachment"}`} title="Remove" type="button" onClick={() => onRemove(a.id)}
+          <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.file.name || "yükleme"}</span>
+          <button aria-label={`${a.file.name || "Ek"} dosyasını kaldır`} title="Kaldır" type="button" onClick={() => onRemove(a.id)}
             style={{ background: "none", border: "none", color: "var(--t3)", cursor: "pointer", display: "flex", padding: 1, flex: "none" }}>
             <Icon name="x" size={12} />
           </button>
@@ -405,8 +406,8 @@ function referenceContext(text: string): string {
   const refs = referenceTokens(text);
   if (refs.length === 0) return "";
   const lines = [
-    "Referenced context:",
-    "The user included these paste-safe reference tokens. Resolve them before answering when relevant.",
+    "Başvurulan bağlam:",
+    "Kullanıcı bu referans belirteçlerini ekledi; yanıtlamadan önce ilgili olanları çözümle.",
   ];
   for (const ref of refs) {
     if (ref.kind === "file") {
@@ -414,7 +415,7 @@ function referenceContext(text: string): string {
         `- token: ${ref.raw}`,
         "  kind: file",
         `  workspace_path: ${ref.value}`,
-        "  instruction: Read this workspace-relative path before relying on it.",
+        "  yönerge: Bu çalışma alanı yoluna güvenmeden önce dosyayı oku.",
       );
     } else {
       const notesPath = `kg/entities/meeting/${ref.value}.md`;
@@ -425,7 +426,7 @@ function referenceContext(text: string): string {
         "  platform: google_meet",
         `  notes_workspace_path: ${notesPath}`,
         `  transcript_api_path: /api/transcripts/google_meet/${ref.value}`,
-        "  instruction: Use notes_workspace_path first; fetch or identify the transcript only when needed. Keep the visible chat compact: refer to the token instead of pasting the transcript.",
+        "  yönerge: Önce notes_workspace_path değerini kullan; transkripti yalnızca gerektiğinde getir veya belirle. Görünen sohbeti kısa tut: transkripti yapıştırmak yerine belirtece atıfta bulun.",
       );
     }
   }
@@ -449,21 +450,21 @@ function activeReference(tab: ActiveTab | null): ActiveReference | null {
 
 // ── chat MODE (design-spec meeting-lifecycle-v2, W3): the composer states its meeting phase ────────
 const MODE_CHIP: Record<MeetingPhase, { label: string; color: string; bg: string }> = {
-  prep: { label: "Preparing", color: "var(--accent)", bg: "var(--accentbg)" },
-  live: { label: "In meeting", color: "var(--green)", bg: "var(--greenbg)" },
-  post: { label: "Recap", color: "var(--violet)", bg: "var(--violetbg)" },
+  prep: { label: "Hazırlık", color: "var(--accent)", bg: "var(--accentbg)" },
+  live: { label: "Toplantıda", color: "var(--green)", bg: "var(--greenbg)" },
+  post: { label: "Toplantı özeti", color: "var(--violet)", bg: "var(--violetbg)" },
 };
 const MODE_PLACEHOLDER: Record<MeetingPhase, string> = {
-  prep: "Ask me to build the agenda, research attendees, or draft the brief…",
-  live: "Ask about what's being said…",
-  post: "Ask for the recap, decisions, or follow-up drafts…",
+  prep: "Gündem, katılımcı araştırması veya hazırlık notu isteyin…",
+  live: "Konuşulanlar hakkında sorun…",
+  post: "Toplantı özeti, kararlar veya takip taslağı isteyin…",
 };
 const meetingLabel = (m: MeetingMock) => m.title_custom ?? (m.native_id ?? m.title).replace(/^Google Meet · /, "");
 
 function activeContextPrompt(ref: ActiveReference | null, meeting: MeetingMock | undefined): string {
   if (!ref) return "";
   if (ref.kind === "file") {
-    return `Active context: the user is viewing the workspace file ${ref.value}. Read it with your Read tool if relevant.`;
+    return `Etkin bağlam: kullanıcı şu anda ${ref.value} çalışma alanı dosyasını görüntülüyor. İlgiliyse Read aracıyla oku.`;
   }
 
   // Meeting grounding now happens SERVER-SIDE: agent-api folds the live transcript from the meeting's
@@ -484,7 +485,18 @@ function promptWithActiveContext(prompt: string, ref: ActiveReference | null, me
 }
 
 const ROUTINE_COMMAND = "/routine";
+// The stem is an ASCII kebab-case FILE NAME, so Turkish letters fold to their ASCII skeleton
+// ("özet" → "ozet") before the word split — `[a-z0-9]+` alone cuts every diacritic out mid-word
+// and leaves shrapnel like "toplant-zeti".
+const TURKISH_FOLD: Record<string, string> = { "ç": "c", "ğ": "g", "ı": "i", "ö": "o", "ş": "s", "ü": "u", "â": "a", "î": "i", "û": "u" };
+const foldToAscii = (s: string) => s.toLocaleLowerCase("tr").replace(/[çğıöşüâîû]/g, (c) => TURKISH_FOLD[c] ?? c);
+// Filler the name is better without, in both languages the composer accepts: articles and
+// particles, the ask verbs, and the bare time units the cron expression already carries.
 const ROUTINE_NAME_STOP_WORDS = new Set([
+  "bana", "benim", "bir", "bizim", "da", "de", "her", "icin", "ile", "lutfen", "olustur",
+  "rutin", "tum", "ve", "zamanlanmis",
+  "saat", "saatte", "gun", "gunde", "gunluk", "hafta", "haftada", "haftalik",
+  "ay", "ayda", "aylik", "sabah", "aksam",
   "a", "an", "and", "as", "at", "by", "create", "each", "every", "for", "from", "in", "into",
   "me", "my", "of", "on", "our", "please", "routine", "scheduled", "the", "to", "with",
   "hour", "hours", "day", "days", "week", "weeks", "month", "months", "am", "pm",
@@ -499,7 +511,7 @@ function routineDescription(text: string): string {
 }
 
 function routineFileStem(description: string): string {
-  const words = description.toLowerCase().match(/[a-z0-9]+/g) ?? [];
+  const words = foldToAscii(description).match(/[a-z0-9]+/g) ?? [];
   const stem = words
     .filter((word) => !ROUTINE_NAME_STOP_WORDS.has(word) && !/^\d+(?:am|pm)?$/.test(word))
     .slice(0, 6)
@@ -511,29 +523,29 @@ function routineCreationPrompt(commandText: string): string {
   const description = routineDescription(commandText);
   if (!description) {
     return [
-      "The user invoked /routine without a routine description.",
-      "Ask one concise follow-up for the task to run and the cadence. Do not create a routine file until the user gives enough detail, or explicitly accepts a default daily 9 AM schedule.",
+      "Kullanıcı /routine komutunu bir rutin açıklaması vermeden çalıştırdı.",
+      "Çalıştırılacak görev ve tekrar sıklığı için tek ve kısa bir soru sor. Kullanıcı yeterli ayrıntı verene ya da her gün sabah 9 varsayılan zamanlamasını açıkça kabul edene kadar rutin dosyası oluşturma.",
     ].join("\n\n");
   }
 
   const fileStem = routineFileStem(description);
   return [
-    `Create a scheduled routine from this user request: ${JSON.stringify(description)}.`,
+    `Şu kullanıcı isteğinden zamanlanmış bir rutin oluştur: ${JSON.stringify(description)}.`,
     "",
-    "You must write the routine into the user's workspace as a markdown file. Do not only explain the routine.",
-    `Use this path unless a clearly better concise kebab-case name fits the request: routines/${fileStem}.md`,
+    "Rutini kullanıcının çalışma alanına markdown dosyası olarak yazmalısın. Yalnızca rutini açıklamakla yetinme.",
+    `İsteğe belirgin biçimde daha uygun ve kısa bir kebab-case ad yoksa şu yolu kullan: routines/${fileStem}.md`,
     "",
-    "The file must have YAML frontmatter in exactly this shape:",
+    "Dosyanın YAML frontmatter bölümü tam olarak şu şekilde olmalı:",
     "---",
     "enabled: true",
-    'cron: "<valid 5-field cron expression>"',
+    'cron: "<geçerli 5 alanlı cron ifadesi>"',
     "prompt: |",
-    "  <the task prompt the scheduled agent should run>",
+    "  <zamanlanmış asistanın çalıştıracağı görev istemi>",
     "---",
     "",
-    "Derive the cron from the user's schedule words. Examples: \"every 2 hours\" => \"0 */2 * * *\"; \"at 9am\" => \"0 9 * * *\". If no schedule is explicit, use daily at 9 AM local scheduler time: \"0 9 * * *\".",
-    "Make the prompt the actual recurring task, with schedule wording removed unless it is necessary context.",
-    "After writing the file, briefly confirm the path and cron.",
+    "cron ifadesini kullanıcının zamanlama sözlerinden türet. Örnekler: \"iki saatte bir\" => \"0 */2 * * *\"; \"sabah 9\" => \"0 9 * * *\". Zamanlama açıkça belirtilmemişse yerel zamanlayıcı saatiyle her gün sabah 9 kullan: \"0 9 * * *\".",
+    "İstemi asıl yinelenen görevin kendisi yap; gerekli bağlam olmadıkça zamanlama ifadelerini çıkar.",
+    "Dosyayı yazdıktan sonra yolu ve cron ifadesini kısaca doğrula.",
   ].join("\n");
 }
 
@@ -619,7 +631,7 @@ export function Chat({ params = {} }: ChatProps) {
         setValue(micCompose(micBaseRef.current, final, ""));
         window.setTimeout(() => inputRef.current?.focus(), 0);
       } catch (e) {
-        setMicError(e instanceof Error ? e.message : "Transcription failed");
+        setMicError(e instanceof Error ? e.message : "Transkripsiyon tamamlanamadı.");
       } finally { setMic("idle"); }
       return;
     }
@@ -632,7 +644,7 @@ export function Chat({ params = {} }: ChatProps) {
         onError: () => { /* transient mid-stream faults retry on the next window — stay quiet */ },
       });
       setMic("rec");
-    } catch { setMicError("Microphone unavailable — check browser permissions."); }
+    } catch { setMicError("Mikrofona erişilemedi — tarayıcı izinlerini kontrol edin."); }
   };
 
   useEffect(() => {
@@ -660,7 +672,7 @@ export function Chat({ params = {} }: ChatProps) {
     // was cancelled (deps changed / StrictMode remount): a real session switch targets a different key,
     // and an identical-key remount wants exactly this data. Crucially `loading` is ALWAYS released here —
     // bailing on cancel previously left `loading: true` stuck, and the guard above then blocked every retry,
-    // hanging the pane forever on "Loading conversation…".
+    // hanging the pane forever on "Sohbet yükleniyor…".
     (async () => {
       try {
         const r = await fetch(`/api/sessions/${encodeURIComponent(session)}/history`);
@@ -723,7 +735,7 @@ export function Chat({ params = {} }: ChatProps) {
     for (const a of attachments) form.append("files", a.file, a.file.name || "upload");
     const r = await fetch("/api/workspace/upload", { method: "POST", body: form });
     if (!r.ok) {
-      let detail = `Upload failed (${r.status})`;
+      let detail = `Dosya yüklenemedi (${r.status})`;
       try {
         const data = await r.json() as { detail?: string };
         if (data.detail) detail = data.detail;
@@ -767,7 +779,7 @@ export function Chat({ params = {} }: ChatProps) {
     // if the SSE closes early (durable, resumable output Stream). So instead of "No chat output arrived"
     // the instant a stream ends, it RESUMES from the last SSE cursor (Last-Event-ID) and keeps rendering.
     // A live STATUS LINE (turn.status, driven by onStatus below) keeps the pane VERBOSE about what's
-    // happening — "Starting agent…", "Working · 12s", "Reconnecting…" — so a long think / tool run / a
+    // happening — "Asistan başlatılıyor…", "Çalışıyor · 12s", "Yeniden bağlanıyor" — so a long think / tool run / a
     // broken SSE reads as alive, never a frozen blank. Real output (a delta / tool / terminal) clears it.
     // `since` is per-gap: cleared on output, re-stamped when the next quiet stretch begins, so the counter
     // measures the CURRENT wait (the useful "is it stuck?" signal), not total turn time.
@@ -814,8 +826,8 @@ export function Chat({ params = {} }: ChatProps) {
           onDelta: (text) => patchAgentTurn(key, agentId, (t) => ({ ...t, status: null, text: (t.text ?? "") + text })),
           onTool: (tool) => patchAgentTurn(key, agentId, (t) => ({ ...t, status: null, ops: [...t.ops, toolOp(tool)] })),
           onCommit: (sha) => patchAgentTurn(key, agentId, (t) => ({ ...t, commit: sha })),
-          onRejected: () => patchAgentTurn(key, agentId, (t) => ({ ...t, status: null, rejected: "workspace.v1 violation — reverted" })),
-          onModelFailure: (reply) => patchAgentTurn(key, agentId, (t) => ({ ...t, status: null, text: (t.text ?? "") + (t.text ? "\n\n" : "") + `Model inference failed${reply ? `: ${reply}` : "."}` })),
+          onRejected: () => patchAgentTurn(key, agentId, (t) => ({ ...t, status: null, rejected: "workspace.v1 ihlali — değişiklikler geri alındı" })),
+          onModelFailure: (reply) => patchAgentTurn(key, agentId, (t) => ({ ...t, status: null, text: (t.text ?? "") + (t.text ? "\n\n" : "") + `Model yanıt üretemedi${reply ? `: ${reply}` : "."}` })),
           onError: (msg) => patchAgentTurn(key, agentId, (t) => ({ ...t, status: null, text: (t.text ?? "") + (t.text ? "\n\n" : "") + msg })),
           onProgress: () => { if (stickToBottomRef.current) scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight }); },
         },
@@ -828,15 +840,15 @@ export function Chat({ params = {} }: ChatProps) {
         patchAgentTurn(key, agentId, (t) => {
           const base = t.text ?? "";
           return { ...t, status: null, text: base
-            ? base + "\n\n_Connection lost before the reply finished — reopen the chat to see the rest if it lands._"
-            : "The agent didn't respond before timing out. Reopen the chat to see the reply if it lands." };
+            ? base + "\n\n_Yanıt tamamlanmadan bağlantı kesildi — gerisi ulaşırsa görmek için sohbeti yeniden açın._"
+            : "Asistan, zaman aşımı süresi dolmadan yanıt vermedi. Yanıt ulaşırsa görmek için sohbeti yeniden açın." };
         });
       } else {
         patchAgentTurn(key, agentId, (t) => ({ ...t, status: null }));  // clean end — drop any lingering status line
       }
     } catch (e) {
-      if ((e as Error)?.name === "AbortError") patchAgentTurn(key, agentId, (t) => ({ ...t, status: null, text: (t.text ?? "") + (t.text ? "\n\n" : "") + "_stopped_" }));
-      else patchAgentTurn(key, agentId, (t) => ({ ...t, status: null, text: (t.text ?? "") + (t.text ? "\n\n" : "") + ((e as Error)?.message || "Chat request failed.") }));
+      if ((e as Error)?.name === "AbortError") patchAgentTurn(key, agentId, (t) => ({ ...t, status: null, text: (t.text ?? "") + (t.text ? "\n\n" : "") + "_durduruldu_" }));
+      else patchAgentTurn(key, agentId, (t) => ({ ...t, status: null, text: (t.text ?? "") + (t.text ? "\n\n" : "") + ((e as Error)?.message || "Sohbet isteği başarısız oldu.") }));
     } finally {
       updateChatState(key, (s) => ({ ...s, busy: false, abort: null }));
     }
@@ -903,14 +915,14 @@ export function Chat({ params = {} }: ChatProps) {
       try {
         uploaded = await uploadAttachments();
       } catch (e) {
-        setUploadError((e as Error)?.message || "Upload failed");
+        setUploadError((e as Error)?.message || "Dosya yüklenemedi.");
         setUploading(false);
         return;
       }
       setUploading(false);
       prompt = attachmentPrompt(prompt, uploaded);
       referenceSource = [v, uploaded.map((f) => `@file:${f.path}`).join("\n")].filter(Boolean).join("\n");
-      displayText = displayText || `Attached files: ${uploaded.map((f) => f.name).join(", ")}`;
+      displayText = displayText || `Eklenen dosyalar: ${uploaded.map((f) => f.name).join(", ")}`;
       clearAttachments();
     }
     // First onboarding reply: prepend the (hidden) discovery-loop grounding so the agent researches from
@@ -958,49 +970,49 @@ export function Chat({ params = {} }: ChatProps) {
             {/* ambient schedule chip — the context bundle's always-visible half: on = the agent
                 sees today's schedule; × turns it off for this session; ghost chip re-adds */}
             {ambientOn ? (
-              <span title="The agent sees your schedule (today, upcoming, live) on this surface"
+              <span title="Asistan bu ekranda programınızı görür (bugün, yaklaşan, canlı)"
                 style={{ flex: "none", display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11, color: "var(--t2)", background: "var(--panel2)", border: "1px solid var(--line)", borderRadius: 999, padding: "2px 4px 2px 9px" }}>
-                <Icon name="cal" size={10} /> Schedule · today
-                <button aria-label="Remove schedule context" title="Remove schedule context for this session" onClick={() => setAmbient(false)}
+                <Icon name="cal" size={10} /> Program · bugün
+                <button aria-label="Program bağlamını kaldır" title="Bu oturum için program bağlamını kaldır" onClick={() => setAmbient(false)}
                   style={{ background: "none", border: "none", color: "var(--t3)", cursor: "pointer", display: "flex", padding: 2 }}><Icon name="x" size={10} /></button>
               </span>
             ) : ambientEligible ? (
-              <button onClick={() => setAmbient(null)} title="Include your schedule in the agent's context"
+              <button onClick={() => setAmbient(null)} title="Programınızı asistanın bağlamına ekleyin"
                 style={{ flex: "none", display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, color: "var(--t3)", background: "transparent", border: "1px dashed var(--line2)", borderRadius: 999, padding: "2px 9px", cursor: "pointer" }}>
-                + schedule
+                + program
               </button>
             ) : null}
-            {/* B4 carve: the meeting focus is ONE chip — `Preparing · Title ×` — never a mono
+            {/* B4 carve: the meeting focus is ONE chip — `Hazırlık · Başlık ×` — never a mono
                 uppercase label plus a second raw-id Focus chip for the same meeting. */}
             {contextRef && contextRef.kind === "meeting" && activeMeeting ? (() => {
               const mode = MODE_CHIP[meetingPhase(activeMeeting)];
               return (
-                <span title={`This chat is grounded in the meeting's ${mode.label.toLowerCase()} state`}
+                <span title={`Bu sohbetin bağlamı bu toplantı — ${mode.label.toLocaleLowerCase("tr")}`}
                   style={{ flex: "none", display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11.5,
                     fontWeight: 600, color: mode.color, background: mode.bg, borderRadius: 999,
                     padding: "2px 5px 2px 10px", maxWidth: 260, minWidth: 0 }}>
                   <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>
                     {mode.label} · {meetingLabel(activeMeeting)}
                   </span>
-                  <button aria-label="Clear focus" title="Clear focus" onClick={() => setFocusCleared(true)}
+                  <button aria-label="Odağı temizle" title="Odağı temizle" onClick={() => setFocusCleared(true)}
                     style={{ background: "none", border: "none", color: mode.color, opacity: 0.7, cursor: "pointer", display: "flex", padding: 2, flex: "none" }}><Icon name="x" size={10} /></button>
                 </span>
               );
             })() : contextRef ? (
               <>
-                <span style={{ color: "var(--t3)", fontSize: 11, textTransform: "uppercase", letterSpacing: ".05em", flex: "none" }}>Focus</span>
+                <span style={{ color: "var(--t3)", fontSize: 11, textTransform: "uppercase", letterSpacing: ".05em", flex: "none" }}>Odak</span>
                 <ReferenceChip refToken={contextRef} />
-                <button aria-label="Clear focus" title="Clear focus" onClick={() => setFocusCleared(true)} style={{ background: "none", border: "none", color: "var(--t3)", cursor: "pointer", display: "flex", padding: 0, marginLeft: 2, flex: "none" }}><Icon name="x" size={12} /></button>
+                <button aria-label="Odağı temizle" title="Odağı temizle" onClick={() => setFocusCleared(true)} style={{ background: "none", border: "none", color: "var(--t3)", cursor: "pointer", display: "flex", padding: 0, marginLeft: 2, flex: "none" }}><Icon name="x" size={12} /></button>
               </>
             ) : null}
             {!contextRef && bundleFocus && (bundleFocus.kind === "workspace" || bundleFocus.kind === "today") && (
               <>
-                <span style={{ color: "var(--t3)", fontSize: 11, textTransform: "uppercase", letterSpacing: ".05em", flex: "none" }}>Focus</span>
+                <span style={{ color: "var(--t3)", fontSize: 11, textTransform: "uppercase", letterSpacing: ".05em", flex: "none" }}>Odak</span>
                 <span style={{ flex: "none", display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11, color: bundleFocus.kind === "workspace" ? "var(--blue)" : "var(--t2)", background: bundleFocus.kind === "workspace" ? "var(--bluebg)" : "var(--panel2)", border: "1px solid var(--line)", borderRadius: 6, padding: "1px 7px" }}>
                   <Icon name={bundleFocus.kind === "workspace" ? "panel" : "cal"} size={10} />
-                  {bundleFocus.kind === "workspace" ? `Workspace · ${bundleFocus.slug}` : "Today"}
+                  {bundleFocus.kind === "workspace" ? `Çalışma alanı · ${bundleFocus.slug}` : "Bugün"}
                 </span>
-                <button aria-label="Clear focus" title="Clear focus" onClick={() => setFocusCleared(true)} style={{ background: "none", border: "none", color: "var(--t3)", cursor: "pointer", display: "flex", padding: 0, marginLeft: 2, flex: "none" }}><Icon name="x" size={12} /></button>
+                <button aria-label="Odağı temizle" title="Odağı temizle" onClick={() => setFocusCleared(true)} style={{ background: "none", border: "none", color: "var(--t3)", cursor: "pointer", display: "flex", padding: 0, marginLeft: 2, flex: "none" }}><Icon name="x" size={12} /></button>
               </>
             )}
           </div>
@@ -1032,18 +1044,18 @@ export function Chat({ params = {} }: ChatProps) {
             }}
             placeholder={contextRef?.kind === "meeting" && activeMeeting
               ? MODE_PLACEHOLDER[meetingPhase(activeMeeting)]
-              : "Type / for skills, or ask the agent…"}
+              : "Beceriler için / yazın ya da asistana sorun…"}
             disabled={uploading}
             rows={1}
             style={{ flex: 1, background: "none", border: "none", outline: "none", color: "var(--t1)", fontSize: 14, lineHeight: "20px", minWidth: 0, minHeight: 28, maxHeight: MAX_TEXTAREA_HEIGHT, resize: "none", overflowY: "hidden", padding: "4px 0", margin: 0, fontFamily: "inherit" }}
           />
-          <button type="button" aria-label="Attach files" title="Attach files" disabled={busy || uploading} onClick={() => fileInputRef.current?.click()}
+          <button type="button" aria-label="Dosya ekle" title="Dosya ekle" disabled={busy || uploading} onClick={() => fileInputRef.current?.click()}
             style={{ background: "transparent", color: "var(--t3)", border: "1px solid var(--line2)", width: 30, height: 30, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", cursor: busy || uploading ? "default" : "pointer", flex: "none", opacity: busy || uploading ? 0.6 : 1 }}>
             <Icon name="paperclip" size={15} />
           </button>
           <button type="button"
-            aria-label={mic === "rec" ? "Stop recording" : "Dictate"}
-            title={mic === "rec" ? "Stop recording (transcribes into the composer)" : mic === "stt" ? "Transcribing…" : "Dictate"}
+            aria-label={mic === "rec" ? "Kaydı durdur" : "Dikte et"}
+            title={mic === "rec" ? "Kaydı durdur (yazı alanına aktarılır)" : mic === "stt" ? "Transkripsiyon yapılıyor…" : "Dikte et"}
             disabled={uploading || mic === "stt"}
             onClick={() => void toggleMic()}
             style={{
@@ -1058,8 +1070,8 @@ export function Chat({ params = {} }: ChatProps) {
               : <Icon name="mic" size={15} />}
           </button>
           {busy
-            ? <button aria-label="Stop" title="Stop" onClick={stop} style={{ background: "var(--panel2)", color: "var(--t1)", border: "1px solid var(--line2)", width: 30, height: 30, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flex: "none" }}><span style={{ width: 10, height: 10, background: "var(--t1)", borderRadius: 2, display: "block" }} /></button>
-            : <button aria-label="Send" disabled={uploading} onClick={() => void onSubmit()} style={{ background: "var(--accent)", color: "var(--on-accent)", border: "none", width: 30, height: 30, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", cursor: uploading ? "default" : "pointer", flex: "none", opacity: uploading ? 0.7 : 1 }}><Icon name="send" size={16} /></button>}
+            ? <button aria-label="Durdur" title="Durdur" onClick={stop} style={{ background: "var(--panel2)", color: "var(--t1)", border: "1px solid var(--line2)", width: 30, height: 30, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flex: "none" }}><span style={{ width: 10, height: 10, background: "var(--t1)", borderRadius: 2, display: "block" }} /></button>
+            : <button aria-label="Gönder" disabled={uploading} onClick={() => void onSubmit()} style={{ background: "var(--accent)", color: "var(--on-accent)", border: "none", width: 30, height: 30, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", cursor: uploading ? "default" : "pointer", flex: "none", opacity: uploading ? 0.7 : 1 }}><Icon name="send" size={16} /></button>}
         </div>
       </div>
     </>
@@ -1067,7 +1079,7 @@ export function Chat({ params = {} }: ChatProps) {
 
   return (
     <AgentWindow top={<ChatHeader subject={subject} session={session} onSelectSession={selectSession} onNewChat={newChat} onClose={() => layout.toggleRight()} />} scrollRef={scrollRef} composer={composer}>
-      <ChatConversation turns={turns} busy={busy || loading} empty={<div style={{ color: "var(--t3)", fontSize: 13, textAlign: "center", marginTop: 40 }}>{loading ? "Loading conversation…" : "Ask the agent to record, research, or restructure knowledge — it writes to your git workspace and commits."}</div>} />
+      <ChatConversation turns={turns} busy={busy || loading} empty={<div style={{ color: "var(--t3)", fontSize: 13, textAlign: "center", marginTop: 40 }}>{loading ? "Sohbet yükleniyor…" : "Asistandan not tutmasını, araştırma yapmasını veya bilgileri yeniden düzenlemesini isteyin — sonucu git çalışma alanınıza yazar ve commit eder."}</div>} />
     </AgentWindow>
   );
 }
@@ -1075,7 +1087,7 @@ export function Chat({ params = {} }: ChatProps) {
 // Agent /-skills — absent in meetings-only mode (NEXT_PUBLIC_TERMINAL_MODE=meetings), where the chat
 // rail itself doesn't render (Workbench) and the proxy refuses agent paths.
 if (!meetingsOnly()) {
-  registerCommand({ id: "skill.research", title: "Research and file to the workspace", skill: "/research", run: () => {} });
-  registerCommand({ id: "skill.draft", title: "Draft an email or doc", skill: "/draft", run: () => {} });
-  registerCommand({ id: "skill.routine", title: "Create a scheduled routine", skill: ROUTINE_COMMAND, run: () => {} });
+  registerCommand({ id: "skill.research", title: "Araştır ve çalışma alanına kaydet", skill: "/research", run: () => {} });
+  registerCommand({ id: "skill.draft", title: "E-posta veya belge taslağı hazırla", skill: "/draft", run: () => {} });
+  registerCommand({ id: "skill.routine", title: "Zamanlanmış rutin oluştur", skill: ROUTINE_COMMAND, run: () => {} });
 }

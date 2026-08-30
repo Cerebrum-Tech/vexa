@@ -58,9 +58,9 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
       });
       if (r.ok) { window.location.reload(); return; }
       const body = (await r.json().catch(() => ({}))) as { error?: string };
-      setError(body.error || `Login failed (${r.status})`);
+      setError(body.error || `Giriş yapılamadı (${r.status})`);
     } catch (err) {
-      setError((err as Error).message || "Login failed");
+      setError((err as Error).message || "Giriş yapılamadı");
     } finally {
       setSubmitting(false);
     }
@@ -82,16 +82,16 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
       >
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/vexa-logo.svg" alt="Vexa" width={28} height={28} style={{ borderRadius: 8, display: "block", flex: "none" }} />
+          <img src="/innova-logo.svg" alt="Innova" width={104} height={20} style={{ display: "block", flex: "none" }} />
           <div style={{ fontSize: 15, fontWeight: 600, color: "var(--t1)" }}>
-            {claiming ? "Set up your instance" : "Vexa Terminal"}
+            {claiming ? "Bu kurulumu sahiplenin" : "Toplantı Asistanı"}
           </div>
         </div>
         {claiming ? (
           <>
             <div style={{ fontSize: 12, color: "var(--t3)", lineHeight: 1.5 }}>
-              This Vexa instance has no administrator yet. The first sign-in becomes the admin and can
-              configure models, transcription, and other users.
+               Bu Innova Toplantı Asistanı kurulumunda henüz yönetici yok. İlk giriş yapan kişi yönetici
+               olur; modelleri, transkripsiyonu ve diğer kullanıcıları yapılandırabilir.
             </div>
             <div
               style={{
@@ -100,7 +100,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
               }}
             >
               <span style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--accent)", display: "inline-block" }} />
-              First sign-in = administrator
+              İlk giriş = yönetici
             </div>
             {!hasOAuth && (
               <div
@@ -109,24 +109,25 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
                   border: "1px solid var(--line2)", borderRadius: 8, padding: "9px 11px",
                 }}
               >
-                ⚠ Test mode — no OAuth configured. Sign-in is limited to emails containing &ldquo;test&rdquo;.
-                For real authentication, acquire Google or Microsoft OAuth credentials and add them to this
-                instance&rsquo;s environment (GOOGLE_CLIENT_ID/SECRET or MICROSOFT_CLIENT_ID/SECRET).
+                ⚠ Test modu — OAuth yapılandırılmamış. Giriş yalnızca &ldquo;test&rdquo; içeren e-posta
+                adresleriyle yapılabilir. Gerçek kimlik doğrulama için Google veya Microsoft OAuth kimlik
+                bilgileri edinip bu kurulumun ortam değişkenlerine ekleyin (GOOGLE_CLIENT_ID/SECRET veya
+                MICROSOFT_CLIENT_ID/SECRET).
               </div>
             )}
           </>
         ) : (
-          <div style={{ fontSize: 12, color: "var(--t3)", lineHeight: 1.5 }}>Sign in to continue.</div>
+          <div style={{ fontSize: 12, color: "var(--t3)", lineHeight: 1.5 }}>Devam etmek için giriş yapın.</div>
         )}
 
         {providers.google && (
           <button onClick={() => signIn("google", { callbackUrl: window.location.pathname + window.location.search })} style={oauthBtn}>
-            <GoogleMark /> Continue with Google
+            <GoogleMark /> Google ile devam et
           </button>
         )}
         {providers.microsoft && (
           <button onClick={() => signIn("microsoft", { callbackUrl: window.location.pathname + window.location.search })} style={oauthBtn}>
-            <MicrosoftMark /> Continue with Microsoft
+            <MicrosoftMark /> Microsoft ile devam et
           </button>
         )}
 
@@ -135,7 +136,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
             onClick={() => setShowDebug((v) => !v)}
             style={{ background: "none", border: "none", color: "var(--t3)", fontSize: 11, cursor: "pointer", padding: 0, alignSelf: "flex-start" }}
           >
-            {showDebug ? "Hide debug sign-in" : "Debug sign-in"}
+            {showDebug ? "Hata ayıklama girişini gizle" : "Hata ayıklama girişi"}
           </button>
         )}
 
@@ -143,15 +144,15 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
           <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             <div style={{ fontSize: 11, color: "var(--t3)", lineHeight: 1.4 }}>
               {claiming && !hasOAuth
-                ? "Email — must contain “test” (test mode)."
-                : "Debug login — email must contain “test”."}
+                ? "E-posta — “test” içermelidir (test modu)."
+                : "Hata ayıklama girişi — e-posta “test” içermelidir."}
             </div>
             <input
               type="email"
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="you-test@company.com"
+              placeholder="siz-test@sirket.com"
               style={{
                 background: "var(--panel2)", border: "1px solid var(--line2)", borderRadius: 7,
                 padding: "9px 10px", color: "var(--t1)", fontSize: 13, outline: "none",
@@ -168,13 +169,13 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
                 cursor: email.trim() && !submitting ? "pointer" : "default",
               }}
             >
-              {submitting ? "Signing in…" : claiming ? "Sign in as admin" : "Sign in"}
+              {submitting ? "Giriş yapılıyor…" : claiming ? "Yönetici olarak giriş yap" : "Giriş yap"}
             </button>
           </form>
         )}
         {claiming && (
           <div style={{ fontSize: 10.5, color: "var(--t3)", lineHeight: 1.4 }}>
-            This claim screen disappears once an admin exists.
+            Bu ekran, bir yönetici belirlendikten sonra bir daha görünmez.
           </div>
         )}
       </div>

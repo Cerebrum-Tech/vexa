@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { waitFor } from "@testing-library/react";
 
 /** Behavioral contract of the transcript-pane toggle (fix/terminal-processed-default-view):
  *  - COMPLETED meeting with persisted processed notes → DEFAULTS to the processed view
@@ -27,10 +28,16 @@ vi.mock("../../surfaces/meetingLive", () => ({
   }),
 }));
 
+vi.mock("../../surfaces/workspaceApi", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../../surfaces/workspaceApi")>(),
+  readWorkspaceFile: vi.fn(async () => null),
+}));
+
 import { MeetingCanvasView } from "../MeetingCanvasView";
 import { defaultProcessingView } from "../processingView";
 import { ServicesProvider, createContainer, reg } from "../../platform";
 import { LayoutServiceId, createLayoutService } from "../../workbench/layout";
+import * as workspaceApi from "../../surfaces/workspaceApi";
 
 const NOTE = { id: "n1", speaker: "Jane", text: "We agreed to ship Friday.", t: 1, pass: 1 };
 const LINE = { speaker: "Jane", text: "so um we agreed to ship friday", t: 1 };
@@ -53,6 +60,7 @@ beforeEach(() => {
   document.body.appendChild(container);
   fetchMock = vi.fn(async () => new Response("{}", { status: 200 }));
   vi.stubGlobal("fetch", fetchMock);
+  vi.mocked(workspaceApi.readWorkspaceFile).mockReset().mockResolvedValue(null);
 });
 
 afterEach(() => {
@@ -93,6 +101,23 @@ describe("defaultProcessingView (pure)", () => {
 });
 
 describe("MeetingCanvasView — default view + toggle semantics", () => {
+  it("toplantı bitince Türkçe raporu kullanıcı komutu olmadan gösterir", async () => {
+    meetingsState = [meetingRow(false)];
+    durableState.lines = [LINE];
+    durableState.notes = [NOTE];
+    vi.mocked(workspaceApi.readWorkspaceFile).mockImplementation(async (path) =>
+      path === "kg/entities/meeting/abc-defg-hij.md"
+        ? "---\ntype: meeting\n---\n\n## Özet\n\nYayın planı görüşüldü.\n\n## Alınan Kararlar\n\nCuma günü yayın yapılacak.\n\n## Aksiyon Maddeleri\n\n- Jane: Sürümü hazırlayacak."
+        : null,
+    );
+
+    await renderCanvas();
+
+    await waitFor(() => expect(container.textContent).toContain("Yayın planı görüşüldü."));
+    expect(container.textContent).toContain("Alınan Kararlar");
+    expect(container.textContent).toContain("Jane: Sürümü hazırlayacak.");
+  });
+
   it("COMPLETED meeting with persisted notes defaults to the PROCESSED view", async () => {
     meetingsState = [meetingRow(false)];
     durableState.lines = [LINE];
@@ -100,8 +125,8 @@ describe("MeetingCanvasView — default view + toggle semantics", () => {
     await renderCanvas();
     const btn = toggleButton();
     expect(btn.getAttribute("aria-pressed")).toBe("true");
-    expect(btn.textContent).toContain("Processed");
-    expect(container.textContent).toContain("cleaned + copilot");
+    expect(btn.textContent).toContain("İşlenmiş");
+    expect(container.textContent).toContain("temizlenmiş + asistan");
     expect(container.textContent).toContain("We agreed to ship Friday.");
   });
 
@@ -112,8 +137,8 @@ describe("MeetingCanvasView — default view + toggle semantics", () => {
     await renderCanvas();
     const btn = toggleButton();
     expect(btn.getAttribute("aria-pressed")).toBe("false");
-    expect(btn.textContent).toContain("Raw");
-    expect(container.textContent).toContain("raw transcript");
+    expect(btn.textContent).toContain("Ham");
+    expect(container.textContent).toContain("Ham transkript");
   });
 
   it("LIVE meeting keeps the current default (raw / processing off) even when notes exist", async () => {
@@ -123,7 +148,7 @@ describe("MeetingCanvasView — default view + toggle semantics", () => {
     await renderCanvas();
     const btn = toggleButton();
     expect(btn.getAttribute("aria-pressed")).toBe("false");
-    expect(btn.textContent).toContain("Processing off");
+    expect(btn.textContent).toContain("İşleme kapalı");
   });
 
   it("COMPLETED meeting toggle is a pure view switch — never calls the arm endpoint", async () => {
@@ -146,7 +171,7 @@ describe("MeetingCanvasView — default view + toggle semantics", () => {
     await renderCanvas();
     await act(async () => { toggleButton().dispatchEvent(new MouseEvent("click", { bubbles: true })); });
     expect(toggleButton().getAttribute("aria-pressed")).toBe("true");
-    expect(toggleButton().textContent).toContain("Processing on");
+    expect(toggleButton().textContent).toContain("İşleme açık");
     expect(processCalls()).toBe(1);
   });
 });
