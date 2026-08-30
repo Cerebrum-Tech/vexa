@@ -144,12 +144,32 @@ Point the agent at your own model so no inference leaves the network.
 
 | Variable | Default | Purpose |
 |---|---|---|
+| `VEXA_LLM_PROVIDER` | `openai-compat` | Completion adapter for live meeting processing. Ollama uses `openai-compat`. |
+| `VEXA_LLM_BASE_URL` / `VEXA_LLM_API_KEY` / `VEXA_LLM_MODEL` | — | Base URL, local placeholder key, and model for OpenAI-compatible completion servers. |
 | `VEXA_AGENT_MODEL` | — | Model the agent runner uses. |
 | `VEXA_MEETING_MODEL` | — | Model for meeting-time processing. |
+| `VEXA_MODEL_ALLOWLIST` | — | Optional comma-separated gate for models selected in workspace configuration. |
 | `ANTHROPIC_API_KEY` | — | Key for Anthropic-backed runners. |
+| `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_BASE_URL` | — | Token and endpoint used by Anthropic-compatible harness servers such as Ollama. |
 | `ANTHROPIC_MODEL` · `ANTHROPIC_DEFAULT_OPUS_MODEL` · `…_SONNET_MODEL` · `…_HAIKU_MODEL` | — | Per-tier model overrides. |
 | `HOST_CLAUDE_CREDENTIALS` | — | Host path to Claude credentials mounted into agent containers (see below). |
 | `VEXA_AGENT_DEFAULT_SUBJECT` | `u_live` | Fallback subject before the gateway fronts agent-api. |
+
+### Post-meeting report language
+
+The governed `agents/meeting.md` file controls automatic session-end reports. `report_language`
+accepts `en` (default) or `tr`. Turkish reports use `## Özet`, `## Alınan Kararlar`, and
+`## Aksiyon Maddeleri`, and keep decisions and owners grounded in the speaker-attributed transcript.
+
+```yaml
+enabled: false
+write_meeting_doc: true
+report_language: tr
+model: gemma4:12b
+```
+
+This combination disables live model beats but retains the one post-meeting document turn, reducing
+peak GPU demand when transcription and summarization share one GPU.
 
 ### Claude subscription credentials (`HOST_CLAUDE_CREDENTIALS`)
 

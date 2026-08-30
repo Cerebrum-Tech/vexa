@@ -1,0 +1,37 @@
+# GPU transcription container example. Network exposure, TLS, and firewall rules
+# are intentionally left to the deployment environment.
+name: innova-transcription
+
+services:
+  transcription:
+    image: cerebrumtech/innova-transcription:latest
+    environment:
+      WORKER_ID: "1"
+      MODEL_SIZE: ${MODEL_SIZE:-large-v3-turbo}
+      DEVICE: cuda
+      COMPUTE_TYPE: ${COMPUTE_TYPE:-int8}
+      API_TOKEN: ${API_TOKEN:?API_TOKEN must be set}
+
+      # Conservative defaults for bounded GPU load. Tune after observing the
+      # target GPU under representative concurrent meeting traffic.
+      MAX_ACTIVE_REQUESTS: ${MAX_ACTIVE_REQUESTS:-2}
+      MAX_QUEUE_SIZE: ${MAX_QUEUE_SIZE:-8}
+      FAIL_FAST_WHEN_BUSY: ${FAIL_FAST_WHEN_BUSY:-true}
+      REALTIME_RESERVED_SLOTS: ${REALTIME_RESERVED_SLOTS:-1}
+    ports:
+      - "${TRANSCRIPTION_PORT:-8083}:8000"
+    volumes:
+      - transcription-models:/app/models
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 30s
+
+volumes:
+  transcription-models:

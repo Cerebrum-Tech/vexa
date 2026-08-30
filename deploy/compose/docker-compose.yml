@@ -299,7 +299,7 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - RUNTIME_API_URL=http://runtime:8090
       - INTERNAL_API_SECRET=${INTERNAL_API_SECRET:-vexa-internal-secret}
-      - DEFAULT_BOT_NAME=${DEFAULT_BOT_NAME:-}
+      - DEFAULT_BOT_NAME=${DEFAULT_BOT_NAME:-Innova Toplantı Asistanı}
       # The background sweeps' internal lookups: auto-join fetches per-user spawn context
       # (/internal/users/{id}/bot-context) and calendar sync discovers connected ICS feeds
       # (/internal/calendar-configs). Unset -> calendar sync no-ops, auto-join spawns uncapped.
@@ -478,6 +478,7 @@ services:
         # Google Analytics 4 measurement id, baked into the client bundle at build time (NEXT_PUBLIC_*).
         # Set GA_MEASUREMENT_ID in .env, then rebuild the terminal image. Empty → GA stays off.
         NEXT_PUBLIC_GA_MEASUREMENT_ID: ${GA_MEASUREMENT_ID:-}
+        NEXT_PUBLIC_DEFAULT_BOT_NAME: ${DEFAULT_BOT_NAME:-Innova Toplantı Asistanı}
         # Terminal mode, baked at build time (NEXT_PUBLIC_* — see clients/terminal/src/app/mode.ts).
         # "meetings" = meetings-only terminal: only the meetings list + meeting/canvas tabs + the
         # API-tokens surface load, and the server proxy refuses agent-api paths (404). Uncomment
@@ -575,7 +576,7 @@ services:
       - JWT_SECRET=${NEXTAUTH_SECRET:-dev-nextauth-secret}
       - ALLOW_REGISTRATIONS=${DASHBOARD_ALLOW_REGISTRATIONS:-true}
       - NEXT_PUBLIC_HOSTED_MODE=false
-      - DEFAULT_BOT_NAME=${DEFAULT_BOT_NAME:-Vexa}
+      - DEFAULT_BOT_NAME=${DEFAULT_BOT_NAME:-Innova Toplantı Asistanı}
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/',r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))"]
       interval: 10s

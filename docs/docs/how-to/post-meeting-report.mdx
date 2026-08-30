@@ -12,6 +12,65 @@ For a [planned meeting](/how-to/plan-a-meeting) with a bound workspace this clos
 transcript lands on the same meeting record the plan started as, and the report lands in the same
 workspace the attendees already share.
 
+## Automatic Turkish report on meeting end
+
+The meeting worker can update `kg/entities/meeting/<meeting-id>.md` automatically when it receives
+`session_end`. Configure the workspace's visible `agents/meeting.md` frontmatter:
+
+```yaml
+enabled: false
+write_meeting_doc: true
+report_language: tr
+model: gemma4:12b
+```
+
+`enabled: false` skips continuously refreshed model beats; it does not disable transcript notes or
+the final document turn. The Turkish report contains exactly `## Özet`, `## Alınan Kararlar`, and
+`## Aksiyon Maddeleri`. Decisions require an explicit commitment in the transcript. Action owners
+are retained only when stated; otherwise the report says `Sorumlu belirtilmedi`.
+
+For a one-GPU local test with Ollama, bind the server to the Docker bridge gateway instead of a LAN
+interface. On a standard Linux Docker installation, first verify the gateway:
+
+```bash
+docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}'
+# Example result: 172.17.0.1
+```
+
+Start Ollama with that exact address and bounded concurrency:
+
+```bash
+OLLAMA_HOST=172.17.0.1:11434 \
+OLLAMA_CONTEXT_LENGTH=32768 \
+OLLAMA_MAX_LOADED_MODELS=1 \
+OLLAMA_NUM_PARALLEL=1 \
+OLLAMA_FLASH_ATTENTION=1 \
+OLLAMA_KV_CACHE_TYPE=q8_0 \
+ollama serve
+```
+
+Then configure the Vexa stack, replacing `172.17.0.1` if Docker reported a different gateway:
+
+```dotenv
+VEXA_LLM_PROVIDER=openai-compat
+VEXA_LLM_BASE_URL=http://172.17.0.1:11434/v1
+VEXA_LLM_API_KEY=ollama
+VEXA_LLM_MODEL=gemma4:12b
+ANTHROPIC_BASE_URL=http://172.17.0.1:11434
+ANTHROPIC_AUTH_TOKEN=ollama
+VEXA_AGENT_MODEL=gemma4:12b
+VEXA_MEETING_MODEL=gemma4:12b
+VEXA_MODEL_ALLOWLIST=gemma4:12b
+CLAUDE_CODE_DISABLE_THINKING=1
+MAX_THINKING_TOKENS=0
+CLAUDE_CODE_MAX_OUTPUT_TOKENS=4096
+```
+
+Do not use `OLLAMA_HOST=0.0.0.0:11434` for this local-only setup. Confirm with `ss -ltn` that Ollama
+listens only on the Docker bridge address before sending a meeting bot. Disabling extended thinking
+keeps a short post-meeting report from consuming a large reasoning budget; the output cap adds a
+second bound for single-GPU tests.
+
 ## Option A — dispatch a report when the meeting ends
 
 Fire a one-shot [dispatch](/core/agents) the moment a call wraps (e.g. from your own meeting-end hook):
