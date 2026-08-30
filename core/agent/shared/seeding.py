@@ -64,11 +64,82 @@ def validate_seed(seed: Path) -> list[str]:
             for rel in REQUIRED_SEED_PATHS if not (seed / rel).is_file()]
 
 
+def _root_commit(ws: Path, env: dict) -> "str | None":
+    """The workspace's SEED commit (its first). Its tree is the pristine template as installed, which
+    is what makes 'has the user touched this file?' answerable without storing a manifest."""
+    r = subprocess.run(["git", "rev-list", "--max-parents=0", "HEAD"],
+                       cwd=str(ws), capture_output=True, text=True, env=env)
+    if r.returncode != 0:
+        return None
+    heads = r.stdout.split()
+    return heads[-1] if heads else None
+
+
+def _seeded_bytes(ws: Path, commit: str, rel: str, env: dict) -> "bytes | None":
+    """The file's bytes AS SEEDED, or None when the seed commit never carried it."""
+    r = subprocess.run(["git", "show", f"{commit}:{rel}"],
+                       cwd=str(ws), capture_output=True, env=env)
+    return r.stdout if r.returncode == 0 else None
+
+
+def refresh_workspace_seed(ws: Path, seed_dir: "Path | None") -> list[str]:
+    """Bring an EXISTING workspace's untouched seed files up to the current template. Returns the
+    relative paths actually updated.
+
+    Seeding is once-per-workspace, so a template change (new guidance, a new language) reaches only
+    workspaces created after it — every existing workspace keeps whatever it was born with. That is
+    the gap this closes.
+
+    A workspace is the user's, not ours, so the rule is narrow: a file is refreshed ONLY when its
+    current bytes are identical to the bytes the SEED COMMIT installed — proof that neither the user
+    nor the agent has touched it. Anything edited since is left exactly as it is, and a path the seed
+    commit never carried is the workspace's own file and is never overwritten. New template files that
+    the workspace lacks entirely are added.
+    """
+    if not seed_dir or not seed_dir.exists() or not (ws / ".git").exists():
+        return []
+    env = scrubbed_git_env()
+    commit = _root_commit(ws, env)
+    if not commit:
+        return []
+
+    updated: list[str] = []
+    for src in sorted(seed_dir.rglob("*")):
+        if not src.is_file() or ".git" in src.parts:
+            continue
+        rel = src.relative_to(seed_dir).as_posix()
+        dst = ws / rel
+        want = src.read_bytes()
+        if not dst.exists():
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            dst.write_bytes(want)
+            updated.append(rel)
+            continue
+        current = dst.read_bytes()
+        if current == want:
+            continue
+        seeded = _seeded_bytes(ws, commit, rel, env)
+        if seeded is None or seeded != current:
+            continue  # the workspace owns this file now — never clobber it
+        dst.write_bytes(want)
+        updated.append(rel)
+
+    if updated:
+        subprocess.run(["git", "add", "-A"], cwd=str(ws), check=True, capture_output=True, text=True, env=env)
+        subprocess.run(["git", "commit", "-q", "-m", "refresh untouched seed files"],
+                       cwd=str(ws), check=True, capture_output=True, text=True, env=env)
+    return updated
+
+
 def seed_workspace(ws: Path, seed_dir: "Path | None") -> Path:
-    """Initialize `ws` as a git repo seeded from `seed_dir` (the validated template). Idempotent: a
-    workspace that already has `.git` is returned untouched. Copies the template tree, then `git init`
-    + a seed commit so a governed turn has a HEAD to commit onto."""
+    """Initialize `ws` as a git repo seeded from `seed_dir` (the validated template). Copies the
+    template tree, then `git init` + a seed commit so a governed turn has a HEAD to commit onto.
+
+    An already-seeded workspace is not re-created; its UNTOUCHED seed files are refreshed to the
+    current template (`refresh_workspace_seed`), so template changes reach existing workspaces while
+    anything the user or agent has edited is preserved."""
     if (ws / ".git").exists():
+        refresh_workspace_seed(ws, seed_dir)
         return ws
     ws.mkdir(parents=True, exist_ok=True)
     if seed_dir and seed_dir.exists():
