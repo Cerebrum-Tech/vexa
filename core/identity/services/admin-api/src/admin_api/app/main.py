@@ -25,10 +25,11 @@ from typing import Any, Dict, List, Optional
 from fastapi import Body, Depends, FastAPI, HTTPException, Query, Request, Response, Security, status
 from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, Field, field_serializer, model_validator
+from sqlalchemy import func
 from sqlalchemy.future import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..schema.models import APIToken, PlatformSetting, User
+from ..schema.models import APIToken, Meeting, PlatformSetting, Transcription, User
 from ..token_scope import VALID_SCOPES, generate_prefixed_token
 from .db import get_db
 
@@ -151,6 +152,39 @@ class UserResponse(BaseModel):
         }
 
     model_config = {"from_attributes": True}
+
+
+class UserListItem(UserResponse):
+    """A row of the admin user list. Adds only what a list needs over `UserResponse`; the
+    webhook-secret redaction is inherited, so a secret cannot leak through the list either."""
+    created_at: Optional[datetime] = None
+
+
+class UserListResponse(BaseModel):
+    items: List[UserListItem]
+    total: int
+    limit: int
+    offset: int
+
+
+class UserUsage(BaseModel):
+    """Per-user service usage over a window. Every field is MEASURED from the durable tables —
+    none is inferred from another. `reports_recorded` counts meetings carrying a doc reference in
+    `meetings.data['docs']`; a deployment whose producer does not yet file that reference reads 0
+    here rather than guessing from meeting counts."""
+    user_id: int
+    email: str
+    window_days: int
+    meetings_total: int
+    meetings_completed: int
+    meetings_failed: int
+    meeting_minutes: int
+    transcription_segments: int
+    reports_recorded: int
+    max_concurrent_bots: int
+    active_now: int
+    last_meeting_at: Optional[datetime] = None
+    by_platform: Dict[str, int] = Field(default_factory=dict)
 
 
 class TokenResponse(BaseModel):
@@ -383,6 +417,116 @@ def create_app() -> FastAPI:
         await db.refresh(u)
         response.status_code = status.HTTP_201_CREATED
         return UserResponse.model_validate(u)
+
+    # --- GET /admin/users → the admin user LIST. `POST /admin/users` has always existed; the
+    # matching GET did not, so every admin surface had to already know an id or email and a
+    # `GET /admin/users` answered 405. Paginated and searchable, newest first.
+    @app.get("/admin/users", response_model=UserListResponse,
+             dependencies=[Depends(verify_admin_token)])
+    async def list_users(
+        db: AsyncSession = Depends(get_db),
+        limit: int = Query(default=50, ge=1, le=200),
+        offset: int = Query(default=0, ge=0),
+        q: Optional[str] = Query(default=None, description="case-insensitive match on email or name"),
+    ):
+        where = []
+        if q and q.strip():
+            like = f"%{q.strip()}%"
+            where.append(User.email.ilike(like) | User.name.ilike(like))
+        total = (await db.execute(select(func.count(User.id)).where(*where))).scalar_one()
+        rows = (
+            await db.execute(
+                select(User).where(*where).order_by(User.id.desc()).limit(limit).offset(offset)
+            )
+        ).scalars().all()
+        return UserListResponse(
+            items=[UserListItem.model_validate(u) for u in rows],
+            total=total, limit=limit, offset=offset,
+        )
+
+    # --- GET /admin/users/{user_id}/usage → what this account actually consumed. Registered
+    # BEFORE `/admin/users/{user_id}` would swallow it is unnecessary (the suffix disambiguates),
+    # but it is kept next to the list for readability.
+    @app.get("/admin/users/{user_id}/usage", response_model=UserUsage,
+             dependencies=[Depends(verify_admin_token)])
+    async def user_usage(
+        user_id: int,
+        db: AsyncSession = Depends(get_db),
+        window_days: int = Query(default=30, ge=1, le=365),
+    ):
+        user = await db.get(User, user_id)
+        if not user:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="User not found")
+        since = datetime.utcnow() - timedelta(days=window_days)
+        scope = [Meeting.user_id == user_id, Meeting.created_at >= since]
+
+        totals = (
+            await db.execute(
+                select(
+                    func.count(Meeting.id),
+                    func.coalesce(
+                        func.sum(
+                            func.extract("epoch", Meeting.end_time - Meeting.start_time)
+                        ), 0,
+                    ),
+                    func.max(Meeting.created_at),
+                ).where(*scope)
+            )
+        ).one()
+
+        by_status = dict(
+            (
+                await db.execute(
+                    select(Meeting.status, func.count(Meeting.id)).where(*scope).group_by(Meeting.status)
+                )
+            ).all()
+        )
+        by_platform = dict(
+            (
+                await db.execute(
+                    select(Meeting.platform, func.count(Meeting.id)).where(*scope).group_by(Meeting.platform)
+                )
+            ).all()
+        )
+        segments = (
+            await db.execute(
+                select(func.count(Transcription.id))
+                .select_from(Transcription)
+                .join(Meeting, Transcription.meeting_id == Meeting.id)
+                .where(*scope)
+            )
+        ).scalar_one()
+        reports = (
+            await db.execute(
+                select(func.count(Meeting.id)).where(
+                    *scope, Meeting.data.has_key("docs")  # noqa: W601 — JSONB key test, not dict.has_key
+                )
+            )
+        ).scalar_one()
+        active = (
+            await db.execute(
+                select(func.count(Meeting.id)).where(
+                    Meeting.user_id == user_id,
+                    Meeting.status.notin_(["completed", "failed"]),
+                )
+            )
+        ).scalar_one()
+
+        return UserUsage(
+            user_id=user.id,
+            email=user.email,
+            window_days=window_days,
+            meetings_total=totals[0] or 0,
+            meetings_completed=by_status.get("completed", 0),
+            meetings_failed=by_status.get("failed", 0),
+            meeting_minutes=int((totals[1] or 0) // 60),
+            transcription_segments=segments or 0,
+            reports_recorded=reports or 0,
+            max_concurrent_bots=user.max_concurrent_bots,
+            active_now=active or 0,
+            last_meeting_at=totals[2],
+            by_platform={k: v for k, v in by_platform.items() if k},
+        )
 
     # --- GET /admin/users/email/{email} → resolve an existing user by email (api.v1). The dashboard
     # login (send-magic-link → findUserByEmail) calls this to find an existing account before minting a
