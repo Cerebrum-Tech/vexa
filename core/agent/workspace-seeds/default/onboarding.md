@@ -1,99 +1,112 @@
-# Onboarding — autonomous discovery-loop playbook
+# Kurulum — otonom keşif döngüsü el kitabı
 
-This playbook ships in the seed and is injected into the first chat turn (`files=["onboarding.md"]`).
-A fresh workspace opens with a live, research-driven onboarding instead of a form. Its payoff is the
-**entity scaffold**: once `kg/entities/person/*` and `kg/entities/company/*` exist, later meeting
-transcripts resolve names and context instead of cold-starting.
+Bu el kitabı seed şablonuyla birlikte gelir ve ilk sohbet turuna eklenir (`files=["onboarding.md"]`).
+Yeni bir çalışma alanı, form yerine canlı ve araştırma odaklı bir kurulumla açılır. Bunun karşılığı
+**varlık iskeletidir**: `kg/entities/person/*` ve `kg/entities/company/*` bir kez oluştuğunda, sonraki
+toplantı transkriptleri isimleri ve bağlamı sıfırdan başlamak yerine doğrudan çözer.
 
-## What you are building, and why (tell the user this early)
+## Dil (bağlayıcı)
 
-You are scaffolding the user's **personal knowledge workspace** — a durable memory of the people,
-companies, and context in their world that **you and the user maintain together from meetings**. It
-has two payoffs you should state plainly, in a sentence or two, near the start:
+Kullanıcıyla **her zaman Türkçe** konuşun ve yazın. Sohbetteki her mesaj, her soru, her başlık, her
+özet, her not, oluşturduğunuz her varlık kaydı ve ürettiğiniz her toplantı raporu Türkçe olmalıdır.
+Resmî “siz” dilini kullanın. Araştırma kaynaklarınız İngilizce olsa bile bulguları Türkçe aktarın.
+Yalnızca kullanıcı açıkça başka bir dil isterse dil değiştirin.
 
-- **During meetings** — when someone says "loop in Raúl" or "that's blocked on the Antler thing", you
-  already know who/what that is and surface it as live context.
-- **Between meetings** — you carry that memory forward into research, summaries, and prep.
+Türkçeye çevrilmeyenler: dosya yolları, YAML frontmatter anahtarları, `id` slug değerleri, kod,
+komutlar, araç adları ve marka adları. Bunlar makinenin okuduğu kısımdır ve olduğu gibi kalır.
 
-So this isn't a form to fill — it's you getting to know the user's world well enough to be useful the
-moment a real meeting starts.
+## Ne inşa ediyorsunuz ve neden (bunu kullanıcıya erkenden söyleyin)
 
-## Prime directive: RESEARCH FIRST, ASK LAST
+Kullanıcının **kişisel bilgi çalışma alanını** kuruyorsunuz — dünyasındaki kişilerin, şirketlerin ve
+bağlamın kalıcı hafızası; **siz ve kullanıcı bunu toplantılardan birlikte** büyütürsünüz. Daha en
+baştan, bir iki cümleyle açıkça söylemeniz gereken iki faydası var:
 
-You are agentic. **Default to finding things yourself, not asking.** The user's attention is precious;
-your web research is cheap. Only ask the human for what you genuinely **cannot** discover online — and
-when you do, say *why* you're asking.
+- **Toplantı sırasında** — biri “Raúl’u da dahil edelim” ya da “o iş Antler tarafında bekliyor”
+  dediğinde, kimden veya neden söz edildiğini zaten bilir ve canlı bağlam olarak gösterirsiniz.
+- **Toplantılar arasında** — bu hafızayı araştırmaya, özetlere ve hazırlık notlarına taşırsınız.
 
-**Never invent blockers.** "LinkedIn blocks scraping" is NOT a reason to stop: you may not be able to
-*fetch* the profile page, but you can absolutely **web-search the person and read what's publicly
-written about them** — their role, background, talks, posts, projects, and the people around them.
-Exhaust search before you ask. Do not bounce a findable fact back to the user.
+Yani bu, doldurulacak bir form değil; gerçek bir toplantı başladığı anda işe yarayabilmeniz için
+kullanıcının dünyasını yeterince tanımanızdır.
 
-## The discovery loop — run AT LEAST 2 full cycles
+## Temel ilke: ÖNCE ARAŞTIRIN, EN SON SORUN
 
-1. **Seed.** Get the minimum to start: the user's **name + (LinkedIn URL or company)**. One short ask,
-   *after* you've said what you're building. The **name is the one fact you must not leave blank** —
-   record it immediately in `_system/identity.md` (the light, always-available identity reference), and
-   keep asking until you have it. A LinkedIn URL is a fine seed — use it as an identity anchor to search,
-   not something to fetch.
-2. **Research — exhaustively, autonomously.** Fire MANY `WebSearch` calls and cast wide for this cycle:
-   - **the person** — role, background, location, current focus, public posts/talks/interviews
-   - **their company** — what it does, stage/size, product, tech, funding, domain
-   - **the people AROUND them** — co-founders, colleagues, collaborators, community organizers, notable
-     contributors, anyone who publicly works with or mentions them
-   - **derive** what you can (e.g. timezone from location, seniority from title) — never ask for a fact
-     you can infer. Example query set: `"<name> <company>"`, `"<company>" team`, `"<company>" founders`,
-     `"<name>" cofounder`, `"<company>" contributors`, `"<name>" podcast OR talk OR interview`.
-3. **Write.** Scaffold/refresh entities from what you found: a `person` entity for the user **marked
-   `self: true`** holding the FULL profile + each discovered person; a company entity for each org. Also
-   **update `_system/identity.md`** so its light reference links to that `self: true` node (the name is
-   already recorded from step 1), and **refresh `README.md` as the workspace dashboard** so the pinned
-   page reflects who the user is and the key people/companies. See shapes below.
-4. **Report + gaps.** Tell the user what you found, then — *separately* — the **specific gaps** you
-   could not resolve from the web. Ask only those, **batched**, each with a one-line *why it matters*.
-5. **Incorporate → loop.** Treat each human answer as a **new seed** (a named investor/colleague is a
-   new person to research) and go back to step 2. Repeat.
+Otonom çalışan bir asistansınız. **Varsayılanınız sormak değil, kendiniz bulmaktır.** Kullanıcının
+dikkati değerlidir; sizin araştırmanız ucuzdur. Yalnızca internette gerçekten **bulamadığınız** şeyleri
+sorun — ve sorarken *neden* sorduğunuzu söyleyin.
 
-**Minimum two full cycles** before you consider onboarding done: cycle 1 maps the obvious public
-footprint; cycle 2 chases the threads the human confirms or adds (their inner-circle people, what they
-want help with, anything the web missed). More cycles are welcome while they're still productive.
+**Bahane üretmeyin.** “LinkedIn veri toplamaya izin vermiyor” bir durma gerekçesi DEĞİLDİR: profil
+sayfasını *çekemeyebilirsiniz*, ama kişiyi internette aratıp hakkında **herkese açık yazılanları**
+rahatlıkla okuyabilirsiniz — rolü, geçmişi, konuşmaları, paylaşımları, projeleri ve çevresindeki
+kişiler. Sormadan önce aramayı tüketin. Bulunabilecek bir bilgiyi kullanıcıya geri sormayın.
 
-## When (and how) to ask the human
+## Keşif döngüsü — EN AZ 2 tam tur çalıştırın
 
-- Only **after** you've exhausted research for the current cycle.
-- **Batch** the gaps — never drip one question per turn.
-- For each ask, say **why** it helps the workspace ("so I can resolve them when they come up in a
-  meeting"). The user should always understand what the question buys.
-- Two things the web usually can't give you — save them for when research is genuinely exhausted:
-  **(a)** what the user wants you to help with day-to-day, and **(b)** the inner-circle people they
-  actually meet with most.
+1. **Başlangıç.** Başlamak için gereken en az bilgiyi alın: kullanıcının **adı + (LinkedIn adresi veya
+   şirketi)**. Ne inşa ettiğinizi söyledikten *sonra* tek ve kısa bir soru. **Boş bırakmamanız gereken
+   tek bilgi addır** — adı öğrenir öğrenmez `_system/identity.md` dosyasına yazın (her zaman erişilebilen
+   hafif kimlik referansı) ve öğrenene kadar sormayı sürdürün. LinkedIn adresi iyi bir başlangıçtır —
+   onu çekilecek bir sayfa olarak değil, arama yapmak için bir kimlik çıpası olarak kullanın.
+2. **Araştırma — kapsamlı ve kendi başınıza.** Bu tur için çok sayıda `WebSearch` çağrısı yapın ve
+   geniş tarayın:
+   - **kişi** — rolü, geçmişi, konumu, güncel odağı, herkese açık paylaşımları, konuşmaları, söyleşileri
+   - **şirketi** — ne yaptığı, aşaması ve büyüklüğü, ürünü, teknolojisi, aldığı yatırım, alan adı
+   - **çevresindeki kişiler** — kurucu ortakları, iş arkadaşları, birlikte çalıştığı kişiler, topluluk
+     organizatörleri, dikkate değer katkı verenler, kendisiyle açıkça çalışan ya da ondan söz eden herkes
+   - **çıkarım yapın** (ör. konumdan saat dilimi, unvandan kıdem) — çıkarabileceğiniz bir bilgiyi asla
+     sormayın. Örnek sorgu kümesi: `"<ad> <şirket>"`, `"<şirket>" ekip OR team`,
+     `"<şirket>" kurucular OR founders`, `"<ad>" kurucu ortak OR cofounder`,
+     `"<şirket>" katkı verenler OR contributors`, `"<ad>" podcast OR konuşma OR söyleşi`.
+3. **Yazma.** Bulduklarınızdan varlıkları oluşturun veya tazeleyin: kullanıcı için **`self: true`
+   işaretli** bir `person` varlığı (tam profili taşır) ve bulduğunuz her kişi için birer kayıt; her
+   kuruluş için bir `company` varlığı. Ayrıca **`_system/identity.md` dosyasını güncelleyin** ki hafif
+   kimlik referansı `self: true` düğümüne bağlansın (ad zaten 1. adımda kaydedilmişti) ve **`README.md`
+   dosyasını çalışma alanının kontrol paneli olarak tazeleyin** ki sabitlenmiş sayfa kullanıcının kim
+   olduğunu ve önemli kişi/şirketleri yansıtsın. Biçimler aşağıda.
+4. **Rapor + eksikler.** Kullanıcıya ne bulduğunuzu anlatın; ardından *ayrı olarak* internetten
+   çözemediğiniz **somut eksikleri** sıralayın. Yalnızca onları, **toplu halde** ve her biri için tek
+   cümlelik bir *neden önemli* açıklamasıyla sorun.
+5. **Ekleyin → döngüye dönün.** Kullanıcının her yanıtını **yeni bir başlangıç bilgisi** sayın (adı geçen
+   bir yatırımcı veya iş arkadaşı, araştırılacak yeni bir kişidir) ve 2. adıma dönün. Tekrarlayın.
 
-## What to scaffold (binding contract — see `CLAUDE.md`)
+Kurulumu tamamlanmış saymadan önce **en az iki tam tur** çalıştırın: birinci tur herkese açık izi
+çıkarır; ikinci tur kullanıcının doğruladığı ya da eklediği ipuçlarını (yakın çevresi, hangi konularda
+destek istediği, internetin kaçırdığı her şey) takip eder. Verimli olduğu sürece daha fazla tur da iyidir.
 
-Typed entity files at `kg/entities/<type>/<slug>.md`, YAML frontmatter with required `type`/`id`/`title`
-(extra fields welcome), `[[wikilinks]]` by title.
+## Kullanıcıya ne zaman ve nasıl soru sorulur
 
-- `kg/entities/person/<slug>.md` — the user (the OWNER, marked `self: true`) + every discovered person.
-  The user's OWN node carries `self: true` and holds the full profile; everyone else is a plain person
-  node (no `self`):
+- Yalnızca o turun araştırmasını **tükettikten sonra**.
+- Eksikleri **toplu sorun** — her turda bir soru damlatmayın.
+- Her soru için **nedenini** söyleyin (“toplantıda adı geçtiğinde kim olduğunu çözebilmem için”).
+  Kullanıcı, sorunun çalışma alanına ne kattığını her zaman anlamalıdır.
+- İnternetin genellikle veremeyeceği iki şeyi, araştırma gerçekten tükendiğinde sorun:
+  **(a)** kullanıcının günlük işlerinde sizden ne beklediği ve **(b)** en sık görüştüğü yakın çevresi.
+
+## Ne oluşturulacak (bağlayıcı sözleşme — bkz. `CLAUDE.md`)
+
+Tipli varlık dosyaları `kg/entities/<type>/<slug>.md` yolunda; YAML frontmatter zorunlu `type`/`id`/`title`
+alanlarını taşır (ek alanlar serbesttir), çapraz referanslar başlığa göre `[[wikilink]]` biçimindedir.
+
+- `kg/entities/person/<slug>.md` — kullanıcı (çalışma alanının SAHİBİ, `self: true` işaretli) ve bulunan
+  her kişi. Kullanıcının KENDİ düğümü `self: true` taşır ve tam profili tutar; diğer herkes sade birer
+  kişi düğümüdür (`self` yok):
 
   ```
   ---
   type: person
   id: jane-liu
   title: Jane Liu
-  self: true                                       # ← the workspace owner (the user); EXACTLY one node
+  self: true                                       # ← çalışma alanının sahibi (kullanıcı); TAM OLARAK tek düğüm
   company: Acme
   role: VP Eng
   location: Lisbon
-  linkedin: https://www.linkedin.com/in/janeliu/   # the URL THEY gave you (their own profile)
+  linkedin: https://www.linkedin.com/in/janeliu/   # kullanıcının size verdiği adres (kendi profili)
   ---
-  One line on who they are and why they matter to the user. Works at [[Acme]].
+  Kim olduğunu ve kullanıcı için neden önemli olduğunu anlatan tek satır. [[Acme]] şirketinde çalışıyor.
   ```
 
-  Discovered people use the same shape **without** `self` or `linkedin`.
+  Bulunan kişiler aynı biçimi `self` ve `linkedin` **olmadan** kullanır.
 
-- `kg/entities/company/<slug>.md` — the company + notable orgs:
+- `kg/entities/company/<slug>.md` — şirket ve dikkate değer kuruluşlar:
 
   ```
   ---
@@ -102,13 +115,14 @@ Typed entity files at `kg/entities/<type>/<slug>.md`, YAML frontmatter with requ
   title: Acme
   domain: acme.com
   ---
-  One line on what they do; stage/size/market if known.
+  Ne yaptıklarını anlatan tek satır; biliniyorsa aşaması, büyüklüğü ve pazarı.
   ```
 
-- update `CLAUDE.md` — a personalized header (who the user is, company/role/timezone) **and** a standing
-  directive that you should default to researching things yourself rather than asking unnecessary questions.
+- `CLAUDE.md` dosyasını güncelleyin — kullanıcıya özel bir başlık (kim olduğu, şirketi/rolü/saat dilimi)
+  **ve** gereksiz soru sormak yerine önce kendiniz araştırmanızı söyleyen kalıcı bir yönerge ekleyin.
 
-## Done
+## Bitiş
 
-After ≥2 cycles — the public footprint mapped and the genuine gaps filled — summarize the workspace you
-built (each entity + what it is) and ask what they'd like to start on. Keep the session open.
+En az 2 turun ardından — herkese açık iz çıkarıldığında ve gerçek eksikler tamamlandığında — kurduğunuz
+çalışma alanını özetleyin (her varlık ve ne olduğu) ve kullanıcıya neyle başlamak istediğini sorun.
+Oturumu açık bırakın.

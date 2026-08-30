@@ -1,79 +1,79 @@
 ---
 name: scheduling
-description: Set up recurring or scheduled work — anything the user wants run on a schedule, repeatedly, or at a future time ("every morning", "each weekday at 9am", "daily digest", "weekly report", "remind me", "run this on a cron"). Teaches how to author a durable Vexa Scheduler routine that survives restarts. Use this instead of any OS cron job, system timer, or session-only reminder.
+description: Tekrar eden veya zamanlanmış işleri kurar — kullanıcının bir programa göre, düzenli aralıklarla ya da ileri bir tarihte çalıştırılmasını istediği her şey (“her sabah”, “her hafta içi 09:00’da”, “günlük özet”, “haftalık rapor”, “bana hatırlat”, “bunu cron ile çalıştır”). Yeniden başlatmalara dayanan kalıcı bir Vexa Scheduler rutininin nasıl yazılacağını anlatır. Zamanlanmış işler için işletim sistemi cron görevi, sistem zamanlayıcısı veya yalnızca oturum boyu süren hatırlatma yerine bunu kullanın.
 ---
 
-# scheduling — durable recurring work
+# scheduling — kalıcı tekrar eden işler
 
-When the user asks for ANYTHING that should run on a schedule or repeat over time
-(a daily digest, a weekly report, a periodic check, a future reminder), you create
-a **routine file** in this workspace. The agent-api reconciler compiles it into a
-**durable Vexa Scheduler job** that survives restarts and process death — it is the
-only correct mechanism for scheduled work here.
+Kullanıcı bir programa göre çalışması ya da zaman içinde tekrarlanması gereken HERHANGİ bir şey
+istediğinde (günlük özet, haftalık rapor, düzenli bir kontrol, ileri tarihli bir hatırlatma), bu
+çalışma alanında bir **rutin dosyası** oluşturursunuz. agent-api içindeki uzlaştırıcı bu dosyayı,
+yeniden başlatmalara ve süreç ölümüne dayanan **kalıcı bir Vexa Scheduler işine** derler — zamanlanmış
+işler için buradaki tek doğru mekanizma budur.
 
-**NEVER** do any of these for scheduled work:
+Zamanlanmış işler için şunları **ASLA** yapmayın:
 
-- create an OS cron job (`crontab`, `/etc/cron.*`)
-- create a systemd timer or any other system timer
-- start a shell background loop / `sleep` loop
-- leave a "session-only" reminder (your turn ends and it is gone)
+- işletim sistemi cron görevi oluşturmak (`crontab`, `/etc/cron.*`)
+- systemd zamanlayıcısı ya da başka bir sistem zamanlayıcısı oluşturmak
+- kabukta arka plan döngüsü / `sleep` döngüsü başlatmak
+- “yalnızca oturum boyu” bir hatırlatma bırakmak (turunuz biter, o da yok olur)
 
-All of those die on restart or when your turn ends. Only a routine file is durable.
+Bunların hepsi yeniden başlatmada veya turunuz bittiğinde kaybolur. Yalnızca bir rutin dosyası kalıcıdır.
 
-## How to create a routine
+## Rutin nasıl oluşturulur
 
-Write one file at **`routines/<name>.md`** (`<name>` is a short slug; the filename
-stem becomes the routine name). It is a normal governed workspace file — just write
-it; you do not run git.
+**`routines/<name>.md`** yolunda tek bir dosya yazın (`<name>` kısa bir slug'dır; dosya adının kökü
+rutinin adı olur). Bu, sıradan bir çalışma alanı dosyasıdır — sadece yazın; git komutlarını siz
+çalıştırmazsınız.
 
-The file is **YAML frontmatter** plus an **optional markdown body**:
+Dosya, **YAML frontmatter** ve **isteğe bağlı bir markdown gövdesinden** oluşur:
 
-| field     | required        | meaning                                                        |
-|-----------|-----------------|----------------------------------------------------------------|
-| `enabled` | no (default `true`) | `false` cancels the job but keeps the file for later re-enable |
-| `cron`    | yes (when enabled)  | a standard **5-field** cron expression (min hour dom mon dow)  |
-| `prompt`  | yes (when enabled)  | the instruction sent to the agent on each run (non-empty)      |
+| alan      | zorunlu                 | anlamı                                                             |
+|-----------|-------------------------|--------------------------------------------------------------------|
+| `enabled` | hayır (varsayılan `true`) | `false` işi iptal eder ama dosyayı sonradan yeniden etkinleştirmek üzere saklar |
+| `cron`    | evet (etkinken)         | standart **5 alanlı** cron ifadesi (dakika saat ayın-günü ay haftanın-günü) |
+| `prompt`  | evet (etkinken)         | her çalıştırmada asistana gönderilen yönerge (boş olamaz)          |
 
-The optional markdown body below the second `---` is appended to `prompt` as extra
-context for each run.
+İkinci `---` satırının altındaki isteğe bağlı markdown gövdesi, her çalıştırma için ek bağlam olarak
+`prompt` değerinin sonuna eklenir.
 
-### cron format
+### cron biçimi
 
-Five fields, space-separated: `minute hour day-of-month month day-of-week`.
-Day-of-week is `0`–`7` (0 and 7 are both Sunday); `mon`/`tue`/… and `jan`/`feb`/…
-names are accepted, as are ranges (`mon-fri`), lists (`1,15`), and steps (`*/15`).
+Boşlukla ayrılmış beş alan: `dakika saat ayın-günü ay haftanın-günü`. Haftanın günü `0`–`7` aralığındadır
+(0 ve 7 pazardır); `mon`/`tue`/… ve `jan`/`feb`/… adları da kabul edilir — bu adlar İngilizcedir ve
+olduğu gibi yazılır. Aralıklar (`mon-fri`), listeler (`1,15`) ve adımlar (`*/15`) da geçerlidir.
 
-Examples:
-- `0 8 * * *` — every day at 08:00
-- `30 9 * * mon-fri` — 09:30 on weekdays
-- `0 17 * * fri` — 17:00 every Friday
-- `0 * * * *` — top of every hour
+Örnekler:
+- `0 8 * * *` — her gün 08:00
+- `30 9 * * mon-fri` — hafta içi 09:30
+- `0 17 * * fri` — her cuma 17:00
+- `0 * * * *` — her saat başı
 
-### Worked example
+### Örnek uygulama
 
-For "every weekday at 9am, give me a digest of yesterday's meetings", create
-`routines/morning-digest.md`:
+“Her hafta içi sabah 9’da dünkü toplantıların özetini ver” isteği için
+`routines/morning-digest.md` dosyasını oluşturun:
 
 ```markdown
 ---
 enabled: true
 cron: "30 9 * * mon-fri"
-prompt: "Compile a short digest of yesterday's meetings and open tasks from kg/entities/, and summarize what needs attention today."
+prompt: "kg/entities/ altındaki dünkü toplantılardan ve açık görevlerden kısa bir özet derle; bugün neyin dikkat gerektirdiğini yaz."
 ---
 
-Keep it under ~10 bullet points. Group by person/company. Link entities with [[wikilinks]].
+En fazla ~10 madde olsun. Kişi/şirket bazında gruplayın. Varlıkları [[wikilink]] ile bağlayın.
 ```
 
-That's it. The reconciler (running in agent-api, scanning every workspace on an
-interval) picks the file up, validates the cron + prompt, and schedules a durable
-Vexa Scheduler job. Editing the file updates the job; setting `enabled: false` (or
-deleting the file) cancels it.
+Hepsi bu. agent-api içinde çalışan ve her çalışma alanını belirli aralıklarla tarayan uzlaştırıcı
+dosyayı alır, `cron` ile `prompt` değerlerini doğrular ve kalıcı bir Vexa Scheduler işi zamanlar.
+Dosyayı düzenlemek işi günceller; `enabled: false` yapmak (ya da dosyayı silmek) işi iptal eder.
 
-## Validation notes
+## Doğrulama notları
 
-- An **enabled** routine MUST have a valid 5-field `cron` and a non-empty `prompt`,
-  or the reconciler logs a warning and skips it (no job is created). Double-check the
-  cron has exactly five fields.
-- A **disabled** routine (`enabled: false`) needs no cron/prompt — it just cancels
-  any existing job for that name.
-- Confirm to the user what you scheduled (name + cron + what it does).
+- **Etkin** bir rutinde geçerli, 5 alanlı bir `cron` ve boş olmayan bir `prompt` MUTLAKA bulunmalıdır;
+  aksi halde uzlaştırıcı bir uyarı yazar ve rutini atlar (iş oluşturulmaz). Cron ifadesinin tam olarak
+  beş alan taşıdığını yeniden kontrol edin.
+- **Devre dışı** bir rutin (`enabled: false`) için `cron`/`prompt` gerekmez — yalnızca o ada ait mevcut
+  işi iptal eder.
+- `prompt` değerini ve markdown gövdesini Türkçe yazın: her çalıştırmanın çıktısını kullanıcı okur.
+- Neyi zamanladığınızı kullanıcıya doğrulayın (ad + cron + ne yaptığı).

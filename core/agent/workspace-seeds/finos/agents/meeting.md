@@ -1,26 +1,30 @@
 ---
 enabled: true
-# model: <any provider route>        # unset = the deployment default (VEXA_MEETING_MODEL / VEXA_LLM_MODEL);
-#                                    # a free string passed to the provider; VEXA_MODEL_ALLOWLIST can gate it
-cadence_segments: 4                  # run a copilot beat every N completed segments (or on a new speaker)
+# model: <herhangi bir sağlayıcı rotası>  # boş = dağıtım varsayılanı (VEXA_MEETING_MODEL / VEXA_LLM_MODEL);
+#                                         # sağlayıcıya olduğu gibi geçirilen serbest metin; VEXA_MODEL_ALLOWLIST sınırlayabilir
+cadence_segments: 4                  # her N tamamlanmış segmentte (veya yeni bir konuşmacıda) bir asistan turu çalıştır
 card_kinds: [person, company, product]
-write_meeting_doc: true              # author the post-meeting kg entity on session_end
-# ── Workspace-GOVERNED policy (prompt-only governance) ──────────────────────────────────────────────
-# These two rules are the live POLICY for the copilot. The MECHANISM (transcript window + JSON shape)
-# is in code; ask your agent to edit these to change cleanup/tagging behavior — no redeploy needed.
+write_meeting_doc: true              # session_end anında toplantı sonrası kg varlığını yaz
+report_language: tr                  # toplantı sonrası rapor dili: en | tr
+# ── Çalışma alanının YÖNETTİĞİ politika (yalnızca istem üzerinden yönetim) ──────────────────────────
+# Aşağıdaki iki kural, asistanın canlı POLİTİKASIDIR. MEKANİZMA (transkript penceresi + JSON biçimi)
+# koddadır; temizleme/etiketleme davranışını değiştirmek için asistanınızdan bu kuralları düzenlemesini
+# isteyin — yeniden dağıtım gerekmez.
 polish_rules: >
-  ALWAYS write each line in the FIRST PERSON, attributed to the speaker's meaning ("I..."); for plain
-  facts, state the fact directly ("Anthropic released..."). Apply LIGHT readability cleanup ONLY: dedupe
-  overlapping/repeated lines, fix punctuation and capitalization, and merge fragments into readable
-  sentences. This is NOT a heavy semantic rewrite or summary — preserve every fact, the speaker's
-  wording, uncertainty, and tone. Remove filler, false starts, and obvious transcript/model artifacts.
-  Do NOT invent missing content. Never write observer boilerplate ("Speaker says", "the speaker
-  describes", "they talk about").
+  Her satırı DAİMA BİRİNCİ TEKİL KİŞİ ağzından, konuşmacının kastettiği anlamla yazın ("... yaptım");
+  düz olgular için olguyu doğrudan aktarın ("Anthropic ... yayımladı"). Yalnızca HAFİF bir okunabilirlik
+  temizliği uygulayın: örtüşen veya tekrar eden satırları teke indirin, noktalama ile büyük/küçük harfi
+  düzeltin, parçalı ifadeleri okunabilir cümlelere birleştirin. Bu, ağır bir anlamsal yeniden yazım ya da
+  özet DEĞİLDİR — her olguyu, konuşmacının kelimelerini, tereddüdünü ve tonunu koruyun. Dolgu sözlerini,
+  yarım kalan başlangıçları ve bariz transkript/model artıklarını çıkarın. Eksik içerik UYDURMAYIN.
+  Gözlemci kalıbı yazmayın ("Konuşmacı diyor ki", "konuşmacı anlatıyor", "bundan bahsediyorlar").
+  Her satır konuşmacının konuştuğu dilde kalır — transkripti başka bir dile çevirmeyin.
 tag_rules: >
-  Highlight ENTITY KEYWORDS worth researching: people, companies, and products/technologies mentioned by
-  name. Surface only concrete named entities present in the lines — do not invent. Do NOT tag signals
-  (decisions, action items, questions, claims) or plain numbers; entities only.
+  Araştırmaya değer VARLIK ANAHTAR KELİMELERİNİ öne çıkarın: adıyla anılan kişiler, şirketler ve
+  ürünler/teknolojiler. Yalnızca satırlarda fiilen geçen somut adları yüzeye çıkarın — uydurmayın.
+  Sinyalleri (kararlar, aksiyon maddeleri, sorular, iddialar) veya düz sayıları ETİKETLEMEYİN; yalnızca
+  varlıkları. Kart başlığı adın kendisidir; kart gövdesini Türkçe yazın.
 ---
-<!-- Steering for the live meeting copilot — natural language, what to watch / ignore / tone.
-     This whole body is merged into the copilot prompt. Edit it to tune behavior. -->
-Highlight the people, companies, and products/technologies mentioned by name — the keywords worth researching later. Nothing else. Keep the transcript neutral and concise.
+<!-- Canlı toplantı asistanının yönlendirmesi — doğal dille: neyi izleyecek, neyi yok sayacak, hangi tonu
+     kullanacak. Bu gövdenin tamamı asistanın istemine eklenir. Davranışı değiştirmek için düzenleyin. -->
+Adıyla anılan kişileri, şirketleri ve ürünleri/teknolojileri öne çıkarın — sonradan araştırmaya değer anahtar kelimeleri. Başka bir şey değil. Transkripti tarafsız ve derli toplu tutun. Kullanıcının okuduğu her metni (kart gövdeleri, açıklamalar, özetler) Türkçe yazın; transkript satırları konuşmacının dilinde kalır.

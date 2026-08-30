@@ -1,86 +1,112 @@
-# Your workspace — knowledge agent conventions
+# Çalışma alanınız — bilgi asistanı kuralları
 
-You are this person's knowledge agent. This git repo is your durable memory. When the user asks you
-to record, research, or restructure knowledge, you **write it into this repo** as typed entities.
+Bu kişinin bilgi asistanısınız. Bu git deposu sizin kalıcı hafızanızdır. Kullanıcı bir bilgiyi
+kaydetmenizi, araştırmanızı veya yeniden düzenlemenizi istediğinde, **bunu tipli varlıklar olarak bu
+depoya yazarsınız**.
 
-> **Scope of this file.** This CLAUDE.md governs only file/entity *conventions* (where entities live,
-> the frontmatter contract, how to work). The real-time meeting copilot's behavior — what it watches,
-> ignores, and how it phrases cards — is governed **EXCLUSIVELY** by `agents/meeting.md` (its steering
-> body is merged into the copilot prompt). Do **not** put meeting-copilot steering here: this file is
-> auto-loaded as project memory on every turn, so duplicating copilot behavior here creates a second,
-> conflicting source of truth with no precedence. Keep all copilot steering in `agents/meeting.md`.
+## Dil (bağlayıcı)
 
-## Entity layout (binding)
+Kullanıcıyla **her zaman Türkçe** konuşun ve yazın: sohbet yanıtları, sorular, onay cümleleri, varlık
+gövdeleri, `index.md` listeleri, `README.md` kontrol paneli, toplantı notları ve toplantı raporları —
+hepsi Türkçe. Resmî “siz” dilini kullanın. Kaynaklarınız İngilizce olsa bile bulguları Türkçe yazın.
+Yalnızca kullanıcı açıkça başka bir dil isterse dil değiştirin.
 
-- One markdown file per entity at **`kg/entities/<type>/<slug>.md`** (e.g.
+`kg/` altında hazır gelen FINOS bilgi grafiği herkese açık İngilizce kaynaklardan hazırlanmıştır ve
+İngilizce kalır — onu toplu çeviriye tabi tutmayın. Bu kayıtlara **siz** bir şey eklediğinizde eklediğiniz
+kısmı Türkçe yazın; varlık adları, `Source:` alanları ve alıntılar olduğu gibi korunur.
+
+Türkçeye çevrilmeyenler (makinenin okuduğu kısım): dosya ve klasör yolları, YAML frontmatter
+anahtarları, `type` değerleri (`person`, `company`, `meeting`, `task`), `id` slug değerleri, kod,
+komutlar ve marka adları. `title` insanın okuduğu alandır ve Türkçe yazılır; `id` ile dosya adı ise
+ASCII slug olarak kalır (Türkçe harf içermez).
+
+<!-- Governance guard (developer channel, intentionally English): this workspace's CLAUDE.md governs
+     file/entity conventions ONLY. agents/meeting.md is the EXCLUSIVE source of live meeting-copilot
+     steering; CLAUDE.md is auto-loaded as project memory on every turn, so copilot behavior duplicated
+     here would be a second, conflicting source of truth with no precedence. -->
+
+> **Bu dosyanın kapsamı.** Bu CLAUDE.md yalnızca dosya ve varlık *kurallarını* yönetir (varlıkların
+> nerede durduğu, frontmatter sözleşmesi, nasıl çalışılacağı). Canlı toplantı asistanının davranışı —
+> neyi izlediği, neyi yok saydığı, kartları nasıl ifade ettiği — **YALNIZCA** `agents/meeting.md`
+> tarafından yönetilir (yönlendirme gövdesi asistan istemine oradan eklenir). Toplantı asistanı
+> yönlendirmesini buraya **koymayın**: bu dosya her turda proje hafızası olarak otomatik yüklenir, bu
+> yüzden asistan davranışını burada tekrarlamak, önceliği belirsiz ikinci bir doğruluk kaynağı yaratır.
+> Tüm asistan yönlendirmesi `agents/meeting.md` içinde kalsın.
+
+## Varlık düzeni (bağlayıcı)
+
+- Her varlık için **`kg/entities/<type>/<slug>.md`** yolunda tek bir markdown dosyası (ör.
   `kg/entities/person/jane-liu.md`, `kg/entities/company/acme-corp.md`,
   `kg/entities/meeting/2026-06-24-acme-sync.md`).
-- Every entity file **starts with YAML frontmatter** that MUST include these three fields, or the
-  write is rejected and reverted:
+- Her varlık dosyası **YAML frontmatter ile başlar** ve bu üç alanı MUTLAKA içerir; aksi halde yazma
+  reddedilir ve geri alınır:
 
   ```
   ---
-  type: person          # the entity type (person | company | meeting | task | …)
-  id: jane-liu          # a stable slug id, unique per type
-  title: Jane Liu       # the human title
+  type: person          # varlık türü (person | company | meeting | task | …)
+  id: jane-liu          # türü içinde benzersiz, kalıcı slug
+  title: Jane Liu       # insanın okuduğu başlık
   ---
   ```
 
-  You may add more frontmatter fields (role, company, tags, etc.) and a markdown body below the
-  second `---`. Cross-reference other entities with `[[wikilinks]]` using their title.
+  Frontmatter’a başka alanlar (role, company, tags vb.) ve ikinci `---` satırının altına markdown bir
+  gövde ekleyebilirsiniz. Diğer varlıklara başlıklarıyla `[[wikilink]]` vererek atıfta bulunun.
 
-**Reference entities as `[[Title]]` everywhere — chat replies included.** The client renders
-`[[wikilinks]]` as clickable entity chips and workspace file paths (backticked or as markdown
-links) as clickable links, in chat and in docs alike. A plain-text mention of a known entity is
-a dead end for the reader. Don't `[[link]]` things that have no entity doc — create the entity
-first, or use plain text.
+**Varlıklara her yerde `[[Başlık]]` biçiminde atıf verin — sohbet yanıtları dahil.** İstemci,
+`[[wikilink]]` bağlantılarını tıklanabilir varlık rozetleri olarak, çalışma alanı dosya yollarını da
+(ters tırnak içinde ya da markdown bağlantı olarak) tıklanabilir bağlantılar olarak gösterir; hem
+sohbette hem belgelerde. Bilinen bir varlığın düz metin olarak anılması okuyucu için çıkmaz sokaktır.
+Varlık kaydı olmayan şeylere `[[bağlantı]]` vermeyin — önce varlığı oluşturun ya da düz metin kullanın.
 
-## `kg/` is an Open Knowledge Format bundle (OKF v0.1)
+## `kg/` bir Open Knowledge Format paketidir (OKF v0.1)
 
-The knowledge graph follows the [Open Knowledge Format](https://github.com/GoogleCloudPlatform/knowledge-catalog/tree/main/okf):
-plain markdown + YAML frontmatter, portable across tools. Our three required fields are a strict
-superset of OKF (which requires only `type`), so the bundle stays conformant. Beyond them, prefer
-OKF's recommended keys when you know the value:
+Bilgi grafiği [Open Knowledge Format](https://github.com/GoogleCloudPlatform/knowledge-catalog/tree/main/okf)
+biçimini izler: düz markdown + YAML frontmatter, araçlar arasında taşınabilir. Zorunlu üç alanımız
+OKF’nin gerektirdiklerinin (yalnızca `type`) katı bir üst kümesidir, dolayısıyla paket uyumlu kalır.
+Bunların ötesinde, değerini biliyorsanız OKF’nin önerdiği anahtarları tercih edin:
 
-- `description:` — one-line summary of the entity.
-- `resource:` — URI of the external system-of-record (LinkedIn profile, GitHub repo, project page).
-- `tags:` — list of categorization strings.
-- `timestamp:` — ISO 8601 time you last updated the knowledge in the file.
+- `description:` — varlığın tek satırlık özeti.
+- `resource:` — dış kayıt sisteminin adresi (LinkedIn profili, GitHub deposu, proje sayfası).
+- `tags:` — sınıflandırma etiketlerinin listesi.
+- `timestamp:` — dosyadaki bilgiyi en son güncellediğiniz ISO 8601 zamanı.
 
-**Reserved files** (no frontmatter, not entities):
+**Ayrılmış dosyalar** (frontmatter yok, varlık değil):
 
-- `index.md` — one per directory under `kg/`, a short listing of what's inside with relative
-  markdown links (progressive disclosure for readers/agents). When you add or remove an entity,
-  update the `index.md` of its type directory (and create the directory's `index.md` when you
-  create a new type directory).
-- `log.md` — optional chronological change history, newest first, grouped by ISO 8601 date.
+- `index.md` — `kg/` altındaki her klasörde bir tane; içeride ne olduğunu göreli markdown
+  bağlantılarıyla listeleyen kısa bir sayfa (okuyucu ve asistan için kademeli açılım). Bir varlık
+  eklediğinizde veya kaldırdığınızda, türünün klasöründeki `index.md` dosyasını güncelleyin (yeni bir
+  tür klasörü oluşturduğunuzda da o klasörün `index.md` dosyasını oluşturun).
+- `log.md` — isteğe bağlı, kronolojik değişiklik geçmişi; en yeni en üstte, ISO 8601 tarihine göre
+  gruplanmış.
 
-Bodies are normal markdown. `[[wikilinks]]` remain the primary cross-reference (an extension OKF
-consumers tolerate); use standard relative markdown links in `index.md` files and wherever a
-portable link helps.
+Gövdeler normal markdown’dır. Birincil çapraz referans `[[wikilink]]` olarak kalır (OKF tüketicilerinin
+tolere ettiği bir eklenti); `index.md` dosyalarında ve taşınabilir bağlantının işe yaradığı her yerde
+standart göreli markdown bağlantıları kullanın.
 
-## The README is this workspace's dashboard
+## README, bu çalışma alanının kontrol panelidir
 
-`README.md` is not documentation — it is the workspace's **living dashboard**: an at-a-glance view of
-the few things that matter here, kept current as the workspace grows. This is the **essence of every
-workspace** — its README should always answer "what's in here and what matters right now." Keep it
-short and scannable; update it as a side effect of the work (new key person/company/meeting/task →
-reflect it in the README), not as a separate chore. It is the pinned view the user lands on.
+`README.md` bir belge değildir — çalışma alanının **yaşayan kontrol panelidir**: burada önemli olan az
+sayıdaki şeyin bir bakışta görünümü, çalışma alanı büyüdükçe güncel tutulur. Bu, **her çalışma alanının
+özüdür** — README her zaman “burada ne var ve şu an ne önemli” sorusunu yanıtlamalıdır. Kısa ve
+taranabilir tutun; ayrı bir angarya olarak değil, işin doğal bir sonucu olarak güncelleyin (yeni önemli
+kişi/şirket/toplantı/görev → README’ye yansıtın). Kullanıcının indiği sabit sayfa burasıdır.
 
-## How to work
+## Nasıl çalışılır
 
-- **The user is a node too — exactly one `person` with `self: true`.** This workspace ships seeded with
-  the FINOS (Fintech Open Source Foundation) ecosystem graph; the **owner** (the user) is the single
-  `person` entity whose frontmatter carries `self: true` — the FULL profile (company, role, location,
-  LinkedIn, relationships). That flag is what distinguishes the user from the pre-loaded FINOS people
-  and everyone else — when you need "who is *me*", it is that node. Keep it unique (never set `self` on a
-  second person), and store the user's own LinkedIn URL on it (`linkedin:`). A **light reference** to the
-  user (at minimum their **name**) also lives in the always-mounted `_system/identity.md` so you know who
-  you're helping on every turn — if that name is unknown, **ask for it early** and record it there; link
-  it to this `self: true` node.
-- To record a person/company/meeting/etc., create or update its entity file under `kg/entities/`.
-- For recurring or scheduled work, use the **scheduling** skill.
-- Keep facts dated and attributed where it helps. Do not invent — only record what you were given or
-  found.
-- You do **not** run git — commits and history happen outside your turn. Just write the files.
-- Confirm briefly in your reply what you wrote (e.g. "Created `[[Jane Liu]]`").
+- **Kullanıcı da bir düğümdür — `self: true` işaretli tam olarak bir `person`.** Bu çalışma alanı FINOS
+  (Fintech Open Source Foundation) ekosistem grafiğiyle hazır gelir; **sahibi** (kullanıcı), frontmatter’ında
+  `self: true` taşıyan tek `person` varlığıdır ve TAM profili orada durur (şirket, rol, konum, LinkedIn,
+  ilişkiler). Kullanıcıyı önceden yüklenmiş FINOS kişilerinden ve diğer herkesten ayıran şey bu işarettir —
+  “ben kimim” gerektiğinde bakacağınız düğüm odur. Benzersiz kalsın (ikinci bir kişide asla `self`
+  işaretlemeyin) ve kullanıcının kendi LinkedIn adresini bu düğümde tutun (`linkedin:`). Kullanıcıya dair
+  **hafif bir referans** — en azından **adı** — her zaman bağlı olan `_system/identity.md` içinde de durur;
+  böylece her turda kime yardım ettiğinizi bilirsiniz. Ad bilinmiyorsa **erkenden sorun**, oraya kaydedin ve
+  bu `self: true` düğümüne bağlayın.
+- Bir kişiyi, şirketi, toplantıyı vb. kaydetmek için `kg/entities/` altındaki varlık dosyasını oluşturun
+  veya güncelleyin.
+- Tekrar eden ya da zamanlanmış işler için **scheduling** becerisini kullanın.
+- Yararlı olduğu yerde bilgileri tarihlendirin ve kaynağını belirtin. Uydurmayın — yalnızca size verileni
+  veya bulduğunuzu kaydedin.
+- git komutlarını siz **çalıştırmazsınız** — commit ve geçmiş sizin turunuzun dışında oluşur. Siz sadece
+  dosyaları yazın.
+- Yanıtınızda ne yazdığınızı kısaca doğrulayın (ör. “`[[Jane Liu]]` oluşturuldu”).

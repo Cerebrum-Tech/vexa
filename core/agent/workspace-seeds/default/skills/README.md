@@ -1,3 +1,4 @@
-# workspace-seed skills
+# Beceriler
 
-Built-in workspace skills available to agent-api workers. Each child directory owns one `SKILL.md` entrypoint.
+Asistanınızın bu çalışma alanında kullanabileceği yerleşik beceriler. Her alt klasör tek bir `SKILL.md`
+giriş dosyası taşır.

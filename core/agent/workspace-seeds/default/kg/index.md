@@ -1,7 +1,7 @@
-# Knowledge graph
+# Bilgi grafiği
 
-This directory is an [Open Knowledge Format](https://github.com/GoogleCloudPlatform/knowledge-catalog/tree/main/okf) v0.1 bundle: the agent's durable knowledge as markdown files with YAML frontmatter.
+Bu klasör bir [Open Knowledge Format](https://github.com/GoogleCloudPlatform/knowledge-catalog/tree/main/okf) v0.1 paketidir: asistanınızın kalıcı bilgisi, YAML frontmatter taşıyan markdown dosyaları olarak tutulur.
 
-- [entities](entities/index.md) — typed entities (`kg/entities/<type>/<slug>.md`). Ships with a small
-  worked EXAMPLE (a person, a company, and a meeting, cross-linked with `[[wikilinks]]`) so the shape is
-  clear; grows as the agent records real knowledge. Delete the examples once you have your own.
+- [entities](entities/index.md) — türlerine göre ayrılmış varlıklar (`kg/entities/<type>/<slug>.md`). Yapının
+  anlaşılması için küçük bir **örnek** ile gelir (bir kişi, bir şirket ve bunlara `[[wikilink]]` ile bağlı bir
+  toplantı); asistanınız gerçek bilgileri kaydettikçe büyür. Kendi kayıtlarınız oluştuğunda örnekleri silin.

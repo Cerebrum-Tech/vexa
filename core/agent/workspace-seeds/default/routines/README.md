@@ -1,3 +1,4 @@
-# workspace-seed routines
+# Rutinler
 
-Default routine definitions copied into a new workspace. The directory is intentionally allowed to start empty.
+Zamanlanmış rutinlerinizin tanımları bu klasörde durur. Klasör bilerek boş başlar; ilk rutininizi
+oluşturmak için asistanınızdan tekrar eden bir işi zamanlamasını isteyin.

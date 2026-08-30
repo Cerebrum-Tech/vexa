@@ -1,3 +1,4 @@
-# scheduling skill
+# scheduling becerisi
 
-Workspace skill for creating and maintaining scheduled routines through the agent-api routine surface.
+agent-api rutin yüzeyi üzerinden zamanlanmış rutinleri oluşturmak ve güncel tutmak için çalışma alanı
+becerisi.

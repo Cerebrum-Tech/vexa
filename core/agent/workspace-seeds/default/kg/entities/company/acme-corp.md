@@ -2,19 +2,19 @@
 type: company
 id: acme-corp
 title: Acme Corp
-description: Mid-market logistics SaaS; evaluating the integration for their ops team.
+description: Orta ölçekli lojistik SaaS şirketi; operasyon ekibi için entegrasyonu değerlendiriyor.
 resource: https://example.com/acme
 tags: [prospect, logistics]
-example: true   # SEEDED DEMO — shows the shape; not a real record
+example: true   # Örnek veri — yapıyı gösterir, gerçek bir kayıt değildir
 ---
 
 # Acme Corp
 
-> **Seeded example.** Demo data showing how this knowledge graph is maintained — not a real record. Never cite it in briefs or research; delete it once real entities exist.
+> **Örnek kayıt.** Bu bilgi grafiğinin nasıl tutulduğunu gösteren tanıtım verisidir — gerçek bir kayıt değildir. Hazırlık notlarında veya araştırmalarda asla kaynak göstermeyin; gerçek varlıklarınız oluştuğunda silin.
 
-Mid-market logistics SaaS (~400 employees). Evaluating the integration to streamline their
-operations workflow. Primary contact is [[Jane Liu]].
+Orta ölçekli lojistik SaaS şirketi (~400 çalışan). Operasyon iş akışını sadeleştirmek için entegrasyonu
+değerlendiriyor. Birincil iletişim kişisi [[Jane Liu]].
 
-## Notes
-- Buying committee: engineering ([[Jane Liu]]) + ops.
-- Budget approved for a Q3 pilot.
+## Notlar
+- Karar komitesi: mühendislik ([[Jane Liu]]) ve operasyon.
+- 3. çeyrekteki pilot için bütçe onaylandı.

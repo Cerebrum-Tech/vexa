@@ -1,44 +1,45 @@
-# Your workspace
+# Çalışma alanınız
 
-This is your **Personal workspace** — your durable memory. Everything you and your agent capture
-(people, companies, meetings, notes, tasks) lives here as files, and **this README is its dashboard**:
-a living, at-a-glance view of what matters in this workspace. Your agent keeps it current — as the
-workspace fills in, so does this page.
+Bu, kalıcı hafızanız olan Kişisel çalışma alanınızdır. Sizin ve asistanınızın kaydettiği her şey
+(kişiler, şirketler, toplantılar, notlar ve görevler) burada dosyalar halinde bulunur. **Bu README,
+çalışma alanınızın kontrol panelidir**: sizin için önemli olanları güncel ve bir bakışta görülebilir
+biçimde sunar. Çalışma alanı geliştikçe asistanınız bu sayfayı da güncel tutar.
 
-> **New here?** On your first message your agent runs a short, research-driven setup. The one thing it
-> needs from you is your **name** — everything else it can research or fill in over time. Sharing a
-> LinkedIn profile (or a short intro) helps it tailor everything to you from day one; with a synced
-> calendar it can infer a lot from your schedule and just ask you to confirm.
+> **Burada yeni misiniz?** İlk mesajınızda asistanınız kısa ve araştırma odaklı bir kurulum başlatır.
+> Sizden ihtiyaç duyduğu tek bilgi **adınızdır**; kalan bilgileri zaman içinde araştırabilir veya
+> tamamlayabilir. LinkedIn profilinizi ya da kısa bir tanıtım yazısını paylaşmanız, ilk günden itibaren
+> size özel çalışmasına yardımcı olur. Takviminiz eşitlenmişse programınızdan birçok bilgiyi çıkarıp
+> yalnızca doğrulamanızı isteyebilir.
 
-## You
+## Siz
 
-_Who this workspace belongs to. Your full profile lives as the `self: true` person entity in
-`kg/entities/person/`; your agent links it here once it exists._
+_Bu çalışma alanının sahibi. Tam profiliniz `kg/entities/person/` altında `self: true` olarak işaretli
+kişi kaydında bulunur; kayıt oluştuğunda asistanınız buraya bağlantısını ekler._
 
-- _(your agent fills this in)_
+- _(asistanınız doldurur)_
 
-## People
+## Kişiler
 
-_The people in your world — colleagues, collaborators, contacts. Resolved live during meetings._
+_İş arkadaşlarınız, birlikte çalıştığınız kişiler ve bağlantılarınız. Toplantılar sırasında güncellenir._
 
-- _(empty — grows as you meet people)_
+- _(kişilerle tanıştıkça gelişir)_
 
-## Companies & organizations
+## Şirketler ve kuruluşlar
 
-- _(empty)_
+- _(boş)_
 
-## Recent meetings
+## Son toplantılar
 
-_Meeting notes land in `kg/entities/meeting/`._
+_Toplantı notları `kg/entities/meeting/` altında bulunur._
 
-- _(empty)_
+- _(boş)_
 
-## Tasks & follow-ups
+## Görevler ve takip işleri
 
-- _(empty)_
+- _(boş)_
 
 ---
 
-_This dashboard is maintained by your agent — the **README is the essence of the workspace**: the few
-things that matter, kept current. Ask it to "update the README" any time, or just let it keep this fresh
-as the workspace grows._
+_Bu kontrol panelini asistanınız güncel tutar. **README çalışma alanının özüdür**: önemli olan az
+sayıdaki bilgi burada güncel kalır. İstediğiniz zaman “README dosyasını güncelle” diyebilir veya
+çalışma alanınız büyürken güncellemeyi asistanınıza bırakabilirsiniz._

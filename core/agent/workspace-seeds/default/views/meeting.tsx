@@ -1,12 +1,25 @@
 // Harness-governed Meeting Canvas view. The terminal trial-renders this before promotion.
 // Live FIRST-PERSON transcript: model-cleaned lines plus local fallback lines in one attributed body.
+const STATUS_LABEL = {
+  idle: "Boşta",
+  scheduled: "Zamanlandı",
+  requested: "İstendi",
+  joining: "Katılıyor",
+  awaiting_admission: "Bekliyor",
+  needs_help: "Yardım gerekli",
+  active: "Canlı",
+  live: "Canlı",
+  stopping: "Durduruluyor",
+  completed: "Tamamlandı",
+  past: "Tamamlandı",
+  failed: "Başarısız",
+  stopped: "Durduruldu",
+};
+
 function statusLabel(status) {
   const v = String(status || "live").toLowerCase();
-  if (v === "active" || v === "live") return "Live";
-  if (v === "awaiting_admission") return "Waiting";
-  if (v === "needs_help") return "Help";
-  if (v === "completed" || v === "past") return "Done";
-  return v ? v[0].toUpperCase() + v.slice(1).replace(/_/g, " ") : "Live";
+  const label = STATUS_LABEL[v];
+  return typeof label === "string" ? label : v.replace(/_/g, " ");
 }
 
 function statusTone(status) {
@@ -23,7 +36,7 @@ export default function MeetingCanvas() {
   const cleanNotes = notes.map((note) => ({ ...note, chapter: "" }));
 
   const status = meeting.meeting.status || "live";
-  const title = meeting.meeting.title || "Meeting";
+  const title = meeting.meeting.title || "Toplantı";
 
   return (
     <ui.Stack size="lg">
@@ -32,8 +45,8 @@ export default function MeetingCanvas() {
         <ui.Tag tone="default">{title}</ui.Tag>
       </ui.Row>
 
-      <ui.Section title="Transcript">
-        <ui.LiveNotes notes={cleanNotes} maxNotes={80} merge empty="Clean attributed transcript appears as people speak." />
+      <ui.Section title="Transkript">
+        <ui.LiveNotes notes={cleanNotes} maxNotes={80} merge empty="Katılımcılar konuştukça temiz ve konuşana atanmış transkript burada belirir." />
       </ui.Section>
     </ui.Stack>
   );

@@ -1,3 +1,4 @@
-# workspace-seed views
+# Görünümler
 
-Default view source copied into a new workspace. These files render inside the terminal canvas runtime.
+Toplantı Tuvali için görünüm kaynakları. Buradaki dosyalar terminalin tuval çalışma zamanında çizilir;
+toplantı görünümünü `meeting.tsx` üretir.

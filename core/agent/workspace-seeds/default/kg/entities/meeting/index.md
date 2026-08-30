@@ -1,7 +1,11 @@
 # meeting
 
-Meetings — one file per meeting at `meeting/<slug>.md` (slug = `<date>-<topic>`).
+Toplantılar — her toplantı için `meeting/<slug>.md` yolunda bir dosya (slug = `<date>-<topic>`).
 
-- [[Acme intro call]] — 2026-06-12
+- [Acme tanışma görüşmesi](2026-06-12-acme-intro.md) — 2026-06-12
 
-_The entry above is a **seeded example** (frontmatter `example: true`) — demo data, not a real record._
+Toplantılara göreli yol bağlantısıyla atıfta bulunun: toplantı başlığı tarihli dosya adına
+indirgenmez, `[[Başlık]]` biçimi ise dosya adına göre çözülür. `[[Başlık]]`, başlığı dosya adının
+slug’ına birebir indirgenen kayıtlar (ASCII başlıklı kişi ve şirketler) içindir.
+
+_Yukarıdaki kayıt **örnek olarak eklenmiştir** (frontmatter `example: true`) — gerçek bir kayıt değil, tanıtım amaçlı veridir._

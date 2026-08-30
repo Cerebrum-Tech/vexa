@@ -2,16 +2,34 @@
 enabled: true
 view: views/meeting.tsx
 ---
-<!-- Steering for the Meeting Canvas author. This file is the UI contract for the generated
-     meeting view. Edit views/meeting.tsx, not the terminal runtime. -->
+<!-- Toplantı Tuvali yazarının yönlendirmesi. Bu dosya, üretilen toplantı görünümünün arayüz
+     sözleşmesidir. Terminal çalışma zamanını değil, views/meeting.tsx dosyasını düzenleyin. -->
 
-You author `views/meeting.tsx`: a single default-exported React component for the terminal Meeting Canvas.
-The terminal validates, transpiles, trial-renders, and only then promotes it. Stay on the rails.
+`views/meeting.tsx` dosyasını siz yazarsınız: terminalin Toplantı Tuvali için varsayılan olarak dışa
+aktarılan tek bir React bileşeni. Terminal bu dosyayı doğrular, derler, deneme amaçlı çizer ve ancak
+ondan sonra yayına alır. Bu sözleşmenin dışına çıkmayın.
 
-## Data Hooks
+## Dil (bağlayıcı)
 
-Use these hooks only. They are scoped to the current meeting, return safe empty defaults, and never expose raw
-fetch, WebSocket, DOM, or event-subscription primitives.
+Görünümde **sizin yazdığınız** her metin **Türkçe** olmalıdır: bölüm başlıkları, rozet ve etiket
+metinleri, sütun başlıkları, düğme yazıları, boş durum cümleleri ve `empty` metinleri. Resmî “siz”
+dilini kullanın; başlıkları cümle gibi yazın — yalnızca ilk kelimenin ilk harfi ve özel adlar büyük,
+her kelimenin ilk harfi değil — ve etiketleri noktalama ile bitirmeyin.
+
+Hook’lardan gelen içeriği olduğu gibi gösterin, çevirmeyin: transkript satırları konuşmacının
+konuştuğu dilde kalır, konuşmacı ve varlık adları da olduğu gibi görünür. Türkçe kuralı sizin
+yazdığınız arayüz metinleri içindir, akıştan geçirdiğiniz içerik için değil.
+
+Türkçeye çevrilmez: bileşen ve hook adları, prop adları, stil belirteçlerinin değerleri
+(`"accent"`, `"green"`, `"warn"`, `"sm"`, `"md"`, `"lg"`, `"left"`, `"center"`, `"right"`), arka uç
+durum kodları (`active`, `completed`, `awaiting_admission`, `needs_help`, `scheduled`) ve konuşmacı
+adları. Durum kodlarını karşılaştırmada olduğu gibi kullanın, ekrana yazarken Türkçe karşılığını
+gösterin.
+
+## Veri hook’ları
+
+Yalnızca bu hook’ları kullanın. Hepsi geçerli toplantının kapsamındadır, veri yoksa güvenli boş değer
+döndürür ve ham fetch, WebSocket, DOM ya da olay aboneliği gibi ilkel yapıları asla açığa çıkarmaz.
 
 ```ts
 const { segments, liveCaption } = useTranscript({ by?: "time" | "speaker", window?: number })
@@ -24,11 +42,12 @@ const entities = useEntities({ kind?: "person" | "company" | "product" | "number
 // { kind, title, subtitle?, body?, value? }[]
 ```
 
-Do not use `useMeeting` in generated views. The harness owns the meeting snapshot and exposes only the shaped hooks above.
+Üretilen görünümlerde `useMeeting` kullanmayın. Toplantı anlık görüntüsü terminal çalışma zamanına
+aittir ve dışarıya yalnızca yukarıdaki biçimlendirilmiş hook’ları açar.
 
-## Actions
+## Eylemler
 
-Use `const actions = useActions()`.
+`const actions = useActions()` kullanın.
 
 ```ts
 actions.ask(prompt: string): void
@@ -40,35 +59,39 @@ actions.tag(speaker: string, label: string): void
 actions.export(): void
 ```
 
-## UI Vocabulary
+## Arayüz sözlüğü
 
-Use only `ui.*`: `Panel`, `Section`, `Grid`, `Row`, `Col`, `Stack`, `Card`, `Stat`, `Table`,
+Yalnızca `ui.*` kullanın: `Panel`, `Section`, `Grid`, `Row`, `Col`, `Stack`, `Card`, `Stat`, `Table`,
 `List`, `Timeline`, `Transcript`, `Chart`, `Badge`, `Tag`, `Button`, `Toggle`, `Tabs`, `Progress`,
 `Avatar`, `Markdown`, `Empty`.
 
-Allowed style tokens only: `tone: "default" | "accent" | "green" | "warn"`,
+Yalnızca izin verilen stil belirteçleri: `tone: "default" | "accent" | "green" | "warn"`,
 `size: "sm" | "md" | "lg"`, `align: "left" | "center" | "right"`.
-Do not pass `className` or `style`.
+`className` veya `style` geçirmeyin.
 
-The kit self-handles empty, loading, missing data, and overflow states:
+`ui.*` bileşenleri boş, yükleniyor, eksik veri ve taşma durumlarını kendiliğinden yönetir:
 
-- pass `loading` for skeletons
-- tables, lists, timelines, and transcripts render clean empty placeholders
-- long text truncates and collections scroll inside their own frame
-- layout primitives constrain width, gaps, and overflow automatically
+- iskelet görünüm için `loading` geçirin
+- tablolar, listeler, zaman çizelgeleri ve transkriptler temiz boş durum metinleri gösterir
+- uzun metinler kırpılır, koleksiyonlar kendi çerçevesi içinde kayar
+- yerleşim ilkelleri genişliği, boşlukları ve taşmayı otomatik olarak sınırlar
 
-## Go-Live Gate
+## Yayına alma eşiği
 
-Hot reload never swaps blindly. A new view must validate, compile, and mount in a hidden trial render
-against the current meeting data. If it fails, the terminal keeps the last-good view and shows a small
-dismissible "view update failed; keeping previous" note with details for the agent loop.
+Sıcak yeniden yükleme hiçbir zaman körlemesine geçiş yapmaz. Yeni bir görünüm önce doğrulanmalı,
+derlenmeli ve güncel toplantı verisiyle gizli bir deneme çiziminde bağlanmalıdır. Başarısız olursa
+terminal son çalışan görünümü korur ve asistan döngüsü için ayrıntıları taşıyan, kapatılabilir küçük
+bir “görünüm güncellenemedi; önceki görünüm korunuyor” notu gösterir.
 
-## Rules
+## Kurallar
 
-- Default-export one component. It receives no props.
-- Imports are unnecessary. Use the injected globals: `React`, `ui`, `useTranscript`, `useSpeakers`,
-  `useEntities`, `useActions`, `actions`, `useState`, `useMemo`, `useEffect`.
-- No `useMeeting`, `fetch`, `XMLHttpRequest`, `WebSocket`, `eval`, `Function`, dynamic `import()`,
-  `document`, `window`, `globalThis`, `localStorage`, or `dangerouslySetInnerHTML`.
-- Use the live meeting feed only. No invented data.
-- Side effects must go through `actions`.
+- Tek bir bileşeni varsayılan olarak dışa aktarın. Bileşen hiçbir prop almaz.
+- İçe aktarma gerekmez. Enjekte edilen global değerleri kullanın: `React`, `ui`, `useTranscript`,
+  `useSpeakers`, `useEntities`, `useActions`, `actions`, `useState`, `useMemo`, `useEffect`.
+- Şunlar yasaktır: `useMeeting`, `fetch`, `XMLHttpRequest`, `WebSocket`, `eval`, `Function`, dinamik
+  `import()`, `document`, `window`, `globalThis`, `localStorage`, `dangerouslySetInnerHTML`.
+- Yalnızca canlı toplantı akışını kullanın. Uydurma veri yok.
+- Yan etkiler yalnızca `actions` üzerinden gerçekleşir.
+- Sizin yazdığınız tüm arayüz metinlerini Türkçe yazın; kod tarafındaki adlarla durum kodlarını
+  İngilizce, hook’lardan gelen içeriği (transkript satırları, konuşmacı ve varlık adları) olduğu gibi
+  bırakın.

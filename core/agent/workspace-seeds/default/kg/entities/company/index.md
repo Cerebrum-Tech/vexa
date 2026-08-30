@@ -1,7 +1,7 @@
 # company
 
-Companies / organizations — one file per company at `company/<slug>.md`.
+Şirketler ve kuruluşlar — her şirket için `company/<slug>.md` yolunda bir dosya.
 
-- [[Acme Corp]] — logistics SaaS prospect
+- [[Acme Corp]] — lojistik SaaS alanında aday müşteri
 
-_The entry above is a **seeded example** (frontmatter `example: true`) — demo data, not a real record._
+_Yukarıdaki kayıt **örnek olarak eklenmiştir** (frontmatter `example: true`) — gerçek bir kayıt değil, tanıtım amaçlı veridir._

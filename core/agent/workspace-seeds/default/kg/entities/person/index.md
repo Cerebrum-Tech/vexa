@@ -1,7 +1,11 @@
 # person
 
-People — one file per person at `person/<slug>.md`.
+Kişiler — her kişi için `person/<slug>.md` yolunda bir dosya.
 
-- [[Jane Liu]] — VP Engineering at Acme Corp
+- [[Jane Liu]] — Acme Corp’ta mühendislik direktörü
 
-_The entry above is a **seeded example** (frontmatter `example: true`) — demo data, not a real record._
+Başlığı dosya adının slug’ına birebir indirgendiği için bu kayda `[[Jane Liu]]` ile atıfta
+bulunulabilir. Frontmatter’da insanın okuduğu alanlar (`title`, `role`, `description`) Türkçe yazılır;
+`id`, dosya adı ve `tags` ASCII slug olarak kalır.
+
+_Yukarıdaki kayıt **örnek olarak eklenmiştir** (frontmatter `example: true`) — gerçek bir kayıt değil, tanıtım amaçlı veridir._
