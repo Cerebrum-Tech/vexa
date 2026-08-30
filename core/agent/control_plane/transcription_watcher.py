@@ -2,8 +2,14 @@
 
 It runs ONE daemon thread, ARM (``_run_arm``): tail ``transcription_segments`` purely as a TRIGGER to do
 the jobs only the agent-api can do — key the copilot on the meetings-domain numeric ROW id per meeting,
-REGISTER the live meeting, RE-ARM the copilot dispatch while the user has processing enabled (spawn-or-touch,
-idempotent), and on ``session_end`` reap the copilot + connect the meeting's kg doc.
+REGISTER the live meeting, RE-ARM the copilot dispatch on EVERY meeting that streams transcript
+(spawn-or-touch, idempotent), and on ``session_end`` reap the copilot + connect the meeting's kg doc.
+
+EVERY meeting gets a copilot, because every meeting gets a post-meeting report. ``proc:meeting:{row}:on``
+is the LIVE-BEATS desired state — the per-meeting live LLM inference the user toggles — NOT the worker's
+existence gate: it rides to the worker as ``VEXA_MEETING_LIVE_BEATS`` and gates only the live card beats
+there. Live beats are the per-meeting spend; the post-meeting report is not, so arming a worker for every
+meeting must never silently switch live inference on for every meeting.
 
 P0 (cross-tenant leak fix): the transcript CARRIER + ``:on`` + ``:cursor`` + dispatch keys are the numeric
 ROW id ``mid`` (unique per (user, platform, native, run)), NOT the native Meet code (which collides across
@@ -14,9 +20,9 @@ field); a resolution miss no longer diverges the carrier key.
 It does NOT write the transcript carrier. The MEETINGS domain (meeting-api's collector) is the SINGLE
 writer of the per-meeting feed ``tc:meeting:{row_id}`` and its ``session_end`` marker (P23) — the agent only
 CONSUMES it. This loop is also the ONE dispatch arbiter for copilot processing (ADR 0027): /api/meeting/
-process writes the desired-state flag only; the arm here resumes from the worker-advanced cursor
-(``proc:meeting:{row_id}:cursor``, else 0-0) and relies on runtime.v1's idempotent create (a running
-copilot is touched, never respawned). `meetings ⊥ agent` (P3): the agent re-derives nothing. ``keymap``
+process writes the live-beats desired-state flag only; the arm here resumes from the worker-advanced
+cursor (``proc:meeting:{row_id}:cursor``, else 0-0) and relies on runtime.v1's idempotent create (a
+running copilot is touched, never respawned). `meetings ⊥ agent` (P3): the agent re-derives nothing. ``keymap``
 (numeric meeting_id → row-id routing key) is the arm thread's own state.
 
 No extra container, no HTTP hop: it holds the Dispatcher directly.
@@ -38,9 +44,9 @@ logger = logging.getLogger("agent_api.tx_watch")
 SRC = "transcription_segments"           # the wire every bot publishes to (configurable upstream)
 GROUP = "agent_copilot"                  # our consumer group — independent of the collector's
 REARM_SEC = 30.0                         # re-touch a meeting's dispatch at most this often (keep-alive)
-# Rolling TTL the arm block refreshes on the ``proc:meeting:{row}:on`` flag while segments flow —
-# the flag's REAL end-of-life (the wire carries no session_end on the stop path, so the reap branch
-# is belt-only). Refresh cadence == REARM_SEC, so anything ≥ a few minutes is safe; an hour also
+# Rolling TTL the arm block refreshes on the ``proc:meeting:{row}:on`` live-beats flag while segments
+# flow — the flag's REAL end-of-life (the wire carries no session_end on the stop path, so the reap
+# branch is belt-only). Refresh cadence == REARM_SEC, so anything ≥ a few minutes is safe; an hour also
 # rides out long mid-meeting silences without silently disarming an active toggle.
 PROC_FLAG_ROLLING_TTL_SEC = 3600
 _BRIEF = (
@@ -313,17 +319,17 @@ def _handle(r, dispatcher, live, subject, p, last_arm, keymap, first_seen) -> No
     if kind == "session_end":
         # The collector emits the session_end MARKER onto tc:meeting:{row_id} (P23/P0, single writer); the
         # agent only does its OWN reaping here — drop the live row (by the row-id key we registered it
-        # under), clear keymap, reap the processing DESIRED STATE (the meeting is over — a stale `:on`
-        # flag would re-arm a copilot for a dead meeting and litter redis; ADR 0027 makes this watcher
-        # the flag's end-of-life owner), connect the kg doc (native, for display).
+        # under), clear keymap, reap the live-beats DESIRED STATE (the meeting is over — a stale `:on`
+        # flag would arm live inference for the NEXT run on this key and litter redis; ADR 0027 makes
+        # this watcher the flag's end-of-life owner), connect the kg doc (native, for display).
         live.drop(key)
         last_arm.pop(key, None)
         keymap.pop(mid, None)
         first_seen.pop(mid, None)
         try:
             r.delete(f"proc:meeting:{key}:on")
-        except Exception:  # noqa: BLE001 — best-effort; a leftover flag only wastes a re-arm attempt
-            logger.exception("processing-flag reap failed for %s", key)
+        except Exception:  # noqa: BLE001 — best-effort; a leftover flag only mis-sets the next run's beats
+            logger.exception("live-beats flag reap failed for %s", key)
         logger.info("meeting %s ended → reaping copilot", key)
         # Connect this meeting's own kg doc (authored by the §4 worker on session_end) to the
         # meeting — from here, so the user key stays out of the isolated worker container.
@@ -344,38 +350,53 @@ def _handle(r, dispatcher, live, subject, p, last_arm, keymap, first_seen) -> No
         # proc:meeting:{row_id} which the meeting-api db-writer persists into the meeting row's data JSONB.
         "numeric_meeting_id": mid if mid.isdigit() else None,
     })
-    # Processing is OPT-IN per meeting: only arm / keep-alive the copilot while the user has enabled it
-    # (the terminal sets ``proc:meeting:{row_id}:on`` via /api/meeting/process — DESIRED STATE only;
-    # ADR 0027 makes this loop the ONE dispatch arbiter). Default OFF → no copilot → no processing;
-    # the RAW transcript still flows through the collector-owned feed above.
+    # EVERY streaming meeting arms (and keeps alive) a copilot — the post-meeting report is the
+    # default journey, not an opt-in, so the worker's existence can never depend on a user toggle.
+    # ADR 0027 keeps this loop the ONE dispatch arbiter; the throttle below is the only gate.
     now = time.monotonic()
-    # The opt-in flag is ``proc:meeting:{key}:on`` — a DISTINCT key from the processed-notes stream
-    # ``proc:meeting:{key}`` (a GET on that stream raises WRONGTYPE and would crash this arm loop).
-    if r.get(f"proc:meeting:{key}:on") and now - last_arm.get(key, 0.0) > REARM_SEC:
+    # ``proc:meeting:{key}:on`` is the LIVE-BEATS desired state (the terminal's per-meeting toggle via
+    # /api/meeting/process), carried into the dispatch and read there as VEXA_MEETING_LIVE_BEATS. It is
+    # a DISTINCT key from the processed-notes stream ``proc:meeting:{key}`` (a GET on that stream raises
+    # WRONGTYPE). A lookup failure reads as beats OFF: the report is still authored, and per-meeting live
+    # inference is never switched on by an unreadable flag.
+    try:
+        live_beats = bool(r.get(f"proc:meeting:{key}:on"))
+    except Exception:  # noqa: BLE001 — an unreadable desired state must not cost the meeting its report
+        logger.exception("live-beats flag lookup failed for %s — arming with live beats off", key)
+        live_beats = False
+    if now - last_arm.get(key, 0.0) > REARM_SEC:
         last_arm[key] = now
-        # Rolling TTL refresh (P21/P22 — the flag's REAL end-of-life): segments flowing = the flag
-        # stays; flow stopped = it expires within the hour. Needed because NO session_end frame
-        # crosses this wire on the stop path (verified on the eyeball) — the reap branch below only
-        # covers bots that do publish one; without this, an armed flag persisted forever.
-        try:
-            r.expire(f"proc:meeting:{key}:on", PROC_FLAG_ROLLING_TTL_SEC)
-        except Exception:  # noqa: BLE001 — refresh is hygiene; never block the arm
-            pass
-        _arm(dispatcher, subject, key, platform, transcript_start_id=_resume_cursor(r, key),
+        if live_beats:
+            # Rolling TTL refresh (P21/P22 — the flag's REAL end-of-life): segments flowing = the flag
+            # stays; flow stopped = it expires within the hour. Needed because NO session_end frame
+            # crosses this wire on the stop path (verified on the eyeball) — the reap branch below only
+            # covers bots that do publish one; without this, an armed flag persisted forever.
+            try:
+                r.expire(f"proc:meeting:{key}:on", PROC_FLAG_ROLLING_TTL_SEC)
+            except Exception:  # noqa: BLE001 — refresh is hygiene; never block the arm
+                pass
+        _arm(dispatcher, subject, key, platform, live_beats=live_beats,
+             transcript_start_id=_resume_cursor(r, key),
              numeric_meeting_id=mid if mid.isdigit() else None, native_id=native)
 
 
-def _arm(dispatcher, subject: str, key: str, platform: str, *, transcript_start_id: str = "0-0",
+def _arm(dispatcher, subject: str, key: str, platform: str, *, live_beats: bool,
+         transcript_start_id: str = "0-0",
          numeric_meeting_id: str | None = None, native_id: str | None = None) -> None:
     """Spawn-or-touch the meeting's copilot (keyed agent-meet-{key}, where key is the ROW id). Idempotent
     FOR REAL since ADR 0027: runtime.v1 create touches a running workload (returns its live status) and
     only spawns one that is absent/exited — before that, every re-arm force-replaced the live container
     (the copilot-churn defect). The live-feed registration happens in _handle every batch. ``native_id``
     is carried for DISPLAY only (the worker names the kg doc/title by the human-readable native code,
-    while the transcript/proc/cursor keys stay the row id)."""
+    while the transcript/proc/cursor keys stay the row id). ``live_beats`` carries the user's per-meeting
+    live-inference desired state to the worker — the copilot itself is armed either way."""
     meeting_ref: dict = {
         "meeting_id": key, "session_uid": key, "platform": platform,
         "transcript_start_id": transcript_start_id,
+        # The LIVE-BEATS desired state, not an existence gate: the worker runs its post-meeting doc turn
+        # regardless and gates only the live card beats on this. An internal hint — stripped before the
+        # unit.v1 check.
+        "live_beats": bool(live_beats),
     }
     if native_id:
         # DISPLAY only: the worker names kg/entities/meeting/{native}.md + the title by this human-readable

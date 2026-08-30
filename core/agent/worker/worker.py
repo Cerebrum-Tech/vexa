@@ -63,6 +63,7 @@ from worker.meeting import (  # noqa: E402 — explicit re-exports for names `*`
     _proc_note,
     _set_cursor,
     build_card_prompt,
+    build_meeting_doc_prompt,
     fallback_processed_notes,
     meeting_card_turn,
     meeting_doc_turn,

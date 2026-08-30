@@ -78,6 +78,16 @@ def test_prep_grounding_without_workspace_says_so():
 
 # ── post branch ──────────────────────────────────────────────────────────────────────
 
+def test_post_steering_requires_turkish_recap_and_named_action_owners():
+    prompt = meeting_steering.render("post", {
+        "title": "Durum", "platform": "teams", "native": "abc", "failed": "",
+        "source": "processed notes", "transcript": "Osman: test setini bugün hazırlarım.",
+    })
+    assert "Türkçe" in prompt
+    assert "kararlar" in prompt
+    assert "sorumlu katılımcı" in prompt
+
+
 def test_post_grounding_prefers_processed_notes(monkeypatch):
     url = _fake_redis(monkeypatch, {
         "proc:meeting:46": [_note("s1", "Jane", "we agreed on the Q3 pilot")],

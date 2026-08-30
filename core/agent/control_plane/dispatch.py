@@ -116,7 +116,7 @@ def build_mount_set(settings: Settings, subject: str, memberships: Optional[list
 
     return stack
 
-# ── model-auth passthrough (the k8s/helm credential seam) ────────────────────
+# ── model runtime passthrough (the k8s/helm credential + resource-control seam) ──────────────
 # The worker needs a MODEL credential, and delivery used to differ by substrate: the docker backend
 # brokers creds itself (the HOST_CLAUDE_CREDENTIALS bind-mount + copying ANTHROPIC_*/VEXA_LLM_* from
 # the runtime service env), but the k8s and process backends deliver ONLY this spec env — so a helm
@@ -131,6 +131,11 @@ MODEL_AUTH_ENV_ALLOWLIST = (
     "ANTHROPIC_BASE_URL",       # claude CLI gateway endpoint; openai_compat base-url fallback
     "VEXA_LLM_API_KEY",         # llm/ completion adapters' first-class credential (deliberately no Settings field)
     "VEXA_LLM_BASE_URL",        # llm/ completion adapters' first-class endpoint (pairs with the key above)
+    # Claude Code controls used by bounded local-model deployments. These are deliberately explicit:
+    # forwarding the whole agent-api environment would violate the secret boundary above.
+    "CLAUDE_CODE_DISABLE_THINKING",
+    "MAX_THINKING_TOKENS",
+    "CLAUDE_CODE_MAX_OUTPUT_TOKENS",
 )
 
 
@@ -295,6 +300,12 @@ def build_unit_env(settings: Settings, invocation: dict, *, unit_id: str, token:
             env["VEXA_MEETING_PLATFORM"] = str(meeting["platform"])
         if meeting.get("transcript_start_id"):
             env["VEXA_TRANSCRIPT_START_ID"] = str(meeting["transcript_start_id"])
+        if "live_beats" in meeting:
+            # The user's per-meeting LIVE-BEATS desired state. Live LLM beats are the per-meeting
+            # spend; the post-meeting report is not — so the copilot is armed for EVERY meeting and
+            # ONLY this var decides whether live inference runs. The worker composes it with the
+            # workspace's own `enabled` knob (agents/meeting.md); absent ⇒ the workspace knob alone.
+            env["VEXA_MEETING_LIVE_BEATS"] = "1" if meeting["live_beats"] else "0"
         if meeting.get("numeric_meeting_id"):
             # The meetings-domain ROW id (unique per meeting run). The worker keys its
             # processed-notes stream AND its transcript-consume stream by it
@@ -310,6 +321,13 @@ def build_unit_env(settings: Settings, invocation: dict, *, unit_id: str, token:
         env["VEXA_MEETING_NATIVE_ID"] = str(meeting["native_id"])
         if meeting.get("platform"):
             env["VEXA_MEETING_PLATFORM"] = str(meeting["platform"])
+    # Deployment defaults the worker resolves per workspace (P14 app vars). Set-and-nonblank only:
+    # an unset var leaves the worker on its code default, and a workspace's own agents/meeting.md
+    # always overrides. This tier is what gives a workspace created BEFORE a language existed the
+    # report in that language — seeding is idempotent, so an existing workspace is never re-seeded.
+    report_language = (os.environ.get("VEXA_REPORT_LANGUAGE") or "").strip()
+    if report_language:
+        env["VEXA_REPORT_LANGUAGE"] = report_language
     # Model-auth passthrough (see MODEL_AUTH_ENV_ALLOWLIST above): stamp the explicit allowlist from
     # agent-api's own env. Set-and-nonblank only — an unset var stays ABSENT so the worker's
     # preflight/auth taxonomy (llm/errors.py) still reports the actionable missing-credential error
@@ -328,8 +346,11 @@ def build_unit_env(settings: Settings, invocation: dict, *, unit_id: str, token:
 # id a re-sent bot reuses) — the worker keys its transcript/processed streams by it so re-sends (or a
 # DIFFERENT tenant on the same link) can never clobber/read another meeting's data. ``native_id`` is
 # the human-readable Meet code carried for DISPLAY only (the kg doc name / title); the routing
-# ``meeting_id`` is the row id. Both are agent-api internal — the sealed MeetingRef forbids them.
-_INTERNAL_MEETING_HINTS = frozenset({"transcript_start_id", "numeric_meeting_id", "native_id"})
+# ``meeting_id`` is the row id. ``live_beats`` is the per-meeting live-inference desired state the
+# watcher reads off ``proc:meeting:{row}:on``. All are agent-api internal — the sealed MeetingRef
+# forbids them.
+_INTERNAL_MEETING_HINTS = frozenset({"transcript_start_id", "numeric_meeting_id", "native_id",
+                                     "live_beats"})
 
 
 def _without_chat_session(invocation: dict) -> dict:

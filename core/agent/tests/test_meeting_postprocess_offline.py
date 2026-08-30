@@ -178,17 +178,33 @@ def test_offline_meeting_card_turn_falls_back_when_reply_omits_notes(tmp_path):
 
 def test_offline_meeting_doc_turn_authors_entity_from_fixed_cards(tmp_path):
     """The post-meeting WRITE turn, offline: a FIXED card set replayed through a deterministic exec that
-    writes the entity file → assert the meeting frontmatter + grouped wikilinks landed and committed."""
+    writes the entity file → assert one Turkish report with preserved frontmatter lands idempotently."""
     native = "gme-allin-001"
     cards = [
         {"kind": "person", "title": "Ryan Cohen", "body": "chairman"},
         {"kind": "company", "title": "GameStop", "body": "the company"},
         {"kind": "company", "title": "AppLovin", "body": "ad platform"},
     ]
+    doc = tmp_path / "kg" / "entities" / "meeting" / f"{native}.md"
+    doc.parent.mkdir(parents=True)
+    doc.write_text(
+        "---\n"
+        "type: meeting\n"
+        f"id: {native}\n"
+        "title: GME All-In\n"
+        f"meeting_id: {native}\n"
+        f"session_uid: {native}\n"
+        "platform: google_meet\n"
+        "date: 2026-06-27\n"
+        "---\n\n"
+        "## Transcript\n\n"
+        "<!-- id:1 --> **Ayşe:** Özetleme için Gemma 4 kullanmaya karar verdik.\n"
+        "<!-- id:2 --> **Mehmet:** Modeli yarın indireceğim.\n"
+        "<!-- id:3 --> **Ayşe:** VRAM ölçümü yapılmalı ama sorumlusu henüz belli değil.\n"
+    )
 
     def fake_exec(argv, cwd):
         doc = Path(cwd) / "kg" / "entities" / "meeting" / f"{native}.md"
-        doc.parent.mkdir(parents=True, exist_ok=True)
         doc.write_text(
             "---\n"
             "type: meeting\n"
@@ -199,22 +215,33 @@ def test_offline_meeting_doc_turn_authors_entity_from_fixed_cards(tmp_path):
             "platform: google_meet\n"
             "date: 2026-06-27\n"
             "---\n\n"
-            "Ryan Cohen defended GameStop and cited AppLovin as a bootstrapped success.\n\n"
-            "## Attendees\n- [[Ryan Cohen]]\n\n## Companies\n- [[GameStop]]\n- [[AppLovin]]\n"
+            "## Özet\n"
+            "Ekip, yerel çıkarım kurulumunu değerlendirdi.\n\n"
+            "## Alınan Kararlar\n"
+            "- Özetleme için Gemma 4 kullanılmasına karar verildi.\n\n"
+            "## Aksiyon Maddeleri\n"
+            "- Mehmet modeli indirecek. Sorumlu: Mehmet\n"
+            "- VRAM ölçümü yapılacak. Sorumlu belirtilmedi\n"
         )
         yield _result_line("wrote kg/entities/meeting/%s.md" % native)
 
     with mock.patch.object(worker, "harness_factory", lambda: ClaudeCodeHarness(exec_fn=fake_exec)):
         evs = list(worker.meeting_doc_turn(
             tmp_path, cards, native=native, meeting_id=native, session_uid=native,
-            platform="google_meet", date="2026-06-27", title="GME All-In",
+            platform="google_meet", date="2026-06-27", title="GME All-In", report_language="tr",
+        ))
+        list(worker.meeting_doc_turn(
+            tmp_path, cards, native=native, meeting_id=native, session_uid=native,
+            platform="google_meet", date="2026-06-27", title="GME All-In", report_language="tr",
         ))
 
     assert any(e.get("type") == "commit" for e in evs)  # governance committed the write
-    doc = (tmp_path / "kg" / "entities" / "meeting" / f"{native}.md").read_text()
-    assert "type: meeting" in doc and f"id: {native}" in doc
-    assert "platform: google_meet" in doc and "date: 2026-06-27" in doc
-    assert "[[Ryan Cohen]]" in doc and "[[GameStop]]" in doc and "[[AppLovin]]" in doc
+    report = doc.read_text()
+    assert "type: meeting" in report and f"id: {native}" in report
+    assert "platform: google_meet" in report and "date: 2026-06-27" in report
+    assert "## Özet" in report and "## Alınan Kararlar" in report and "## Aksiyon Maddeleri" in report
+    assert "Sorumlu: Mehmet" in report and "Sorumlu belirtilmedi" in report
+    assert [path.name for path in doc.parent.glob("*.md")] == [f"{native}.md"]
 
 
 # ── WS1: the auth-error path (distinct from the generic model-error) ───────────────────────────────

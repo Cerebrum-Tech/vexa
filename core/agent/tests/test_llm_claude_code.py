@@ -95,7 +95,7 @@ def test_parse_stream_json_rewrites_cli_auth_failure():
     for key in ("HOST_CLAUDE_CREDENTIALS", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN",
                 "CLAUDE_CODE_OAUTH_TOKEN", "VEXA_LLM_API_KEY"):
         assert key in done["reply"]
-    assert "Settings → Models" in done["reply"]
+    assert "Ayarlar → Modeller" in done["reply"], "the settings path, exactly as the terminal labels it"
     assert done["detail"] == "Not logged in · Please run /login"
 
 

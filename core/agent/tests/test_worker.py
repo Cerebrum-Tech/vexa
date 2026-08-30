@@ -269,6 +269,7 @@ def test_serve_meeting_reprocesses_transcript_window_three_passes():
         [("a", 2), ("b", 1)],
         [("a", 3), ("b", 2), ("c", 1)],
         [("b", 3), ("c", 2), ("d", 1)],
+        [("c", 3), ("d", 2)],  # the reap's final beat: everything still mutable gets its last pass
     ]
 
 
@@ -400,8 +401,11 @@ def test_view_end_emitted_even_with_live_beats_disabled():
 
 
 def test_no_view_end_on_idle_exit_or_without_proc_stream():
-    """An idle-timeout exit is NOT completion — no marker (the consumer's deadline covers a dead
-    worker, ADR 0027's hard guarantee). And with proc_stream unset nothing is emitted anywhere."""
+    """An idle-timeout exit is NOT completion — no marker. The transcript only went quiet; the watcher
+    re-arms a worker for this row on its next batch and MORE notes land on this same stream, so a
+    marker here would tell every consumer the view is final while it is not. The consumer's bounded
+    deadline covers the markerless stream (ADR 0027's hard guarantee). And with proc_stream unset
+    nothing is emitted anywhere."""
     idle = ProcMeetingStream(inbox=[
         _transcript("1-0", {**_seg("Jane", "hi"), "segment_id": "a"}),
     ])  # inbox drains with NO session_end → the serve loop idles out
@@ -410,6 +414,8 @@ def test_no_view_end_on_idle_exit_or_without_proc_stream():
         idle_ms=10, proc_stream="proc:meeting:m1", cursor_key="proc:meeting:m1:cursor",
     )
     assert _proc_markers(idle, "proc:meeting:m1") == []
+    # the notes themselves still flowed — only the COMPLETION claim is withheld
+    assert [n["id"] for n in idle.proc_notes("proc:meeting:m1")] == ["a"]
 
     bare = MeetingStream(inbox=[("2-0", {"payload": json.dumps({"type": "session_end"})})])
     serve_meeting(bare, transcript_stream="tc:m1", out_topic="o", card_turn=_card_turn, idle_ms=10)
@@ -755,6 +761,83 @@ def test_run_turn_starts_fresh_when_resume_transcript_is_too_large(tmp_path, mon
     assert (transcript / "OLD_SID.jsonl").exists()
 
 
+def test_turkish_meeting_doc_prompt_is_evidence_grounded(tmp_path):
+    from worker import worker
+    import unittest.mock as mock
+
+    seen_prompt: dict = {}
+
+    def fake_exec(argv, cwd):
+        seen_prompt["prompt"] = argv[argv.index("-p") + 1]
+        doc = pathlib.Path(cwd) / "kg" / "entities" / "meeting" / "teams-test.md"
+        doc.parent.mkdir(parents=True, exist_ok=True)
+        doc.write_text(
+            "---\ntype: meeting\nid: teams-test\n---\n\n"
+            "## Özet\nEkip yerel kurulumu değerlendirdi.\n\n"
+            "## Alınan Kararlar\n- Gemma kullanılacak.\n\n"
+            "## Aksiyon Maddeleri\n- Model indirilecek. Sorumlu: Mehmet\n"
+        )
+        yield json.dumps({"type": "result", "subtype": "success", "result": "ok", "session_id": "s1"})
+
+    with mock.patch.object(worker, "harness_factory", lambda: ClaudeCodeHarness(exec_fn=fake_exec)):
+        list(worker.meeting_doc_turn(
+            tmp_path, [], native="teams-test", meeting_id="teams-test", session_uid="session-1",
+            platform="teams", date="2026-08-25", title="Teams test", report_language="tr",
+        ))
+
+    prompt = seen_prompt["prompt"]
+    assert "Read the existing file first" in prompt
+    assert "## Özet" in prompt
+    assert "## Alınan Kararlar" in prompt
+    assert "## Aksiyon Maddeleri" in prompt
+    assert "Sorumlu belirtilmedi" in prompt
+    assert "do not infer" in prompt.lower()
+    assert "preserve the exact YAML frontmatter" in prompt
+
+
+def test_english_meeting_doc_prompt_remains_default():
+    from worker import worker
+
+    prompt = worker.build_meeting_doc_prompt(
+        [], native="meet-1", meeting_id="meet-1", session_uid="session-1",
+        platform="teams", date="2026-08-25", title="Meeting one",
+    )
+
+    assert "plain-English SUMMARY" in prompt
+    assert "## Attendees" in prompt
+    assert "## Decisions" in prompt
+    assert "## Actions" in prompt
+
+
+def test_meeting_doc_failure_preserves_existing_transcript(tmp_path):
+    from worker import worker
+    import unittest.mock as mock
+
+    doc = tmp_path / "kg" / "entities" / "meeting" / "teams-test.md"
+    doc.parent.mkdir(parents=True)
+    original = (
+        "---\ntype: meeting\nid: teams-test\nplatform: teams\n---\n\n"
+        "## Transcript\n\n<!-- id:1 --> **Ayşe:** Gemma 4 kullanmaya karar verdik.\n"
+    )
+    doc.write_text(original)
+
+    def fake_exec(argv, cwd):
+        doc.write_text("partial model output")
+        yield json.dumps({
+            "type": "result", "subtype": "error", "is_error": True,
+            "result": "model unavailable", "session_id": "s1",
+        })
+
+    with mock.patch.object(worker, "harness_factory", lambda: ClaudeCodeHarness(exec_fn=fake_exec)):
+        events = list(worker.meeting_doc_turn(
+            tmp_path, [], native="teams-test", meeting_id="teams-test", session_uid="session-1",
+            platform="teams", date="2026-08-25", title="Teams test", report_language="tr",
+        ))
+
+    assert any(event.get("type") == "done" and event.get("ok") is False for event in events)
+    assert doc.read_text() == original
+
+
 def test_meeting_doc_turn_authors_entity_with_frontmatter_and_links(tmp_path):
     """The real post-meeting WRITE turn: a fake `claude` writes the entity; assert the harness turn drove a
     write to kg/entities/meeting/<native>.md with the meeting frontmatter + grouped wikilinks, and the
@@ -1004,6 +1087,37 @@ def test_build_card_prompt_uses_config_from_meeting_md(tmp_path):
     assert "ws-polish" in p and "ws-tags" in p
 
 
+def test_worker_main_passes_report_language_to_doc_turn(tmp_path, monkeypatch):
+    import redis
+    from worker import engine, meeting
+
+    config = tmp_path / "agents" / "meeting.md"
+    config.parent.mkdir(parents=True)
+    config.write_text("---\nenabled: false\nreport_language: tr\n---\n")
+    monkeypatch.setenv("VEXA_WORKSPACE_PATH", str(tmp_path))
+    monkeypatch.setenv("REDIS_URL", "redis://unused")
+    monkeypatch.setenv("VEXA_UNIT_OUT_TOPIC", "unit:test:out")
+    monkeypatch.setenv("VEXA_TRANSCRIPT_STREAM", "tc:meeting:1")
+    monkeypatch.setenv("VEXA_MEETING_ID", "teams-test")
+    monkeypatch.setattr(redis, "from_url", lambda *args, **kwargs: object())
+
+    captured: dict = {}
+
+    def fake_doc_turn(work, cards, **kwargs):
+        captured.update(kwargs)
+        return iter(())
+
+    def fake_serve_meeting(stream, **kwargs):
+        list(kwargs["doc_turn"]([]))
+
+    monkeypatch.setattr(meeting, "meeting_doc_turn", fake_doc_turn)
+    monkeypatch.setattr(meeting, "serve_meeting", fake_serve_meeting)
+
+    engine.main()
+
+    assert captured["report_language"] == "tr"
+
+
 def test_serve_meeting_cadence_segments_gates_beats():
     """With cadence_segments=2, two completed segments from the SAME speaker trigger a beat (no
     new-speaker gate)."""
@@ -1016,7 +1130,8 @@ def test_serve_meeting_cadence_segments_gates_beats():
     s = MeetingStream(inbox=[_transcript("1-0", _seg("Jane", "a"), _seg("Jane", "b"))])
     serve_meeting(s, transcript_stream="tc:m1", out_topic="o", card_turn=card_turn,
                   idle_ms=10, beat_segments=2)
-    assert beats == [2]  # the 2-segment buffer fired exactly one beat
+    # the 2-segment buffer fired the cadence beat; the idle reap runs the same final beat session_end does
+    assert beats == [2, 2]
 
 
 def test_serve_meeting_disabled_runs_no_beats_but_still_writes_doc():
@@ -1041,6 +1156,20 @@ def test_serve_meeting_disabled_runs_no_beats_but_still_writes_doc():
                   idle_ms=10, doc_turn=doc_turn, enabled=False)
     assert beats == []          # no live beats ran
     assert doc_ran == [[]]      # doc turn still ran (with no accumulated cards)
+
+
+def test_serve_meeting_skips_doc_when_no_notes_exist():
+    doc_ran = []
+    s = MeetingStream(inbox=[
+        ("1-0", {"payload": json.dumps({"type": "session_end"})}),
+    ])
+
+    serve_meeting(
+        s, transcript_stream="tc:m1", out_topic="o", card_turn=_card_turn,
+        idle_ms=10, doc_turn=lambda cards: doc_ran.append(cards) or iter(()),
+    )
+
+    assert doc_ran == []
 
 
 def test_serve_meeting_doc_gating_off_skips_doc_turn():
@@ -1137,3 +1266,102 @@ def test_serve_meeting_reaps_on_idle_without_session_end():
     serve_meeting(s, transcript_stream="tc:m1", out_topic="o", card_turn=_card_turn, idle_ms=10)
     # It returned (the test would hang otherwise) — the copilot reaped on idle, no session_end needed.
     assert True
+
+
+# ── auto-summary: the copilot exists for every meeting; only the LIVE BEATS are gated ────────────
+from worker.engine import (  # noqa: E402
+    kg_links_preamble,
+    language_directive,
+    live_beats_enabled,
+    mounts_preamble,
+    turn_language,
+)
+
+
+def test_live_beats_enabled_composes_the_dispatch_flag_with_the_workspace_knob(monkeypatch):
+    """Live beats are the per-meeting LLM SPEND, so both the user's per-meeting desired state
+    (VEXA_MEETING_LIVE_BEATS, from ``proc:meeting:{row}:on``) and the workspace's standing
+    ``agents/meeting.md`` ``enabled`` knob must say yes. Arming a worker for every meeting must not
+    silently switch live inference on for every meeting."""
+    monkeypatch.setenv("VEXA_MEETING_LIVE_BEATS", "0")
+    assert live_beats_enabled(True) is False       # armed for the report, beats OFF — the default journey
+    assert live_beats_enabled(False) is False
+
+    monkeypatch.setenv("VEXA_MEETING_LIVE_BEATS", "1")
+    assert live_beats_enabled(True) is True        # user toggled processing on
+    assert live_beats_enabled(False) is False      # …but the workspace knob still vetoes
+
+
+def test_live_beats_absent_var_falls_back_to_the_workspace_knob(monkeypatch):
+    """A dispatch that carries no desired state (e.g. /api/meeting/start) keeps the pre-existing
+    behaviour exactly: the workspace knob alone decides."""
+    monkeypatch.delenv("VEXA_MEETING_LIVE_BEATS", raising=False)
+    assert live_beats_enabled(True) is True
+    assert live_beats_enabled(False) is False
+
+
+def test_beats_off_still_accumulates_notes_so_the_doc_turn_has_evidence():
+    """THE auto-summary guarantee. With live beats OFF the baseline 1:1 cleaned notes still flow
+    (fallback_processed_notes at ingest), so the post-meeting doc turn runs with real transcript
+    evidence — not an empty summary. Cards are empty (no beat ran); the NOTES are the evidence."""
+    doc_ran = []
+    envelopes = []
+    mirrored = []
+
+    s = ProcMeetingStream(inbox=[
+        _transcript("1-0", {**_seg("Jane", "um so we ship on friday"), "segment_id": "a"}),
+        _transcript("2-0", {**_seg("Raj", "agreed, friday it is"), "segment_id": "b"}),
+        ("3-0", {"payload": json.dumps({"type": "session_end"})}),
+    ])
+    serve_meeting(
+        s, transcript_stream="tc:m1", out_topic="o", card_turn=_notes_card_turn, idle_ms=10,
+        enabled=False, doc_turn=lambda cards: doc_ran.append(cards) or iter(()),
+        proc_stream="proc:meeting:m1", cursor_key="proc:meeting:m1:cursor",
+        on_proc_note=mirrored.append, on_envelope=envelopes.append,
+    )
+
+    assert doc_ran == [[]]                                   # the doc turn RAN (with no cards)
+    notes = s.proc_notes("proc:meeting:m1")
+    assert [n["id"] for n in notes] == ["a", "b"]            # …on the baseline cleaned notes
+    assert any("friday" in n["text"].lower() for n in notes)  # …carrying the real transcript text
+    assert {n["id"] for n in mirrored} == {"a", "b"}          # mirrored into the meeting file
+    assert [n["id"] for n in envelopes[-1]["notes"]] == ["a", "b"]  # and into the durable envelope
+
+
+def test_turn_language_reads_the_governed_workspace_knob(tmp_path):
+    """One knob: the language a user reads their meeting report in is the language every turn over
+    that workspace is written in. No config ⇒ English."""
+    assert turn_language(tmp_path) == "en"
+    (tmp_path / "agents").mkdir()
+    (tmp_path / "agents" / "meeting.md").write_text("---\nreport_language: tr\n---\nsteer\n")
+    assert turn_language(tmp_path) == "tr"
+
+
+def test_english_turns_carry_no_language_directive():
+    """English is the identity: an English deployment's preambles are byte-identical to before."""
+    assert language_directive("en") == ""
+    assert kg_links_preamble("en") == kg_links_preamble()
+    mounts = [
+        {"slug": "_global", "path": "/w/_global", "role": "global", "write": False, "primary": False},
+        {"slug": "seed", "path": "/w/u1", "role": "private", "write": True, "primary": True},
+    ]
+    assert mounts_preamble(mounts, "en") == mounts_preamble(mounts)
+
+
+def test_turkish_preambles_state_the_output_language_and_protect_the_identifiers():
+    """The preambles stay an English SCAFFOLD (``[[Title]]``, mount paths and slugs are a literal
+    contract with the terminal's renderer), so the Turkish output requirement has to be STATED —
+    never left implied by the language the instructions happen to be written in."""
+    txt = kg_links_preamble("tr")
+    assert "TURKISH" in txt
+    assert "[[Title]]" in txt and "kg/entities/" in txt        # the rendering contract is intact
+    assert "never translated or transliterated" in txt         # paths/keys/syntax are protected
+    assert "proper names" in txt                               # a person/company name is not translated
+
+    mounts = [
+        {"slug": "_global", "path": "/w/_global", "role": "global", "write": False, "primary": False},
+        {"slug": "_system", "path": "/w/.system/u1", "role": "system", "write": True, "primary": False},
+    ]
+    m = mounts_preamble(mounts, "tr")
+    assert "/w/_global" in m and "`_system`" in m              # mount identifiers verbatim
+    assert "quote them EXACTLY as written" in m

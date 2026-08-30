@@ -36,6 +36,7 @@ from llm import (
     run_harness_turn,
 )
 from llm.errors import _AUTH_SIGNATURE_RE  # noqa: F401 — re-exported for the worker.worker shim
+from shared.agent_config import load_meeting_config
 from shared.seeding import resolve_seed_dir, seed_workspace, validate_seed
 
 log = logging.getLogger("agent_api.worker")
@@ -142,13 +143,81 @@ def _adopt_legacy_continuity(chat_root: Path, work: Path, session: str) -> None:
             continue
 
 
-def kg_links_preamble() -> str:
+# ── live beats vs. the post-meeting report: two separate gates ───────────────────────────────────
+
+def live_beats_enabled(config_enabled: bool) -> bool:
+    """Whether this meeting runs LIVE card beats. ``VEXA_MEETING_LIVE_BEATS`` is the dispatcher's
+    per-meeting desired state (the user's toggle) and the workspace's ``agents/meeting.md`` ``enabled``
+    knob is the standing policy — a beat runs only when BOTH say yes. Absent var ⇒ the workspace knob
+    alone (a dispatch that carries no desired state, e.g. /api/meeting/start).
+
+    This is a spend gate, never an existence gate: a meeting with beats OFF still consumes its
+    transcript, still emits the baseline cleaned notes, and still runs the post-meeting doc turn.
+    """
+    raw = os.environ.get("VEXA_MEETING_LIVE_BEATS")
+    if raw is None:
+        return config_enabled
+    return config_enabled and raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+# ── the turn's output language ───────────────────────────────────────────────────────────────────
+
+DEFAULT_TURN_LANGUAGE = "en"
+# The user-visible language of a turn, keyed by the workspace's governed ``report_language``. English
+# is the identity: it maps to no directive, so an English turn carries no language line anywhere in
+# its prompt stack and the mechanism costs an English deployment nothing.
+# Every other entry MUST be an explicit, standalone instruction — the surrounding prompt is an English
+# scaffold on purpose (paths, mount slugs, YAML keys and `[[...]]` syntax are a machine contract with
+# the terminal's renderer and the doc parser, and translating them would break both), so the output
+# language has to be STATED rather than implied by the language the instructions happen to be in.
+_LANGUAGE_DIRECTIVES = {
+    "tr": (
+        "## Output language (always)\n\n"
+        "Write EVERY user-visible word you produce in TURKISH — chat replies, summaries, headings you"
+        " author, list items, and the prose inside any workspace file you write. Turkish is required"
+        " even though these instructions are in English; never mirror the language of the instructions"
+        " back to the user.\n"
+        "Keep these EXACTLY as given, never translated or transliterated: file and mount paths, mount"
+        " slugs, YAML frontmatter keys, code, commands, URLs, the `[[...]]` link syntax itself, any"
+        " heading a prompt spells out literally, and proper names of people, companies and products.\n\n"
+    ),
+}
+
+
+def language_directive(language: str = DEFAULT_TURN_LANGUAGE) -> str:
+    """The explicit output-language instruction for a turn, or "" for English (the identity)."""
+    return _LANGUAGE_DIRECTIVES.get((language or "").strip().lower(), "")
+
+
+def turn_language(work: Path) -> str:
+    """The user-visible language for turns over this workspace — the governed ``report_language`` in
+    ``agents/meeting.md``. One knob per workspace: the language a user reads their meeting report in is
+    the language they read every other turn in. Unreadable/absent config ⇒ English."""
+    try:
+        return load_meeting_config(Path(work)).report_language
+    except Exception:  # noqa: BLE001 — a config hiccup must never break a turn; English is the default
+        log.warning("turn language lookup failed — running the turn in %s", DEFAULT_TURN_LANGUAGE)
+        return DEFAULT_TURN_LANGUAGE
+
+
+def kg_links_preamble(language: str = DEFAULT_TURN_LANGUAGE) -> str:
     """Entity references must be ACTIONABLE in the client. Chat replies and workspace docs render
     ``[[Title]]`` as a clickable entity chip and workspace file paths as links (the terminal resolves
     both across every mounted workspace — clients/terminal/src/ui-kit/docLinks.tsx). A plain-text
     mention of a known entity is a dead end, so this rule ships on EVERY turn, not just multi-mount
-    ones — old workspaces whose seeded CLAUDE.md predates it get the behaviour too."""
-    return (
+    ones — old workspaces whose seeded CLAUDE.md predates it get the behaviour too.
+
+    The rule itself is a RENDERING CONTRACT (``[[Title]]``, backticked workspace paths) that the
+    terminal parses literally, so it stays in the English scaffold; ``language`` adds the explicit
+    output-language instruction on top, because the language a preamble is written in is not an
+    instruction. This preamble ships on EVERY turn, so it is where the directive is guaranteed to
+    land.
+
+    The block's closing sentence ("… or use plain text.") is the TERMINATOR the terminal's
+    stored-chat strip anchors on (``CONTEXT_BLOCKS`` in clients/terminal/src/surfaces/chat.tsx cuts a
+    stored turn start→that sentence). A new rule goes ABOVE it: text placed after it survives the
+    cut and renders back to the user as words they typed."""
+    return language_directive(language) + (
         "## Referencing knowledge (always)\n\n"
         "Your replies render in a client that turns entity references into clickable chips:\n"
         "- Whenever you mention a person, company, organization, project, meeting, or task that has"
@@ -156,17 +225,24 @@ def kg_links_preamble() -> str:
         " in chat replies AND in workspace docs alike. Never mention a known entity as plain text.\n"
         "- Reference other workspace files by their path in backticks (e.g. `kg/dashboards/plan.md`)"
         " or a markdown link — both are clickable.\n"
+        "- An entity's Title is its own name — never translate a person, company, or product name to"
+        " match the language you are writing in.\n"
         "- Don't write `[[wikilinks]]` for things that have no entity doc (they render as inert"
         " 'not found' chips) — create the entity first, or use plain text.\n\n"
     )
 
 
-def mounts_preamble(mounts: list[dict]) -> str:
+def mounts_preamble(mounts: list[dict], language: str = DEFAULT_TURN_LANGUAGE) -> str:
     """A prompt preamble that DECLARES every mount in the THREE-TIER stack to the model VERBATIM — names,
     paths, tiers, roles, write rules — plus the default write-routing policy (WP-A1.2). The agent must
     never guess where it may read/write. Enforcement is minimal in this WP (per-mount commit with the
     principal as author); the routing rule is STATED. A single private mount ⇒ no preamble (nothing to
-    disambiguate — the legacy one-workspace turn is unchanged)."""
+    disambiguate — the legacy one-workspace turn is unchanged).
+
+    Every line here is a path/slug the model must reproduce byte-exact (``_global``, ``_system``,
+    ``identity.md``, absolute mount paths), so the declaration stays in the English scaffold and
+    ``language`` adds one explicit line separating what is written FOR the user (their language) from
+    what is quoted from this list (verbatim, always)."""
     if len(mounts) <= 1:
         return ""
     lines = ["## Your mounted workspaces", "",
@@ -194,6 +270,17 @@ def mounts_preamble(mounts: list[dict]) -> str:
         "- When a workspace states a Purpose (above), let it decide where content belongs — write material"
         " that matches a workspace's purpose into THAT workspace.",
         "- Never write to a READ-ONLY mount.",
+    ]
+    # Everything language-specific goes ABOVE the closing line: "… do not guess or invent mount
+    # paths." is the TERMINATOR the terminal's stored-chat strip anchors on (``CONTEXT_BLOCKS`` in
+    # clients/terminal/src/surfaces/chat.tsx), and a line after it survives the cut and renders back
+    # to the user as words they typed.
+    if language_directive(language):
+        lines.append(
+            "Mount slugs and paths above are identifiers: quote them EXACTLY as written, in any"
+            " language. The prose you write into these workspaces follows the output-language rule"
+            " above.")
+    lines += [
         "Always use ABSOLUTE paths under the mount you intend — do not guess or invent mount paths.",
         "",
     ]
@@ -297,13 +384,17 @@ def _extra_mount_paths(work: Path) -> list[Path]:
 def run_turn_over_workspace(
     work: Path, prompt: str, *, model: str | None = None, allowed_tools: list[str] | None = None,
     commit: bool = True, session_continuity: bool = True, session: str = DEFAULT_CHAT_SESSION,
+    language: str | None = None,
 ) -> Iterator[dict]:
     """One governed agent turn over the mounted workspace SET: resume from the session file, DECLARE the
     active mounts to the model, drive ``run_harness_turn`` (which commits EACH changed mount, authored by
     the dispatch principal), and persist the captured session id. A stale resume (the harness session
     expired) retries fresh once.
     ``allowed_tools`` defaults to Read/Write/Edit; pass ``["Read"]`` for a propose-only (no-write) turn.
-    ``session`` namespaces the continuity file so chat threads stay distinct (default ``"main"``)."""
+    ``session`` namespaces the continuity file so chat threads stay distinct (default ``"main"``).
+    ``language`` is the turn's user-visible output language; None resolves the workspace's governed
+    ``report_language``, so a Turkish workspace gets the Turkish directive on every turn — including
+    the post-meeting doc turn, whose caller need not thread it."""
     _ensure_repo(work)
     # Resolve the harness through the worker.worker seam at call time so a test patching
     # `worker.worker.harness_factory` reaches this call site (the harness was one module historically).
@@ -325,7 +416,8 @@ def run_turn_over_workspace(
     mounts = active_mounts()
     author = _principal_author()
     extras = _extra_mount_paths(work)
-    turn_prompt = kg_links_preamble() + mounts_preamble(mounts) + prompt
+    lang = language if language is not None else turn_language(work)
+    turn_prompt = kg_links_preamble(lang) + mounts_preamble(mounts, lang) + prompt
     gen = run_harness_turn(work, turn_prompt, harness, allowed_tools=allowed, session=resume, model=model,
                            commit=commit, author=author, extra_mounts=extras)
     first = next(gen, None)
@@ -425,7 +517,6 @@ def main() -> None:  # pragma: no cover — the container entrypoint (wired in t
         serve_meeting,
         upsert_meeting_transcript_file,
     )
-    from shared.agent_config import load_meeting_config
 
     work = Path(os.environ.get("VEXA_WORKSPACE_PATH", "/workspace"))
     model = os.environ.get("VEXA_AGENT_MODEL") or None
@@ -482,6 +573,7 @@ def main() -> None:  # pragma: no cover — the container entrypoint (wired in t
             doc_turn = lambda cards: meeting_doc_turn(  # noqa: E731
                 work, cards, native=native, meeting_id=native, session_uid=session_uid,
                 platform=platform, date=date, title=title, model=cfg.model,
+                report_language=cfg.report_language,
             )
         serve_meeting(
             client, transcript_stream=transcript_stream, out_topic=out_topic,
@@ -490,7 +582,10 @@ def main() -> None:  # pragma: no cover — the container entrypoint (wired in t
                 polish_rules=cfg.polish_rules, tag_rules=cfg.tag_rules,
             ),
             idle_ms=idle_ms, beat_segments=cfg.cadence_segments,
-            doc_turn=doc_turn, enabled=cfg.enabled,
+            # Two INDEPENDENT gates: the doc turn above (write_meeting_doc) authors the report for
+            # every meeting, while `enabled` gates only the live card beats — the per-meeting LLM
+            # spend, composed from the dispatch's desired state and the workspace's standing knob.
+            doc_turn=doc_turn, enabled=live_beats_enabled(cfg.enabled),
             start_id=os.environ.get("VEXA_TRANSCRIPT_START_ID", "0"),
             # P0 (cross-tenant leak fix): BOTH the processed-notes stream AND its cursor key on the
             # meetings-domain ROW id (VEXA_MEETING_NUMERIC_ID) — unique per meeting run, so neither a

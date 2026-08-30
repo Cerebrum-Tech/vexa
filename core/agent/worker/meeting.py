@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 from pathlib import Path
 from typing import Callable, Iterator
 
@@ -57,7 +58,10 @@ log = logging.getLogger("agent_api.worker")
 # copilot behavior by prompting the agent to edit agents/meeting.md, no redeploy.
 
 # The fixed frame around the workspace policy. `{polish}` / `{tags}` are the governed rules; `{kinds}` is
-# the wanted card kinds; `{steering}` is the (optional) free-text steering section.
+# the wanted card kinds; `{steering}` is the (optional) free-text steering section. The frame is ENGLISH
+# because it carries the machine-readable contract (the strict JSON object `parse_notes`/`parse_cards`
+# consume) and a small instruct model follows that contract best in the language it was tuned on; the
+# OUTPUT language is not left to inference — the frame states it, and the governed policy repeats it.
 _CARD_FRAME = (
     "You are a live meeting copilot watching a conversation in real time. Here is the mutable transcript "
     "processing window. Each line is sent through at most three passes; pass 1 is fresh, pass 2 should "
@@ -70,6 +74,12 @@ _CARD_FRAME = (
     "literal section title.\n\n"
     "## Tag rules (governed by this workspace)\n{tags}\n\n"
     "Emit tags ONLY as cards of these kinds: {kinds}. Do not use any other kind.\n\n"
+    "## Output language\n"
+    "This deployment's output language is TURKISH. Every value a user reads is Turkish prose: each "
+    "note's `text` and every card `body`. A card `title` is the entity's own name — copy it verbatim, "
+    "never translated. The JSON keys, the note ids, the speaker names and the card kinds are literals: "
+    "reproduce them exactly as they are given here. If a speaker spoke another language, keep that "
+    "speaker's own words rather than translating them.\n\n"
     "Respond with ONLY this JSON object (no prose, no markdown fence, and do NOT write any files):\n"
     "{{\"notes\":[{{\"id\":\"<input id>\",\"speaker\":\"<speaker>\",\"chapter\":\"\",\"text\":\"<clean one-line note>\"}}],"
     "\"cards\":[{{\"kind\":\"<one of {kinds}>\",\"title\":\"<short>\",\"body\":\"<one line>\",\"actionable\":true}}]}}\n"
@@ -446,8 +456,12 @@ def serve_meeting(
     — a refining draft updates its line in place rather than piling up a duplicate. The transcript keeps
     it non-idle; ``session_end`` (or an idle gap) reaps it.
 
-    Cards surfaced across the meeting are accumulated (de-duped by title) and, on ``session_end``,
+    Cards surfaced across the meeting are accumulated (de-duped by title) and, when the meeting reaps,
     handed to ``doc_turn`` — the post-meeting WRITE turn that authors/updates the kg meeting entity.
+    BOTH reap paths run the end-sequence (``_finish``), because the idle path is the backstop for every
+    meeting whose ``session_end`` never arrives and a backstop that skipped the report would drop it
+    silently. The two reaps differ in ONE thing, and it is not the report: a ``session_end`` is
+    COMPLETION and carries the ``view_end`` marker; an idle-timeout exit is NOT completion — no marker.
     """
     seen_speakers: set[str] = set()
     buffer: list[dict] = []
@@ -459,6 +473,7 @@ def serve_meeting(
     notes_by_id: dict[str, dict] = {}
     last = start_id
     n = 0
+    doc_written = False  # the end-sequence is once-only, whichever reap path runs it
 
     def _persist_envelope() -> None:
         """DURABLE RENDER SOURCE (deterministic dual-source): persist the SAME running notes/cards the
@@ -536,35 +551,59 @@ def serve_meeting(
                 seg["_rewrite_passes"] = int(seg.get("_rewrite_passes", 0)) + 1
         _flush_mirror()
 
+    def _finish(*, complete: bool) -> None:
+        """The END-SEQUENCE, run exactly once per meeting on EITHER reap path — an explicit
+        ``session_end`` or an idle transcript. Either way this worker is done: it returns straight
+        after and the container is reaped, so the final beat, the mirrors and the post-meeting doc
+        turn belong here, on the one path every meeting takes. ``doc_written`` makes it idempotent:
+        whichever reap arrives first owns the report, and a second call is a no-op.
+
+        ``complete`` is the ONE thing the two reaps do not share. A ``session_end`` is COMPLETION —
+        the meeting is over, no further note can exist, so the ``view_end`` marker is emitted and the
+        processed view is final. An idle-timeout exit is NOT completion — no marker: the transcript
+        merely went quiet, and the watcher re-arms a worker for this same row on its next batch, which
+        resumes from the frozen cursor and appends MORE notes to THIS stream. processed-notes.v1 says
+        the stream is COMPLETE at the marker, so emitting one here would lie to every consumer that
+        reads it (the db-writer stops re-draining, the live SSE closes, the admin panel reports a
+        clean drain). What covers a markerless stream is the consumers' own bounded deadline — P22's
+        hard guarantee, designed for exactly the worker that ends without a marker."""
+        nonlocal n, doc_written
+        if doc_written:
+            return
+        doc_written = True
+        mutable = [seg for seg in processing_window if int(seg.get("_rewrite_passes", 0)) < 3]
+        if mutable and enabled:
+            n += 1
+            _run_beat(mutable, n)
+        _flush_mirror()      # ingest-only notes (no beat ran) reach the mirrors too
+        _persist_envelope()  # final durable render source (notes + accumulated cards)
+        # processed-notes.v1 ``view_end`` (ADR 0027): the stream is COMPLETE at this entry — the final
+        # beat has run and every note is emitted. The db-writer flushes the durable view ON this
+        # marker; the live SSE closes on it. Emitted BEFORE the doc turn (30s+ of LLM the durable
+        # flush must not wait on) and regardless of ``enabled`` (baseline notes flow even with live
+        # beats off — the emit gate is proc_stream, same as _emit_proc_note's).
+        if complete and proc_stream:
+            end_marker: dict = {"type": "view_end"}
+            if last and last != "0":
+                end_marker["cursor"] = str(last)
+            stream.xadd(proc_stream, end_marker)
+        if doc_turn is not None and notes:  # author/update only when transcript evidence exists
+            _emit_turn(stream, out_topic, lambda: doc_turn(cards), "meeting-doc")
+
     while True:
         resp = stream.xread({transcript_stream: last}, count=50, block=idle_ms)
         if not resp:
-            return  # transcript idle/ended → reap
+            # The transcript went quiet, not COMPLETE: the report is authored (this is the backstop
+            # for every meeting whose session_end never arrives), the view is left unmarked.
+            _finish(complete=False)
+            return
         new_speaker = False
         for _name, entries in resp:
             for entry_id, fields in entries:
                 last = entry_id
                 payload = json.loads(fields.get("payload", "{}"))
                 if payload.get("type") == "session_end":
-                    mutable = [seg for seg in processing_window if int(seg.get("_rewrite_passes", 0)) < 3]
-                    if mutable and enabled:
-                        n += 1
-                        _run_beat(mutable, n)
-                    _flush_mirror()      # ingest-only notes (no beat ran) reach the mirrors too
-                    _persist_envelope()  # final durable render source (notes + accumulated cards)
-                    # processed-notes.v1 ``view_end`` (ADR 0027): the stream is COMPLETE here — the
-                    # final beat has run and every note is emitted. The db-writer flushes the durable
-                    # view ON this marker (its bounded deadline covers a worker that dies without one);
-                    # the live SSE closes on it. Emitted BEFORE the doc turn (30s+ of LLM the durable
-                    # flush must not wait on) and regardless of ``enabled`` (baseline notes flow even
-                    # with live beats off — the emit gate is proc_stream, same as _emit_proc_note's).
-                    if proc_stream:
-                        end_marker: dict = {"type": "view_end"}
-                        if last and last != "0":
-                            end_marker["cursor"] = str(last)
-                        stream.xadd(proc_stream, end_marker)
-                    if doc_turn is not None:  # post-meeting WRITE: author/update the kg meeting entity
-                        _emit_turn(stream, out_topic, lambda: doc_turn(cards), "meeting-doc")
+                    _finish(complete=True)
                     return  # meeting ended → reap
                 for seg_index, seg in enumerate(payload.get("segments", [])):
                     sid = seg.get("segment_id") or f"{entry_id}:{seg_index}"
@@ -656,19 +695,256 @@ MEETING_DOC_PROMPT = (
 )
 
 
+# The Turkish report. The instruction frame stays ENGLISH — it is a file-writing contract (an exact path,
+# a preserved frontmatter, three literal headings) and the small instruct model this deployment runs obeys
+# that frame best in English — while the OUTPUT language is STATED, not implied. The three `##` headings
+# are a CONTRACT with the terminal (`clients/terminal/src/canvas/AutomaticMeetingRecap.tsx` matches
+# `^## Özet`, `^## Alınan Kararlar`, `^## Aksiyon Maddeleri`): change a character here and the recap panel
+# stops recognizing the report.
+TURKISH_MEETING_DOC_PROMPT = (
+    "The meeting has ENDED. Author or update the knowledge-graph entity at the EXACT path "
+    "`kg/entities/meeting/{native}.md`. Read the existing file first and use its speaker-attributed "
+    "transcript as the only evidence for the report. You must preserve the exact YAML frontmatter. Replace "
+    "only the Markdown body, and write every narrative sentence in Turkish. This operation must be "
+    "idempotent: update the existing path and do not create a duplicate or a new path.\n\n"
+    "Use exactly these three second-level headings, in this order, copied character for character — "
+    "they are a contract with the reader's UI, so never translate, reword or re-order them:\n"
+    "## Özet\n\n"
+    "## Alınan Kararlar\n\n"
+    "## Aksiyon Maddeleri\n\n"
+    "Write a concise summary grounded only in the transcript. Include a decision only when the "
+    "transcript explicitly records agreement, approval, rejection, or another commitment. If no "
+    "decision was recorded, state that briefly in Turkish. For each action, preserve the explicit "
+    "participant owner and deadline when present. Write `Sorumlu belirtilmedi` when no owner is "
+    "assigned; do not infer an owner or deadline from topic, role, speaking order, or the surfaced "
+    "cards. If no action was recorded, state that briefly in Turkish.\n\n"
+    "The surfaced cards below may supplement entity links, but they are not evidence for decisions, "
+    "actions, owners, or deadlines (JSON):\n\n{cards}\n\n"
+    "Write EVERY sentence of the body in Turkish — the summary, each decision and each action. Only the "
+    "YAML frontmatter, the three headings above, and participant/product names are copied verbatim; no "
+    "English prose appears anywhere in the file.\n"
+    "Write or edit ONLY `kg/entities/meeting/{native}.md`."
+)
+
+
+def build_meeting_doc_prompt(
+    cards: list[dict], *, native: str, meeting_id: str, session_uid: str,
+    platform: str, date: str, title: str, report_language: str = "en",
+) -> str:
+    """Compose the post-meeting doc prompt. ``report_language`` is the ONE selector between the Turkish
+    and the English report; it is workspace-governed (``agents/meeting.md`` frontmatter → ``MeetingConfig
+    .report_language``, threaded through ``meeting_doc_turn``), so a workspace switches languages by
+    editing a visible file, no redeploy."""
+    template = TURKISH_MEETING_DOC_PROMPT if report_language.strip().lower() == "tr" else MEETING_DOC_PROMPT
+    return template.format(
+        native=native, title=title, meeting_id=meeting_id, session_uid=session_uid,
+        platform=platform, date=date, cards=json.dumps(cards, ensure_ascii=False),
+    )
+
+
+# The REPORT'S STRUCTURAL CONTRACT, per output language — what a written report must contain for the
+# turn to count as having produced one. ``report_language`` picks the prompt, so it picks the shape
+# that prompt MANDATES: `tr`'s three `##` headings are the same three the terminal's recap panel
+# regex-matches (`clients/terminal/src/canvas/AutomaticMeetingRecap.tsx`), so a file missing one is a
+# file the reader never sees. A language whose prompt mandates no fixed heading (`en`, whose entity
+# sections are omitted when empty) declares none and is held to the universal floor in
+# ``report_defect``. Adding a language here is how its UI contract becomes machine-checked.
+REPORT_HEADINGS: dict[str, tuple[str, ...]] = {
+    "tr": ("## Özet", "## Alınan Kararlar", "## Aksiyon Maddeleri"),
+}
+
+_FRONTMATTER_BLOCK_RE = re.compile(r"\A---\r?\n.*?\r?\n---\r?\n?", re.DOTALL)
+
+
+def report_defect(target: Path, report_language: str = "en") -> str:
+    """What is MISSING from the post-meeting report at ``target`` — ``""`` when the file IS the report.
+
+    The floor is language-independent and holds for every language: the file exists, its body past the
+    frontmatter is not empty, and that body is not the id-keyed transcript this module's own mirror
+    writes (``render_meeting_transcript``) — which is exactly what the path holds when the write turn
+    answered in prose and never called Write. On top of the floor, a language that declares headings in
+    ``REPORT_HEADINGS`` must carry all of them, matched the way its consumer matches them (a whole
+    line, trailing whitespace allowed)."""
+    try:
+        text = target.read_text()
+    except OSError:
+        return f"no report file at {target.name}"
+    body = _FRONTMATTER_BLOCK_RE.sub("", text).strip()
+    if not body:
+        return f"{target.name} has no report body"
+    if any(_PROC_LINE_RE.match(line) for line in body.splitlines()):
+        return f"{target.name} still holds the raw transcript"
+    lines = [line.rstrip() for line in body.splitlines()]
+    missing = [h for h in REPORT_HEADINGS.get(report_language.strip().lower(), ()) if h not in lines]
+    if missing:
+        return f"{target.name} is missing the mandated heading(s) {', '.join(missing)}"
+    return ""
+
+
+# The post-meeting report is a ONE-SHOT: the worker reaps right after it, so a lost turn is a lost
+# report. Two attempts with a short backoff cover the failures that pass on their own (a 429 burst, a
+# gateway blip, a read timeout, a turn that came back without the artifact) and nothing else — an
+# unretryable failure must surface at once.
+_DOC_TURN_ATTEMPTS = 2
+_DOC_TURN_BACKOFF_S = 0.5
+
+# Transient classification reads the LANGUAGE-INDEPENDENT layer of a failure first: HTTP status codes,
+# provider error-type codes and transport errno names are protocol literals no translation touches.
+# It has to, because the text a consumer reads is written in the product's UI language — llm/
+# claude_code.py rewrites an auth ``reply`` into Turkish (parking the raw provider text in ``detail``),
+# and llm/errors.py's generic fallback is Turkish too.
+_TRANSIENT_CODE_RE = re.compile(
+    r"\b(?:429|500|502|503|504|529)\b"
+    r"|\b(?:overloaded|rate[ _-]?limit|api|timeout|service[ _-]?unavailable)_error\b"
+    r"|\b(?:econnreset|econnrefused|econnaborted|etimedout|epipe)\b",
+    re.IGNORECASE,
+)
+
+# The prose layer, for providers that emit only prose — read in BOTH of the deployment's languages.
+# It errs toward retrying: a false "transient" costs one bounded extra call, a false "permanent" costs
+# the meeting its report.
+_TRANSIENT_PROSE_RE = re.compile(
+    r"rate[ _-]*limit"
+    r"|too many requests"
+    r"|overloaded"
+    r"|timed?[ _-]*out|timeout"
+    r"|temporar\w*"
+    r"|unavailable"
+    r"|bad gateway"
+    r"|internal server error"
+    r"|connection (?:reset|refused|aborted|error)"
+    r"|broken pipe"
+    r"|hız sınırı|istek sınırı|çok fazla istek"
+    r"|aşırı yüklen\w*|aşırı yük"
+    r"|zaman aşımı"
+    r"|geçici\w*"
+    r"|kullanılamıyor|kullanılamadı|hizmet dışı"
+    r"|sunucu hatası"
+    r"|bağlantı (?:sıfırlandı|reddedildi|kesildi|hatası)",
+    re.IGNORECASE,
+)
+
+
+def _done_failure_text(event: dict) -> str:
+    """Everything a failed harness ``done`` event says about WHY. ``detail`` is load-bearing: the
+    claude-code adapter replaces an auth ``reply`` with the platform remediation line in the product's
+    UI language and parks the raw provider text — the one carrying the 401 signature — in ``detail``."""
+    return " ".join(str(event.get(key) or "") for key in ("reply", "detail", "error"))
+
+
+def _failure_kind(detail: object) -> str:
+    """Classify a doc-turn failure as ``auth``, ``transient`` or ``permanent``. Only ``transient`` is
+    retried. Auth wins on a tie: a 401 body that also says "unavailable" is still a rejected credential,
+    and retrying it just doubles the operator's wait for the same error."""
+    text = str(detail or "")
+    if looks_like_auth_failure(text):
+        return "auth"
+    if _TRANSIENT_CODE_RE.search(text) or _TRANSIENT_PROSE_RE.search(text):
+        return "transient"
+    return "permanent"
+
+
+# The user-visible line for a turn that finished without writing the report. It is rendered VERBATIM
+# in the terminal, so it is written in the product's UI language; the machine-readable reason and what
+# the model said instead ride in ``detail``.
+_NO_REPORT_REPLY = (
+    "Toplantı raporu oluşturulamadı: model turu tamamlandı ancak rapor dosyası yazılmadı."
+)
+
+
+def _no_report_event(event: dict, defect: str) -> dict:
+    """The harness ``done`` of a turn that completed WITHOUT the artifact, re-stated as the failure it
+    is — so a consumer keying on ``done.ok`` sees the report's verdict, not the turn's."""
+    said = " ".join(str(event.get("reply") or "").split())[:200]
+    return {
+        **event,
+        "ok": False,
+        "reply": _NO_REPORT_REPLY,
+        "detail": f"{defect}{f' — model reply: {said}' if said else ''}",
+    }
+
+
 def meeting_doc_turn(
     work: Path, cards: list[dict], *, native: str, meeting_id: str, session_uid: str,
-    platform: str, date: str, title: str, model: str | None = None,
+    platform: str, date: str, title: str, model: str | None = None, report_language: str = "en",
 ) -> Iterator[dict]:
     """The post-meeting WRITE turn: ONE governed turn (commit=True, Write/Edit allowed,
     session_continuity=False so it never touches the chat session) that authors/updates the meeting
     entity at ``kg/entities/meeting/<native>.md`` — a distilled summary + the surfaced cards as grouped
-    wikilinks. Idempotent (re-running updates rather than duplicates)."""
-    prompt = MEETING_DOC_PROMPT.format(
-        native=native, title=title, meeting_id=meeting_id, session_uid=session_uid,
-        platform=platform, date=date, cards=json.dumps(cards, ensure_ascii=False),
+    wikilinks. Idempotent (re-running updates rather than duplicates).
+
+    SUCCESS IS THE ARTIFACT. The harness's ``done.ok`` says the TURN completed, not that the REPORT was
+    written: a model that answers in prose and never calls Write completes happily and leaves the path
+    holding the raw transcript. Every attempt is judged by ``report_defect`` — the file on disk against
+    the shape this ``report_language``'s prompt mandates — and a turn that produced no report is a
+    failure whatever the flag said.
+
+    This turn is the meeting's LAST chance at its report: the worker returns straight after, the
+    container is reaped, and nothing re-dispatches it. So a TRANSIENT failure (a 429, a gateway 5xx, a
+    timeout, a turn that came back without the artifact) is retried once, after a short backoff, from
+    the pre-turn file. An AUTH failure never is — the credential will not fix itself in two seconds,
+    and a retry only doubles the operator's wait. On the last attempt the failure SURFACES: the
+    pre-turn file is restored and the turn's one terminal event carries ``ok: false`` and the reason."""
+    prompt = build_meeting_doc_prompt(
+        cards, native=native, title=title, meeting_id=meeting_id, session_uid=session_uid,
+        platform=platform, date=date, report_language=report_language,
     )
-    yield from run_turn_over_workspace(
-        work, prompt, model=model, allowed_tools=["Read", "Write", "Edit"],
-        commit=True, session_continuity=False,
-    )
+    target = work / "kg" / "entities" / "meeting" / f"{native}.md"
+    previous = target.read_bytes() if target.exists() else None
+    succeeded = False
+
+    def restore_target() -> None:
+        if previous is None:
+            target.unlink(missing_ok=True)
+            return
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(previous)
+
+    try:
+        for attempt in range(1, _DOC_TURN_ATTEMPTS + 1):
+            final_attempt = attempt == _DOC_TURN_ATTEMPTS
+            retry = False
+            events = run_turn_over_workspace(
+                work, prompt, model=model, allowed_tools=["Read", "Write", "Edit"],
+                commit=True, session_continuity=False,
+            )
+            try:
+                for event in events:
+                    if event.get("type") != "done":
+                        yield event
+                        continue
+                    # The turn's verdict is the FILE, not the flag: a completed turn that produced no
+                    # report is a failure, and a retryable one — the artifact is what we came for.
+                    defect = report_defect(target, report_language) if event.get("ok", True) is True else ""
+                    succeeded = event.get("ok", True) is True and not defect
+                    if succeeded:
+                        yield event
+                        continue
+                    restore_target()
+                    kind = "transient" if defect else _failure_kind(_done_failure_text(event))
+                    if not final_attempt and kind == "transient":
+                        # The re-attempt owns the outcome, so this attempt's terminal event is
+                        # NOT forwarded: a consumer keys on ONE `done` per turn.
+                        retry = True
+                        break
+                    yield _no_report_event(event, defect) if defect else event
+            except LLMAuthError:
+                raise  # a rejected credential is not transient — surface it now
+            except Exception as exc:  # noqa: BLE001 — classified below; anything unretryable re-raises
+                # The class name carries the signal a bare transport exception's message often doesn't
+                # (``ReadTimeout()`` stringifies empty).
+                if final_attempt or _failure_kind(f"{type(exc).__name__}: {exc}") != "transient":
+                    raise
+                retry = True
+            if not retry:
+                return
+            events.close()  # abandon the failed attempt's turn — the re-attempt owns the outcome
+            log.warning(
+                "meeting_doc_turn: transient failure on attempt %d/%d — retrying the post-meeting report",
+                attempt, _DOC_TURN_ATTEMPTS,
+            )
+            time.sleep(_DOC_TURN_BACKOFF_S)
+            restore_target()  # the re-attempt reads the PRE-TURN file, never a half-written one
+    finally:
+        if not succeeded:
+            restore_target()

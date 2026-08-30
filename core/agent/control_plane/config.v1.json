@@ -184,6 +184,15 @@
       ]
     },
     {
+      "key": "VEXA_REPORT_LANGUAGE",
+      "class": "defaulted",
+      "default": "en",
+      "description": "deployment default language of the post-meeting report (en | tr) — applies to every workspace whose agents/meeting.md does not set report_language",
+      "targets": [
+        "compose"
+      ]
+    },
+    {
       "key": "VEXA_MEETING_IDLE_TIMEOUT_SEC",
       "class": "defaulted",
       "default": "14400",

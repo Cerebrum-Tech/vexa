@@ -91,8 +91,9 @@ def auth_error_event(detail: object, *, model: str | None, stage: str) -> dict:
 
 def model_error_event(message: object, *, model: str | None, stage: str) -> dict:
     """The generic model-failure event. Shape is frozen:
-    ``{"type":"model-error","error":{stage,model,message}}``."""
-    text = " ".join(str(message or "model inference failed").split())
+    ``{"type":"model-error","error":{stage,model,message}}``. ``message`` is rendered verbatim to the
+    end user (the terminal's warning card), so the fallback text is in the product's UI language."""
+    text = " ".join(str(message or "Model çıkarımı başarısız oldu").split())
     return {"type": "model-error", "error": {"stage": stage, "model": model or "", "message": text[:600]}}
 
 

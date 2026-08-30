@@ -93,12 +93,16 @@ def parse_stream_json(lines: Iterable[str]) -> Iterator[dict]:
                 # The CLI's own auth text ("Not logged in · Please run /login") is an internal of
                 # THIS adapter — /login doesn't exist for an API consumer. Rewrite to the
                 # platform-actionable message; the raw text rides along in `detail` (additive).
+                # `reply` is rendered VERBATIM in the terminal's chat pane, so it is written in the
+                # product's UI language (Turkish); env var names and the settings path stay exactly
+                # as the operator must type / click them.
                 done["detail"] = _short(reply, 200)
                 done["reply"] = (
-                    "Model credentials are missing or expired for this deployment. "
-                    "Set or refresh one of HOST_CLAUDE_CREDENTIALS, ANTHROPIC_API_KEY, "
-                    "ANTHROPIC_AUTH_TOKEN, CLAUDE_CODE_OAUTH_TOKEN or VEXA_LLM_API_KEY, "
-                    "or configure a model under Settings → Models."
+                    "Bu dağıtım için model kimlik bilgileri eksik veya süresi dolmuş. "
+                    "HOST_CLAUDE_CREDENTIALS, ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN, "
+                    "CLAUDE_CODE_OAUTH_TOKEN veya VEXA_LLM_API_KEY değişkenlerinden birini "
+                    "ayarlayın ya da yenileyin; veya Ayarlar → Modeller altından bir model "
+                    "yapılandırın."
                 )
             yield done
 

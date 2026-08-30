@@ -204,6 +204,14 @@ def test_dispatcher_worker_env_carries_numeric_meeting_id():
 
 # ── model-auth passthrough: agent-api env → worker spec env (the k8s/helm credential seam) ────
 
+def test_dispatcher_worker_env_allowlists_claude_resource_dials():
+    """Local model deployments can bound reasoning/output without blanket-forwarding env."""
+    assert {
+        "CLAUDE_CODE_DISABLE_THINKING",
+        "MAX_THINKING_TOKENS",
+        "CLAUDE_CODE_MAX_OUTPUT_TOKENS",
+    } <= set(dispatch.MODEL_AUTH_ENV_ALLOWLIST)
+
 def test_dispatcher_worker_env_passes_model_auth_allowlist(monkeypatch):
     """Every allowlisted model-auth var set on agent-api lands in the worker spec env — this is the
     ONLY credential path on the k8s/process backends (no bind-mount, no runtime brokering)."""

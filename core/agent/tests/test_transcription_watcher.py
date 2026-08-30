@@ -1,10 +1,11 @@
-"""The in-process transcription watcher (ARM-only): keep DISTINCT meetings SEPARATE, arm the copilot
-opt-in, and — crucially — NEVER write the transcript carrier.
+"""The in-process transcription watcher (ARM-only): keep DISTINCT meetings SEPARATE, arm a copilot for
+EVERY streaming meeting, and — crucially — NEVER write the transcript carrier.
 
 Post-D7 (P23): meeting-api's collector is the SINGLE writer of ``tc:meeting:{native}`` (segments AND the
 session_end marker). The agent watcher only tails ``transcription_segments`` as a TRIGGER to do agent-domain
-jobs: freeze ONE native routing key per meeting, register the live row, re-arm the copilot while processing
-is enabled (resuming from the worker-advanced cursor — the ONE resume source, ADR 0027), and reap on
+jobs: freeze ONE native routing key per meeting, register the live row, re-arm the copilot for EVERY
+streaming meeting (resuming from the worker-advanced cursor — the ONE resume source, ADR 0027) while
+carrying the user's live-beats desired state on the dispatch, and reap on
 session_end (live row, keymap, AND the desired-state flag). It writes nothing to the carrier —
 `meetings ⊥ agent` (P3). These tests assert that behaviour via keymap/live/dispatch, and
 that no ``tc:meeting:*`` write ever originates here.
@@ -240,21 +241,100 @@ def test_arm_without_cursor_backfills_full_history(monkeypatch):
     assert disp.dispatched[0]["context"]["meeting"]["transcript_start_id"] == "0-0"
 
 
-def test_copilot_processing_is_opt_in(monkeypatch):
-    """Processing is OPT-IN: with no proc:meeting flag the copilot is NOT dispatched, yet the meeting still
-    registers. Flipping the flag arms it. The agent writes no transcript stream either way."""
+def test_every_meeting_arms_a_copilot_with_live_beats_off_by_default(monkeypatch):
+    """EVERY meeting that streams transcript arms a copilot — the post-meeting report is the default
+    journey, so the worker's EXISTENCE can never hang off a toggle a user can only reach mid-meeting.
+    With no proc:meeting flag the dispatch still fires, carrying live_beats=False (no per-meeting live
+    inference). The agent writes no transcript stream either way."""
     _reset_module_caches()
     monkeypatch.setattr(w, "_resolve_native", lambda mid: ("aaa-aaaa-aaa", "google_meet"))
     r, disp, live = _FakeRedis(), _FakeDispatcher(), _FakeLive()
 
     w._handle(r, disp, live, "u_live", _payload("42"), *_fresh_state())
-    assert disp.dispatched == []                    # OFF → no copilot, no processing
-    assert "42" in live.by_uid                      # …but the meeting still registers (by ROW id)
+    assert len(disp.dispatched) == 1                                        # armed with the flag UNSET
+    assert disp.dispatched[0]["context"]["meeting"]["live_beats"] is False  # …but live beats stay OFF
+    assert "42" in live.by_uid                      # the meeting registers (by ROW id)
     assert _native_streams(r) == []                 # …and the agent writes no transcript carrier
 
-    r.set("proc:meeting:42:on", "1")                   # user enables processing (ROW-keyed) → now it arms
+
+def test_processing_flag_switches_live_beats_not_the_copilot(monkeypatch):
+    """The ``:on`` flag is the LIVE-BEATS desired state, not an existence gate: flipping it changes
+    ``live_beats`` on the dispatch, never whether a dispatch happens."""
+    _reset_module_caches()
+    monkeypatch.setattr(w, "_resolve_native", lambda mid: ("aaa-aaaa-aaa", "google_meet"))
+    r, disp, live = _FakeRedis(), _FakeDispatcher(), _FakeLive()
+
+    r.set("proc:meeting:42:on", "1")                # user enables live processing (ROW-keyed)
     w._handle(r, disp, live, "u_live", _payload("42"), *_fresh_state())
     assert len(disp.dispatched) == 1
+    assert disp.dispatched[0]["context"]["meeting"]["live_beats"] is True
+
+
+def test_unreadable_flag_still_arms_with_beats_off(monkeypatch):
+    """A redis hiccup on the desired-state GET must cost the meeting its live beats, never its report:
+    the arm proceeds with live_beats=False rather than skipping the dispatch."""
+    _reset_module_caches()
+    monkeypatch.setattr(w, "_resolve_native", lambda mid: ("aaa-aaaa-aaa", "google_meet"))
+
+    class _BlindRedis(_FakeRedis):
+        def get(self, key):
+            raise RuntimeError("redis down")
+
+    r, disp, live = _BlindRedis(), _FakeDispatcher(), _FakeLive()
+    w._handle(r, disp, live, "u_live", _payload("42"), *_fresh_state())
+
+    assert len(disp.dispatched) == 1                                        # the report path survives
+    assert disp.dispatched[0]["context"]["meeting"]["live_beats"] is False  # spend stays off
+
+
+def test_live_beats_reaches_the_worker_env_as_a_string_flag(monkeypatch):
+    """End to end through the seam the worker actually reads: the watcher's ``live_beats`` hint rides
+    _arm → units.make_dispatch → build_unit_env as ``VEXA_MEETING_LIVE_BEATS``, and is STRIPPED before
+    the sealed unit.v1 check (MeetingRef is additionalProperties:false) — like the other routing hints."""
+    from control_plane import dispatch
+    from shared.config import load_settings
+    import contracts
+
+    _reset_module_caches()
+    monkeypatch.setattr(w, "_resolve_native", lambda mid: ("aaa-aaaa-aaa", "google_meet"))
+    settings = load_settings()
+
+    def env_for(flag: str | None) -> dict:
+        r, disp, live = _FakeRedis(), _FakeDispatcher(), _FakeLive()
+        if flag is not None:
+            r.set("proc:meeting:42:on", flag)
+        w._handle(r, disp, live, "u_live", _payload("42"), *_fresh_state())
+        inv = disp.dispatched[0]
+        contracts.validate_unit_invocation(dispatch._without_chat_session(inv))  # the hint never leaks
+        return dispatch.build_unit_env(settings, inv, unit_id="agent-meet-42", token="t")
+
+    assert env_for(None)["VEXA_MEETING_LIVE_BEATS"] == "0"   # default journey: worker yes, beats no
+    assert env_for("1")["VEXA_MEETING_LIVE_BEATS"] == "1"    # user toggled live processing on
+
+
+def test_report_language_reaches_the_worker_env(monkeypatch):
+    """The DEPLOYMENT tier of the report language must actually cross into the worker container.
+    ``VEXA_REPORT_LANGUAGE`` is a defaulted key in control_plane/config.v1.json, but a declared key
+    that build_unit_env never forwards is inert: the worker falls back to its code default and an
+    existing workspace — which idempotent seeding never re-seeds — keeps emitting the old language."""
+    from control_plane import dispatch
+    from shared.config import load_settings
+
+    _reset_module_caches()
+    monkeypatch.setattr(w, "_resolve_native", lambda mid: ("aaa-aaaa-aaa", "google_meet"))
+    settings = load_settings()
+
+    def env_now() -> dict:
+        r, disp, live = _FakeRedis(), _FakeDispatcher(), _FakeLive()
+        w._handle(r, disp, live, "u_live", _payload("42"), *_fresh_state())
+        return dispatch.build_unit_env(settings, disp.dispatched[0], unit_id="agent-meet-42", token="t")
+
+    monkeypatch.setenv("VEXA_REPORT_LANGUAGE", "tr")
+    assert env_now()["VEXA_REPORT_LANGUAGE"] == "tr"
+
+    # Unset stays ABSENT rather than empty, so the worker's own default still governs.
+    monkeypatch.delenv("VEXA_REPORT_LANGUAGE", raising=False)
+    assert "VEXA_REPORT_LANGUAGE" not in env_now()
 
 
 def test_unresolved_native_still_keys_on_row_id_immediately(monkeypatch):
@@ -295,7 +375,9 @@ def test_proc_flag_get_never_hits_the_processed_stream(monkeypatch):
     r.set("proc:meeting:77:on", "1")                           # processing ENABLED via the ROW-keyed flag
 
     w._handle(r, disp, live, "u", _payload("77"), *_fresh_state())  # must NOT raise WRONGTYPE
-    assert len(disp.dispatched) == 1                            # armed off the flag
+    assert len(disp.dispatched) == 1                            # armed
+    # the flag READ landed on the :on key, not the stream — a WRONGTYPE would have read as beats OFF
+    assert disp.dispatched[0]["context"]["meeting"]["live_beats"] is True
 
 
 # ── session_end reap (agent-domain only — the collector emits the carrier marker) ───────────────────

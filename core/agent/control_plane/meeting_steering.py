@@ -26,6 +26,19 @@ override raise at format time → caught → loud log + fallback):
   prep/live/post:   {title} {when} {platform} {native} {workspace}
   schedule:         (none — a fixed steering sentence after the <schedule> block)
   workspace_focus:  {name} {slug} {purpose} {readme}
+
+OUTPUT LANGUAGE. Every template carries one explicit ``OUTPUT LANGUAGE — TURKISH`` clause: the
+words the USER reads are Turkish, stated, never left to be inferred from the prompt's own language.
+The instruction scaffold around it stays English for two reasons that are in the tree, not taste —
+the runtime fields folded into these blocks ({when}, {workspace}, {failed}, {source}, {purpose}) are
+English sentences composed in ``control_plane/api.py``, and each block's OPENING and CLOSING
+sentences are a parse contract with the terminal (``CONTEXT_BLOCKS`` in
+``clients/terminal/src/surfaces/chat.tsx`` strips server grounding out of stored chats by matching
+them). Reword an opening or a terminator and old chats render the steering as the user's own words.
+
+An override REPLACES the whole section it names, language clause included: a section present in the
+operator file is the only steering that phase gets, so its text must state the output language
+itself — the code default below cannot reach the model at all for that phase.
 """
 from __future__ import annotations
 
@@ -58,6 +71,10 @@ DEFAULT_TEMPLATES: dict[str, str] = {
     "prep": (
         "You are helping the user PREPARE for the upcoming meeting \"{title}\" ({platform}/{native})"
         "{when}. The meeting has not happened yet — there is no transcript. {workspace}"
+        "OUTPUT LANGUAGE — TURKISH: everything the user reads is Turkish — your chat replies and "
+        "the prose of every brief or note you write into the workspace (Kullanıcıya giden her "
+        "kelimeyi Türkçe yaz). File paths, frontmatter keys, entity ids, personal and company "
+        "names, and quoted sources keep their original form. "
         "Default moves: draft an agenda, research the attendees and companies in the knowledge "
         "workspace, and write or update a one-page prep brief. FIRST check kg/entities/meeting/ for "
         "an existing note or brief for this meeting — if one exists you are CONTINUING that brief: "
@@ -75,45 +92,61 @@ DEFAULT_TEMPLATES: dict[str, str] = {
     ),
     "live": (
         "You are assisting in a live meeting ({platform}/{native}). Its live transcript so far is "
-        "below — answer the user's question from it. Don't paste the transcript back verbatim.\n\n"
+        "below — answer the user's question from it. Don't paste the transcript back verbatim. "
+        "OUTPUT LANGUAGE — TURKISH: answer in Turkish whatever language the transcript or the "
+        "question is in (Kullanıcıya yazdığın her kelimeyi Türkçe yaz); speaker names and verbatim "
+        "quotes stay exactly as spoken.\n\n"
         "<transcript>\n{transcript}\n</transcript>\n\n"
     ),
     "post": (
         "The meeting \"{title}\" ({platform}/{native}) has ended{failed}. Its {source} is below — "
-        "answer from it. Default moves: recap what was decided, extract action items with owners, "
-        "and draft follow-ups on request. Don't paste the transcript back verbatim.\n\n"
+        "answer from it. OUTPUT LANGUAGE — TURKISH: write every word of your answer in Turkish, "
+        "whatever language the transcript or the question is in (Kullanıcıya yazdığın her kelime "
+        "Türkçe olacak; özet, alınan kararlar ve her aksiyon maddesinin sorumlu katılımcısı dahil); "
+        "names, titles and verbatim quotes keep their original form. Recap what was decided, list "
+        "each action item with the participant the transcript explicitly names as its owner, and "
+        "draft follow-ups on request. Never name an owner the transcript does not. Don't paste the "
+        "transcript back verbatim.\n\n"
         "<transcript>\n{transcript}\n</transcript>\n\n"
     ),
     # Ambient terminal-state digest (context bundle): one steering sentence AFTER the
     # <schedule> block build_schedule_digest rendered. No placeholders.
     "schedule": (
         "The user's meeting schedule is in <schedule> above (times are in their timezone). "
-        "Resolve phrases like \"my next meeting\" or \"today\" from it and refer to meetings by "
-        "title. It is a compact digest — for depth, read the meeting's notes files or ask.\n\n"
+        "Resolve phrases like \"my next meeting\" or \"today\" — and the Turkish the user actually "
+        "types, \"bir sonraki toplantım\" or \"bugün\" — from it, and refer to meetings by title. "
+        "OUTPUT LANGUAGE — TURKISH: answer in Turkish (Kullanıcıya yazdığın her kelimeyi Türkçe "
+        "yaz); a meeting title is data — repeat it exactly as the digest spells it, never "
+        "translated. It is a compact digest — for depth, read the meeting's notes files or ask.\n\n"
     ),
     # Workspace focus (the manage panel is the active tab): purpose + README head folded below.
     "workspace_focus": (
         "The user is looking at the workspace \"{name}\" ({slug}).{purpose} Its README head is "
-        "below — ground answers about this workspace in it and in the workspace's files.\n\n"
+        "below — ground answers about this workspace in it and in the workspace's files. "
+        "OUTPUT LANGUAGE — TURKISH: answer in Turkish (Kullanıcıya yazdığın her kelimeyi Türkçe "
+        "yaz); workspace names, slugs, paths and quoted README lines keep their original form.\n\n"
         "<readme>\n{readme}\n</readme>\n\n"
     ),
 }
 
 # Workspace focus when there's no README — honest, still names the workspace.
 NO_README_WORKSPACE_FOCUS = (
-    "The user is looking at the workspace \"{name}\" ({slug}).{purpose} It has no README yet — "
-    "ground answers in the workspace's files, and say when context is missing.\n\n"
+    "The user is looking at the workspace \"{name}\" ({slug}).{purpose} It has no README yet. "
+    "OUTPUT LANGUAGE — TURKISH: answer in Turkish (Kullanıcıya yazdığın her kelimeyi Türkçe yaz). "
+    "Ground answers in the workspace's files, and say when context is missing.\n\n"
 )
 
 # Live/post when the stream holds nothing — honest, never fabricated (fail loud).
 NO_TRANSCRIPT_LIVE = (
     "You are assisting in a live meeting ({platform}/{native}), but no transcript has been "
-    "captured yet. Tell the user the meeting has no transcript yet.\n\n"
+    "captured yet. OUTPUT LANGUAGE — TURKISH: write to the user in Turkish (Kullanıcıya Türkçe "
+    "yaz). Tell the user the meeting has no transcript yet.\n\n"
 )
 NO_RECORD_POST = (
     "The meeting \"{title}\" ({platform}/{native}) has ended{failed}, but no transcript or "
-    "processed notes were captured for it. Tell the user plainly that no record of this meeting "
-    "exists — do not reconstruct or invent its content.\n\n"
+    "processed notes were captured for it. OUTPUT LANGUAGE — TURKISH: write to the user in Turkish "
+    "(Kullanıcıya Türkçe yaz). Tell the user plainly that no record of this meeting exists — do not "
+    "reconstruct or invent its content.\n\n"
 )
 
 _SECTION_RE = re.compile(r"^##\s+(prep|live|post|schedule|workspace_focus)\s*$", re.MULTILINE)

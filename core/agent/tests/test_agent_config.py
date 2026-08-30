@@ -4,15 +4,23 @@ Proves the isolated parser: all defaults when absent, per-key fallback on partia
 becomes steering, tolerant of malformed YAML / no frontmatter — and the PROVIDER-AGNOSTIC model
 governance: a model is a free string; VEXA_MEETING_MODEL → VEXA_LLM_MODEL resolve the deployment
 default at call time; the OPTIONAL operator allowlist (VEXA_MODEL_ALLOWLIST) gates workspace pins.
+
+The report language resolves in the same tiered shape: workspace frontmatter > the deployment env
+(VEXA_REPORT_LANGUAGE) > the code default "en". The middle tier is the one an existing workspace
+depends on — seeding runs once, so a workspace created before the operator picked a language carries
+no report_language of its own and must follow the deployment.
 """
 from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from shared.agent_config import (
     DEFAULT_CADENCE_SEGMENTS,
     DEFAULT_CARD_KINDS,
     DEFAULT_POLISH_RULES,
+    DEFAULT_REPORT_LANGUAGE,
     DEFAULT_TAG_RULES,
     default_meeting_model,
     load_meeting_config,
@@ -31,6 +39,13 @@ def _clear_model_env(monkeypatch) -> None:
         monkeypatch.delenv(var, raising=False)
 
 
+@pytest.fixture(autouse=True)
+def _no_ambient_report_language(monkeypatch):
+    """A deployment var must not leak in from the machine running the suite: every test states the
+    deployment tier it means to prove."""
+    monkeypatch.delenv("VEXA_REPORT_LANGUAGE", raising=False)
+
+
 def test_absent_file_all_defaults(tmp_path, monkeypatch):
     _clear_model_env(monkeypatch)
     cfg = load_meeting_config(tmp_path)
@@ -40,6 +55,61 @@ def test_absent_file_all_defaults(tmp_path, monkeypatch):
     assert cfg.card_kinds == list(DEFAULT_CARD_KINDS)
     assert cfg.write_meeting_doc is True
     assert cfg.steering == ""
+
+
+def test_report_language_defaults_to_english_with_no_deployment_setting(tmp_path):
+    assert load_meeting_config(tmp_path).report_language == "en"
+
+
+def test_report_language_accepts_turkish(tmp_path):
+    _write(tmp_path, "---\nreport_language: tr\n---\n")
+    assert load_meeting_config(tmp_path).report_language == "tr"
+
+
+def test_deployment_language_reaches_a_workspace_that_states_none(tmp_path, monkeypatch):
+    """The existing-workspace path: a workspace seeded before the operator chose a language has no
+    report_language of its own (or no agents/meeting.md at all) and follows VEXA_REPORT_LANGUAGE."""
+    monkeypatch.setenv("VEXA_REPORT_LANGUAGE", "tr")
+    assert load_meeting_config(tmp_path).report_language == "tr"
+
+    _write(tmp_path, "---\nenabled: true\ncadence_segments: 4\n---\nsteer\n")
+    assert load_meeting_config(tmp_path).report_language == "tr"
+
+
+def test_workspace_frontmatter_overrides_the_deployment_language(tmp_path, monkeypatch):
+    monkeypatch.setenv("VEXA_REPORT_LANGUAGE", "tr")
+    _write(tmp_path, "---\nreport_language: en\n---\n")
+    assert load_meeting_config(tmp_path).report_language == "en"
+
+
+def test_deployment_language_is_read_per_call(tmp_path, monkeypatch):
+    """Read at call time, not at import: a respawned worker sees the operator's current setting."""
+    monkeypatch.setenv("VEXA_REPORT_LANGUAGE", "tr")
+    assert load_meeting_config(tmp_path).report_language == "tr"
+    monkeypatch.setenv("VEXA_REPORT_LANGUAGE", "en")
+    assert load_meeting_config(tmp_path).report_language == "en"
+
+
+def test_report_language_rejects_blank_and_unsupported_values(tmp_path):
+    _write(tmp_path, "---\nreport_language: de\n---\n")
+    assert load_meeting_config(tmp_path).report_language == "en"
+
+    _write(tmp_path, "---\nreport_language: '   '\n---\n")
+    assert load_meeting_config(tmp_path).report_language == "en"
+
+
+def test_rejected_frontmatter_value_falls_back_to_the_deployment_language(tmp_path, monkeypatch):
+    monkeypatch.setenv("VEXA_REPORT_LANGUAGE", "tr")
+    _write(tmp_path, "---\nreport_language: de\n---\n")
+    assert load_meeting_config(tmp_path).report_language == "tr"
+
+
+def test_unsupported_deployment_language_falls_back_to_the_code_default(tmp_path, monkeypatch):
+    """A typo in the operator's env is not an outage: the report still writes, in English."""
+    monkeypatch.setenv("VEXA_REPORT_LANGUAGE", "de")
+    assert load_meeting_config(tmp_path).report_language == DEFAULT_REPORT_LANGUAGE
+    monkeypatch.setenv("VEXA_REPORT_LANGUAGE", "  TR  ")
+    assert load_meeting_config(tmp_path).report_language == "tr"
 
 
 def test_full_config_parsed(tmp_path, monkeypatch):
