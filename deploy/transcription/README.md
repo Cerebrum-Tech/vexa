@@ -6,6 +6,8 @@ is the **GPU workload, carved out** of the main stack. It is **not** part of `ma
 `TRANSCRIPTION_SERVICE_URL`. Stand this unit up wherever a GPU lives (the same host or a dedicated
 GPU box).
 
+Turkish operator guide for the two-host (app host + GPU host) topology: [`KURULUM-TR.md`](KURULUM-TR.md).
+
 ## Why separate
 
 GPU inference is expensive, stateful, and hardware-specific. Forcing it into `make all` would make
