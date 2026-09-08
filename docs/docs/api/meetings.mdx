@@ -33,6 +33,10 @@ Pass one of these as `platform`:
 
 The bot joins like any participant — no plugins, no host configuration.
 
+A meeting created by [uploading a recording](#upload-a-recording) carries `platform: "upload"` — no
+bot joined anything. It is otherwise an ordinary meeting: same statuses, same transcript route, same
+list.
+
 \* **Jitsi is join + capture offline-proven; live validation is pending.** Meet, Zoom and Teams are
 production. On Jitsi the bot joins and records audio, but transcripts are not yet proven live —
 [#883](https://github.com/Vexa-ai/vexa/issues/883) reports a witness run on self-hosted
@@ -236,6 +240,56 @@ URL, hostname, token, credential, meeting title, or transcript.
 If a legacy or mixed-version run lacks provider ownership or producer timestamps, the block is
 `null` or absent. Consumers must treat that as unresolved provenance; do not reconstruct it from
 `transcribe_enabled`, current user settings, endpoint URLs, or meeting start/end time.
+
+## Upload a recording
+
+Turn an audio or video recording into a meeting — no bot, no live call. Full walkthrough:
+[Upload a recording](/how-to/upload-a-recording).
+
+```bash POST /uploads
+curl -X POST "$API_BASE/uploads" \
+  -H "X-API-Key: $API_KEY" \
+  -F "file=@haftalik-toplanti.mp4" \
+  -F "title=Haftalık toplantı" \
+  -F "language=tr"
+```
+
+```json 202 Accepted
+{
+  "id": 412,
+  "platform": "upload",
+  "native_meeting_id": "up-9f3c1a20b7d4",
+  "status": "requested",
+  "upload": { "state": "queued", "bytes": 184738201, "language": "tr", "speaker": "Konuşmacı" }
+}
+```
+
+| form field | | |
+|---|---|---|
+| `file` | required | the recording; video is accepted and its audio track is used |
+| `title` | optional | defaults to the filename |
+| `language` | optional | ISO code passed to the transcriber; omit to auto-detect |
+| `speaker` | optional | the single speaker label (whisper does not diarize) |
+
+`202` means the bytes are stored and the job is queued — transcription takes minutes. Poll it:
+
+```bash GET /uploads/{meeting_id}
+curl -H "X-API-Key: $API_KEY" "$API_BASE/uploads/412"
+```
+
+```json
+{
+  "id": 412, "status": "active",
+  "upload": { "state": "transcribing", "duration_seconds": 3612.4,
+              "transcribed_seconds": 1500.0, "segments": 214 }
+}
+```
+
+`status` walks `requested → active → completed`, or `failed` with `upload.error` naming the reason.
+`transcribed_seconds / duration_seconds` advances once per transcription window.
+
+Requires `TRANSCRIPTION_SERVICE_URL`; without it the route answers `503` and names the key. Scope:
+`bot` for the upload (it buys transcription capacity, like sending a bot), `tx` for the status read.
 
 ## Get the transcript
 

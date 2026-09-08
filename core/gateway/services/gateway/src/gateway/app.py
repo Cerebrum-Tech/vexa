@@ -120,6 +120,14 @@ ROUTE_SCOPES: Dict[Tuple[str, str], FrozenSet[str]] = {
     ("GET", "/transcripts/{platform}/{native_meeting_id}"): TX,
     ("POST", "/transcripts/{platform}/{native_meeting_id}/share"): TX,
     ("POST", "/transcripts/share/accept"): TX,
+    # --- uploads: a recording the bot never attended becomes a meeting ---
+    # POST is BOT, not TX: it is the OTHER door onto the same cost vector POST /bots is. It mints a
+    # meeting and buys GPU-minutes of transcription; a `tx` key is handed out for transcript ACCESS
+    # (to an integration, to an MCP agent) and must not be able to spend the deployment's STT
+    # capacity. The status read is the meeting data plane, so it is TX like every other read of a
+    # meeting row.
+    ("POST", "/uploads"): BOT,
+    ("GET", "/uploads/{meeting_id}"): TX,
     # --- recordings (unchanged: the sealed table already accepted either domain) ---
     ("GET", "/recordings"): BOT_OR_TX,
     ("GET", "/recordings/{recording_id}"): BOT_OR_TX,
@@ -513,6 +521,40 @@ def create_app(
             headers=passthrough,
         )
 
+    async def _forward_upload(url: str, request: Request) -> Response:
+        """``_forward`` for a request whose BODY is the payload — the media upload.
+
+        Identical in every respect but one: the body is relayed as an async byte STREAM instead of
+        being read into memory first. ``_forward``'s ``await request.body()`` is right for a JSON
+        control-plane call and wrong for a two-gigabyte recording — it would hold the whole upload
+        in the public edge's RSS, and the edge is the one process every tenant shares.
+        """
+        headers, error = await _authorize("POST", request, api_key=None)
+        if error is not None:
+            return error
+        try:
+            resp = await downstream.request(
+                "POST", url, headers=headers,
+                params=dict(request.query_params) or None,
+                content=request.stream(),
+            )
+        except httpx.InvalidURL:
+            return _invalid_path_param_response()
+        except httpx.TimeoutException:
+            return Response(content=json.dumps({"detail": "upstream timeout"}),
+                            status_code=504, media_type="application/json")
+        except httpx.RequestError as e:
+            return Response(content=json.dumps({"detail": f"upstream unreachable: {type(e).__name__}"}),
+                            status_code=502, media_type="application/json")
+        log_event(
+            "downstream_forwarded", audience="system", level="debug", span="proxy",
+            fields={"method": "POST", "path": url, "downstream_status": resp.status_code},
+        )
+        return Response(
+            content=resp.content, status_code=resp.status_code,
+            media_type=resp.headers.get("content-type", "application/json"),
+        )
+
     def _meeting(path: str) -> str:
         return f"{meeting_api_url}{path}"
 
@@ -567,6 +609,15 @@ def create_app(
     @app.get("/transcripts/{platform}/{native_meeting_id}")
     async def transcript(platform: str, native_meeting_id: str, request: Request):
         return await _forward("GET", _meeting(f"/transcripts/{platform}/{native_meeting_id}"), request)
+
+    # ---- uploads: POST a recording, GET its transcription progress ----
+    @app.post("/uploads", status_code=202)
+    async def create_upload(request: Request):
+        return await _forward_upload(_meeting("/uploads"), request)
+
+    @app.get("/uploads/{meeting_id}")
+    async def get_upload(meeting_id: int, request: Request):
+        return await _forward("GET", _meeting(f"/uploads/{meeting_id}"), request)
 
     @app.get("/recordings")
     async def list_recordings(request: Request):

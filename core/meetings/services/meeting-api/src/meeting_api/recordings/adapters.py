@@ -47,6 +47,19 @@ class S3Storage:
     async def upload(self, key: str, data: bytes, *, content_type: str) -> None:
         await self._run(self._c().put_object, Bucket=self._bucket, Key=key, Body=data, ContentType=content_type)
 
+    async def upload_file(self, key: str, path: str, *, content_type: str) -> None:
+        """PUT a file from disk — boto3 splits it into parts itself, so the object never exists
+        whole in RSS. The bytes-in ``upload`` above is right for a bot's seconds-long chunk; an
+        uploaded meeting recording is gigabytes and must not pass through memory (uploads module)."""
+        await self._run(
+            self._c().upload_file, path, self._bucket, key,
+            ExtraArgs={"ContentType": content_type},
+        )
+
+    async def download_file(self, key: str, path: str) -> None:
+        """GET an object straight to disk — the read half of ``upload_file``, same reason."""
+        await self._run(self._c().download_file, self._bucket, key, path)
+
     async def list(self, prefix: str) -> list[str]:
         # S3 (and every S3-compatible backend) caps a single list_objects_v2 response at 1000 keys and
         # signals more via IsTruncated + NextContinuationToken (#769). Loop to exhaustion — a single

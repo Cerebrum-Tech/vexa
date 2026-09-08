@@ -174,7 +174,7 @@
    "unique-id": "transcription",
    "node-type": "service",
    "name": "transcription",
-   "description": "transcription — STT service (faster-whisper / CTranslate2, OpenAI-compatible /v1/audio/transcriptions). The GPU workload, deployed separately from the main stack; the bot streams audio windows to it and receives segments. Does not write any redis carrier (the bot XADDs segments).",
+   "description": "transcription — STT service (faster-whisper / CTranslate2, OpenAI-compatible /v1/audio/transcriptions). The GPU workload, deployed separately from the main stack; the bot streams a live meeting's audio windows to it and meeting-api's uploads module sends an uploaded recording's windows on the deferred tier. Does not write any redis carrier (its callers XADD the segments).",
    "metadata": [
     {
      "path": "core/meetings/services/transcription"
@@ -772,16 +772,17 @@
    "unique-id": "segments-stream",
    "node-type": "data-asset",
    "name": "transcription_segments (stream)",
-   "description": "durable raw segment feed (transcript.v1); bot XADDs, collector XREADGROUPs",
+   "description": "durable raw segment feed (transcript.v1); the bot XADDs a live meeting's segments and meeting-api's uploads module XADDs an uploaded recording's segments onto the SAME wire (one producer contract, one consumer path); collector XREADGROUPs",
    "controls": {
     "ownership": {
-     "description": "single writer",
+     "description": "two producers, one contract",
      "requirements": [
       {
        "requirement-url": "vexa/controls/single-writer",
        "config": {
         "writers": [
-         "bot"
+         "bot",
+         "meeting-api"
         ],
         "match": "transcription_segments",
         "op": "xadd"
@@ -1407,6 +1408,25 @@
    ]
   },
   {
+   "unique-id": "uploads-writes-segments-stream",
+   "relationship-type": {
+    "connects": {
+     "source": {
+      "node": "meeting-api"
+     },
+     "destination": {
+      "node": "segments-stream"
+     }
+    }
+   },
+   "description": "POST /uploads: an uploaded recording's segments + its session_end ride the bot's own wire",
+   "metadata": [
+    {
+     "access": "write"
+    }
+   ]
+  },
+  {
    "unique-id": "bot-publishes-mutable",
    "relationship-type": {
     "connects": {
@@ -1740,6 +1760,25 @@
      ]
     }
    }
+  },
+  {
+   "unique-id": "uploads-stt",
+   "relationship-type": {
+    "connects": {
+     "source": {
+      "node": "meeting-api"
+     },
+     "destination": {
+      "node": "transcription"
+     }
+    }
+   },
+   "description": "uploaded audio windows -> the same STT service, deferred tier (TRANSCRIPTION_SERVICE_URL)",
+   "metadata": [
+    {
+     "access": "call"
+    }
+   ]
   },
   {
    "unique-id": "bot-commands-read",

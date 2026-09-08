@@ -28,7 +28,7 @@ system meetings  # capture → transcribe → record; owns the raw transcript
   contract transcript.v1
   contract webhook.v1
   service transcription
-  data-asset segments-stream [writers: bot]
+  data-asset segments-stream [writers: bot, meeting-api]
   data-asset tc-stream [writers: meeting-api]
   data-asset tc-mutable [writers: bot, meeting-api]
   data-asset bm-status [writers: meeting-api]
@@ -89,6 +89,7 @@ system platform  # shared infra backing the services
 
 edges:
   bot -write-> segments-stream
+  meeting-api -write-> segments-stream  # POST /uploads: an uploaded recording's segments + its session_end ride the bot's own wire
   bot -write-> tc-mutable
   meeting-api -read-> segments-stream
   meeting-api -write-> tc-mutable
@@ -104,6 +105,7 @@ edges:
   remote-browser -write-> userdata-blob  # provisioning login uploads the confirmed signed-in session
   gateway -read-> recording-blob
   bot -call-> transcription  # audio -> first-party STT via TRANSCRIPTION_SERVICE_URL
+  meeting-api -call-> transcription  # uploaded audio windows -> the same STT service, deferred tier (TRANSCRIPTION_SERVICE_URL)
   bot -read-> bot-commands  # SUBSCRIBE acts.v1 commands
   meeting-api -write-> bm-status  # PUBLISH status
   meeting-api -write-> u-meetings  # PUBLISH per-user status

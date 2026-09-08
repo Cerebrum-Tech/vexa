@@ -76,6 +76,21 @@ const server = createServer((req, res) => {
   });
 });
 
+// Uploading a meeting recording is the one request here that is measured in MINUTES, not
+// milliseconds. Node's default `requestTimeout` is 300 s, and when a request body outlives it Node
+// destroys the request and answers a bare `400 Bad Request` — before any handler runs, so nothing in
+// the app logs a reason and the user is told only that the upload failed. A 666 MB recording over a
+// corporate link crosses 300 s comfortably; the same file from localhost finishes in seconds, which
+// is exactly why this survived local testing.
+//
+// The ceiling is aligned with the reverse proxy's own upload timeouts (deploy: nginx
+// proxy_read_timeout/proxy_send_timeout 1800s) so no hop cuts the upload before another one does.
+// `headersTimeout` stays SHORT: headers always arrive at once, so a slow header is a stalled or
+// hostile client and must still be dropped quickly — it is the BODY that is legitimately slow.
+const UPLOAD_REQUEST_TIMEOUT_MS = Number(process.env.VEXA_TERMINAL_REQUEST_TIMEOUT_MS || 1_800_000);
+server.requestTimeout = UPLOAD_REQUEST_TIMEOUT_MS;
+server.headersTimeout = Math.min(60_000, UPLOAD_REQUEST_TIMEOUT_MS);
+
 // Browser-facing WS server — we do the upgrade ourselves (noServer) only for `/ws`.
 const wss = new WebSocketServer({ noServer: true });
 
@@ -243,4 +258,6 @@ function logError(scope, err) {
 server.listen(port, hostname, () => {
   // eslint-disable-next-line no-console
   console.log(`> Terminal ready on http://${hostname}:${port} (WS proxy /ws -> ${GATEWAY_URL}/ws)`);
+  // eslint-disable-next-line no-console
+  console.log(`> request timeout ${server.requestTimeout} ms · headers timeout ${server.headersTimeout} ms`);
 });

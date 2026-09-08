@@ -621,6 +621,84 @@
    "default": "600",
    "description": "O-TEL-1: minimum tape age (s) before the budget janitor may evict it — the in-flight-upload guard, so a sweep firing mid-teardown can never half-delete a tape whose parts are still arriving",
    "targets": []
+  },
+  {
+   "key": "VEXA_BOT_GREETING",
+   "class": "defaulted",
+   "default": "(unset — the bot posts nothing)",
+   "description": "Message the bot posts into the meeting chat once admitted, threaded into invocation.v1 as `greeting`. Unset or blank means it says nothing, which is the default: a bot that writes into a customer's meeting has to be asked to. A deployment that wants the notice — telling participants a notetaker is present is often the point — sets the text here",
+   "targets": [
+    "compose"
+   ]
+  },
+  {
+   "key": "VEXA_UPLOAD_MAX_MB",
+   "class": "defaulted",
+   "default": "1024",
+   "description": "Media upload (POST /uploads) size ceiling in MB — counted as the multipart body is spooled, so a lying Content-Length cannot raise it; over the ceiling answers 413. Keep it in step with the reverse proxy's client_max_body_size (1g on this deployment) so the user meets this typed JSON 413 rather than an opaque proxy page",
+   "targets": [
+    "compose"
+   ]
+  },
+  {
+   "key": "VEXA_UPLOAD_SPEAKER_LABEL",
+   "class": "defaulted",
+   "default": "Konuşmacı",
+   "description": "Speaker label every segment of an uploaded recording carries when the request names none — whisper does not diarize, so this is one honest label rather than invented speakers",
+   "targets": [
+    "compose"
+   ]
+  },
+  {
+   "key": "VEXA_UPLOAD_CONCURRENCY",
+   "class": "defaulted",
+   "default": "4",
+   "description": "How many windows of an uploaded recording are transcribed at once. A recording's windows have no ordering dependency and the whole file is on disk before the first request, so transcribing them one at a time made an upload as slow as the conversation it recorded. The STT service protects live meetings itself (reserved realtime slots; 503 + Retry-After when the deferred lane is full, which this client honours), so this bounds only our own outstanding work. Set 1 to restore serial transcription and with it whisper's cross-window prompt continuity",
+   "targets": [
+    "compose"
+   ]
+  },
+  {
+   "key": "VEXA_UPLOAD_KEEP_SOURCE",
+   "class": "defaulted",
+   "default": "false",
+   "description": "Keep an uploaded recording in object storage after its transcript exists. Default false: the blob is stored only so a job can survive a replica dying mid-transcode, and past that point it is duplicate media whose value lives in the transcript. A FAILED job keeps its source either way — re-running it is the remedy",
+   "targets": []
+  },
+  {
+   "key": "VEXA_UPLOAD_WINDOW_S",
+   "class": "defaulted",
+   "default": "300",
+   "description": "Nominal length (s) of one transcription window of an uploaded recording; the actual boundary moves to the quietest point nearby so a window never cuts a word",
+   "targets": []
+  },
+  {
+   "key": "VEXA_UPLOAD_IDLE_S",
+   "class": "defaulted",
+   "default": "2",
+   "description": "Backoff (s) the upload-transcribe loop waits after a failed claim tick before re-claiming",
+   "targets": []
+  },
+  {
+   "key": "VEXA_UPLOAD_MAX_ATTEMPTS",
+   "class": "defaulted",
+   "default": "3",
+   "description": "How many times an upload job may be (re)claimed before it is failed permanently — the guard against a job that kills its replica being reclaimed forever; the count lives on the meeting row (data.upload.attempts)",
+   "targets": []
+  },
+  {
+   "key": "VEXA_UPLOAD_RECLAIM_MIN_IDLE_MS",
+   "class": "defaulted",
+   "default": "600000",
+   "description": "How long an upload job delivered to a replica may sit un-acked before a peer may reclaim it — well above the longest healthy in-flight transcode so a live peer's job is never stolen",
+   "targets": []
+  },
+  {
+   "key": "VEXA_UPLOAD_STT_READ_TIMEOUT_S",
+   "class": "defaulted",
+   "default": "1800",
+   "description": "Read timeout (s) on one upload window's call to the transcription service — must cover a whole whisper pass on the deployment's slowest device, or a long window reads as a transport failure and burns a retry",
+   "targets": []
   }
  ],
  "capabilities": {

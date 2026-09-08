@@ -61,6 +61,11 @@ CASES = [
      "/transcripts/{platform}/{native_meeting_id}/share"),
     ("POST", "/transcripts/share/accept", "/transcripts/share/accept"),
 
+    # uploads: POST is BOT (it buys transcription capacity, the same cost vector as sending a
+    # bot); the status read is the meeting data plane, so TX.
+    ("POST", "/uploads", "/uploads"),
+    ("GET", "/uploads/42", "/uploads/{meeting_id}"),
+
     ("GET", "/recordings", "/recordings"),
     ("GET", "/recordings/5", "/recordings/{recording_id}"),
     ("GET", "/recordings/5/master", "/recordings/{recording_id}/master"),

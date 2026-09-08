@@ -224,6 +224,34 @@ def build_production_app():
         from .calendar_sync import read_stamp
         return await read_stamp(redis_client, user_id, calendar_id)
 
+    # --- uploads (POST /uploads): a recording the bot never attended. The store writes the SAME
+    # meetings table; the media store is the SAME object store recordings use (the source blob is
+    # what makes a job restartable); the queue is a redis stream the background loop drains. The
+    # transcriber is the deployment's OWN STT backend — an upload runs inside meeting-api, so there
+    # is no per-spawn Settings backend to resolve, only the process env.
+    from .uploads.adapters import RedisJobQueue, SqlAlchemyUploadStore, WhisperTranscriber
+
+    upload_store = SqlAlchemyUploadStore(session_factory)
+    upload_queue = RedisJobQueue(
+        redis_client,
+        reclaim_min_idle_ms=int(os.getenv("VEXA_UPLOAD_RECLAIM_MIN_IDLE_MS", "600000")),
+    )
+    transcription_url = (os.getenv("TRANSCRIPTION_SERVICE_URL") or "").strip()
+    upload_transcriber = None
+    if transcription_url:
+        # A window is minutes of audio: the READ timeout must cover a whole whisper pass on the
+        # deployment's slowest device, or every long window would look like a transport failure and
+        # burn a retry. Connect/write stay short — those faults are real and immediate.
+        stt_http = httpx.AsyncClient(timeout=httpx.Timeout(
+            connect=10.0, read=float(os.getenv("VEXA_UPLOAD_STT_READ_TIMEOUT_S", "1800")),
+            write=300.0, pool=30.0,
+        ))
+        upload_transcriber = WhisperTranscriber(
+            stt_http, transcription_url,
+            model=os.getenv("TRANSCRIPTION_MODEL") or "whisper-1",
+            token=os.getenv("TRANSCRIPTION_SERVICE_TOKEN") or None,
+        )
+
     app = create_app(
         transcript_store=transcript_store,
         redis=segment_bus,
@@ -242,6 +270,9 @@ def build_production_app():
         transcript_finalizer=_transcript_finalizer,
         calendar_sync_now=_calendar_sync_now,
         calendar_sync_status=_calendar_sync_status,
+        upload_store=upload_store,
+        upload_media_store=storage,
+        upload_queue=upload_queue,
     )
 
     _attach_background_loops(
@@ -250,6 +281,10 @@ def build_production_app():
         system_webhook_sink=system_webhook_sink,
         session_factory=session_factory,
         storage=storage,
+        upload_store=upload_store,
+        upload_queue=upload_queue,
+        upload_transcriber=upload_transcriber,
+        transcript_finalizer=_transcript_finalizer,
     )
     return app
 
@@ -266,6 +301,7 @@ def _minio_endpoint_url() -> str:
 def _attach_background_loops(
     app, transcript_store, segment_bus, redis_client, meeting_repo=None, runtime=None,
     service_authority=None, system_webhook_sink=None, session_factory=None, storage=None,
+    upload_store=None, upload_queue=None, upload_transcriber=None, transcript_finalizer=None,
 ) -> None:
     """Register the FastAPI lifespan that starts/stops the control-plane poll loops.
 
@@ -705,6 +741,71 @@ def _attach_background_loops(
                 log.exception("signal tape janitor tick failed")
             await asyncio.sleep(signal_janitor_interval)
 
+    # ── uploads: drain upload_jobs → transcribe → transcription_segments ────────────────────────
+    upload_window_s = float(os.getenv("VEXA_UPLOAD_WINDOW_S", "300"))
+    upload_idle_s = float(os.getenv("VEXA_UPLOAD_IDLE_S", "2"))
+    upload_max_attempts = int(os.getenv("VEXA_UPLOAD_MAX_ATTEMPTS", "3"))
+    # How many of a recording's windows are transcribed at once. The STT service protects live
+    # meetings itself (reserved realtime slots + 503/Retry-After when the deferred lane is full), so
+    # this bounds OUR outstanding work, not its fairness. 1 restores the fully serial behaviour and
+    # with it whisper's cross-window prompt continuity.
+    upload_concurrency = int(os.getenv("VEXA_UPLOAD_CONCURRENCY", "4"))
+    # The source recording is deleted once its transcript exists (it was stored only so the job
+    # could survive a replica dying mid-transcode). Set true to keep the originals.
+    upload_keep_source = (os.getenv("VEXA_UPLOAD_KEEP_SOURCE", "") or "").strip().lower() in (
+        "1", "true", "yes", "y", "on")
+
+    async def _upload_transcribe_loop() -> None:
+        """One claimed upload at a time, per replica.
+
+        NOT single-flight guarded, unlike the sweeps: the redis consumer group already hands each
+        job to exactly one replica, and serializing across replicas would waste the very
+        parallelism a second replica is for. Serial WITHIN a replica is deliberate — the STT
+        service reserves realtime slots for live meetings, and a batch job that fanned out would
+        spend the deferred lane it is meant to queue politely in.
+        """
+        if upload_queue is None or upload_store is None or upload_transcriber is None:
+            return  # no queue / no STT backend configured → POST /uploads already refuses (503)
+        from .obs import log_event
+        from .uploads import run_upload_job
+
+        while True:
+            try:
+                claimed = await upload_queue.claim(count=1, block_ms=5000)
+                for job_id, job in claimed:
+                    try:
+                        result = await run_upload_job(
+                            job,
+                            store=upload_store,
+                            media_store=storage,
+                            transcriber=upload_transcriber,
+                            bus=segment_bus,
+                            window_s=upload_window_s,
+                            concurrency=upload_concurrency,
+                            max_attempts=upload_max_attempts,
+                            keep_source=upload_keep_source,
+                            log_event=log_event,
+                            transcript_finalizer=transcript_finalizer,
+                        )
+                        log.info("upload job %s → %s", job_id, result.get("status"))
+                    finally:
+                        # ACK even a FAILED job: run_upload_job records the failure ON THE ROW, so
+                        # re-delivering it would only repeat a fault the user has already been told
+                        # about. Only a job that killed its replica stays un-acked — which is
+                        # exactly the case reclaim exists for.
+                        await upload_queue.ack(job_id)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                log.exception("upload transcribe tick failed")
+                await asyncio.sleep(upload_idle_s)
+            # DELIBERATELY not stamped into `ticks` (#527's pipeline heartbeats): one window of a
+            # long recording legitimately holds this loop inside a single await for minutes, and a
+            # shared PIPELINE_TICK_STALE_S would read that healthy work as a hung loop and 503 the
+            # whole process. This job's observable is its ROW — `data.upload.transcribed_seconds`
+            # advances per window and `GET /uploads/{id}` serves it (P18: the fault is surfaced
+            # where the work is, not on a heartbeat that cannot describe it).
+
     @asynccontextmanager
     async def lifespan(_app):
         tasks = [
@@ -719,6 +820,7 @@ def _attach_background_loops(
             asyncio.create_task(_auto_join_loop(), name="auto-join"),
             asyncio.create_task(_calendar_sync_loop(), name="calendar-sync"),
             asyncio.create_task(_signal_tape_janitor_loop(), name="signal-tape-janitor"),
+            asyncio.create_task(_upload_transcribe_loop(), name="upload-transcribe"),
         ]
         log.info("meeting-api background loops started: %s", [t.get_name() for t in tasks])
         try:

@@ -36,6 +36,7 @@ from fastapi.responses import JSONResponse
 
 from . import bot_spawn as _bot_spawn
 from . import recordings as _recordings
+from . import uploads as _uploads
 from .collector.app import build_router as _build_collector_router
 from .collector.ports import RedisBus, TranscriptStore
 from .lifecycle.machine import LifecycleSink, MeetingStore
@@ -182,6 +183,14 @@ def create_app(
     # calendar-sync user edges (async callables from the composition root; None → routes 503)
     calendar_sync_now: Optional["object"] = None,
     calendar_sync_status: Optional["object"] = None,
+    # uploads ports — POST /uploads (a recording the bot never attended). The store/queue default
+    # to in-memory fakes like every other port; ``media_store`` defaults to the recordings
+    # ``storage`` adapter, which already speaks the same object store the source blob belongs in.
+    upload_store: Optional["_uploads.UploadStore"] = None,
+    upload_media_store: Optional["_uploads.MediaStore"] = None,
+    upload_queue: Optional["_uploads.JobQueue"] = None,
+    upload_max_bytes: Optional[int] = None,
+    upload_default_speaker: Optional[str] = None,
 ) -> FastAPI:
     """Build the unified meeting-api app from the injected ports.
 
@@ -293,6 +302,33 @@ def create_app(
     if recording_repo is None:
         recording_repo = _recordings_fakes().InMemoryRecordingRepo()
     app.include_router(_recordings.build_router(recording_repo, storage, token_secret=token_secret))
+
+    # --- uploads: POST /uploads — an audio/video recording becomes a meeting. The job's segments
+    # ride `transcription_segments`, the SAME wire the bot writes, so the collector above persists
+    # them and the copilot arms on them with nothing taught about uploads. ---
+    if upload_store is None:
+        upload_store = _uploads_fakes().InMemoryUploadStore()
+    if upload_queue is None:
+        upload_queue = _uploads_fakes().InMemoryJobQueue()
+    if upload_media_store is None:
+        # The app-factory path has no object store; a temp-dir MediaStore keeps POST /uploads
+        # answering 202 in the conformance harness instead of 500ing on a missing collaborator.
+        import tempfile
+
+        upload_media_store = _uploads_fakes().InMemoryMediaStore(
+            tempfile.mkdtemp(prefix="vexa-uploads-")
+        )
+    app.state.upload_store = upload_store
+    app.state.upload_queue = upload_queue
+    app.state.upload_media_store = upload_media_store
+    app.include_router(
+        _uploads.build_router(
+            upload_store, upload_media_store, upload_queue,
+            max_bytes=upload_max_bytes if upload_max_bytes is not None else _upload_max_bytes(),
+            default_speaker=upload_default_speaker or _upload_default_speaker(),
+            stt_configured=_stt_configured,
+        )
+    )
 
     # --- webhooks: GET /webhooks/deliveries — the per-user delivery history the dashboard reads (#841) ---
     app.include_router(_build_webhooks_router(delivery_ledger))
@@ -971,3 +1007,50 @@ def _recordings_fakes():
     from .recordings import fakes
 
     return fakes
+
+
+def _uploads_fakes():
+    from .uploads import fakes
+
+    return fakes
+
+
+#: Ceiling on ONE upload, in bytes (``VEXA_UPLOAD_MAX_MB``, default 1 GB — kept in step with the
+#: reverse proxy's own ``client_max_body_size``, so the refusal a user meets is this typed JSON 413
+#: and not an opaque proxy page). Enforced by counting the multipart body as it is spooled, so a
+#: lying Content-Length does not raise it.
+def _upload_max_bytes() -> int:
+    import os
+
+    raw = (os.getenv("VEXA_UPLOAD_MAX_MB") or "").strip()
+    try:
+        mb = int(raw) if raw else 1024
+    except ValueError:
+        mb = 1024
+    return max(1, mb) * 1024 * 1024
+
+
+def _upload_default_speaker() -> str:
+    """The speaker label every segment of an upload carries when the request names none.
+
+    Whisper does not diarize, so this is the honest single label rather than invented speakers.
+    ``VEXA_UPLOAD_SPEAKER_LABEL`` lets a deployment say it in its own language."""
+    import os
+
+    return (os.getenv("VEXA_UPLOAD_SPEAKER_LABEL") or "").strip() or "Konuşmacı"
+
+
+def _stt_configured() -> bool:
+    """Is there a transcription backend for an upload to reach? The gate on POST /uploads.
+
+    The URL alone, exactly the resolver ``bot_spawn`` gates a spawn on (#502 C1) — NOT config.v1's
+    ``stt`` tri-state, whose ``mode: all`` also demands ``TRANSCRIPTION_SERVICE_TOKEN``. A first-
+    party STT deployment with no ``API_TOKEN`` set is a legitimate, working install; reading it as
+    ``misconfigured`` here would refuse uploads on a stack whose bots transcribe fine. The tri-state
+    still drives boot preflight and /health.
+
+    Uploads have no Settings-configured backend of their own: unlike a spawn, the job runs INSIDE
+    meeting-api, against the process's own env backend."""
+    import os
+
+    return bool((os.getenv("TRANSCRIPTION_SERVICE_URL") or "").strip())

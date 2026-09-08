@@ -320,6 +320,15 @@ services:
       # capture-only bots instead of 503-ing every default POST /bots.
       - TRANSCRIBE_ENABLED=${TRANSCRIBE_ENABLED:-true}
       - RECORDING_ENABLED=${RECORDING_ENABLED:-true}
+      # Media upload (POST /uploads): an audio/video recording becomes a meeting. The ceiling is
+      # counted as the body is spooled, so a lying Content-Length cannot raise it. The speaker label
+      # is one honest name for every segment — whisper does not diarize.
+      # Message the bot posts into the meeting chat when it joins. Empty = says nothing.
+      - VEXA_BOT_GREETING=${VEXA_BOT_GREETING:-}
+      - VEXA_UPLOAD_MAX_MB=${VEXA_UPLOAD_MAX_MB:-1024}
+      - VEXA_UPLOAD_SPEAKER_LABEL=${VEXA_UPLOAD_SPEAKER_LABEL:-Konuşmacı}
+      # Windows transcribed at once. 1 = serial (slower, keeps whisper's cross-window prompt).
+      - VEXA_UPLOAD_CONCURRENCY=${VEXA_UPLOAD_CONCURRENCY:-4}
       # Authenticated-bot mode (deployment-scoped): when true, every spawned bot restores the
       # provisioned browser session (make login) from the userdata store and joins signed-in.
       # BOT_S3_* are SCOPED userdata credentials — never the deployment's admin S3 creds.
@@ -532,6 +541,31 @@ services:
       - MICROSOFT_CLIENT_SECRET=${MICROSOFT_CLIENT_SECRET:-}
       # Microsoft tenant: "common" = work/school + personal accounts; or a specific tenant id for org-only.
       - MICROSOFT_TENANT_ID=${MICROSOFT_TENANT_ID:-common}
+      # Domain (LDAP/Active Directory) sign-in. Set LDAP_URLS to expose the "Domain ile giriş yap" form
+      # on the login card; leave empty to hide it (OAuth / test-email login still work). The service
+      # account (LDAP_BIND_DN/LDAP_BIND_PASSWORD) only locates the user entry — the user's own bind
+      # proves the password. Secrets live in .env / a mounted CA bundle, never in this file (P14).
+      #   LDAP_URLS               ldaps://dc1.corp:636,ldaps://dc2.corp:636  (comma-separated, tried in order)
+      #   LDAP_BASE_DN            DC=corp,DC=example,DC=com
+      #   LDAP_USER_SEARCH_BASES  OU=Users,DC=…;OU=Staff,DC=…  (semicolon-separated; falls back to base DN)
+      #   LDAP_EMAIL_DOMAIN       corp.example.com  (used only when the entry has no mail/UPN)
+      #   LDAP_TLS_CA_PATH        certs/corp-ca.cer  (relative to /app — see the volume below; PEM or DER)
+      - LDAP_ENABLED=${LDAP_ENABLED:-}
+      - LDAP_URLS=${LDAP_URLS:-}
+      - LDAP_BIND_DN=${LDAP_BIND_DN:-}
+      - LDAP_BIND_PASSWORD=${LDAP_BIND_PASSWORD:-}
+      - LDAP_BASE_DN=${LDAP_BASE_DN:-}
+      - LDAP_USER_SEARCH_BASES=${LDAP_USER_SEARCH_BASES:-}
+      - LDAP_USER_SEARCH_FILTER=${LDAP_USER_SEARCH_FILTER:-}
+      - LDAP_EMAIL_DOMAIN=${LDAP_EMAIL_DOMAIN:-}
+      - LDAP_TLS_CA_PATH=${LDAP_TLS_CA_PATH:-}
+      - LDAP_TLS_REJECT_UNAUTHORIZED=${LDAP_TLS_REJECT_UNAUTHORIZED:-}
+      - LDAP_CONNECT_TIMEOUT_MS=${LDAP_CONNECT_TIMEOUT_MS:-}
+      - LDAP_TIMEOUT_MS=${LDAP_TIMEOUT_MS:-}
+    # The corporate CA bundle for the LDAPS handshake is mounted read-only at /app/certs. Populate
+    # ./certs on the host (git-ignored) and point LDAP_TLS_CA_PATH at a file inside it.
+    volumes:
+      - ${LDAP_CERTS_DIR:-./certs}:/app/certs:ro
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/',r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))"]
       interval: 10s

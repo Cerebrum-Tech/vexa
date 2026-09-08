@@ -22,6 +22,7 @@ import { getJitsiHosts } from "./jitsiHosts";
 import { mintTranscriptShare, mintInvite, listSharedMemberships, type Membership } from "./workspaceApi";
 import { deletePlannedMeeting, MAX_CALENDARS, listCalendars, createCalendar, updateCalendar, syncCalendar, getCalendarSyncStatus, type CalendarConnection, type CalendarSyncStamp } from "./plannedApi";
 import { prepTabDescriptor, prepDraftTabDescriptor } from "./meetingPrep";
+import { UploadRecordingButton } from "./uploadRecording";
 
 // ── "Oturumu paylaş" — mint a link to this meeting's LIVE FEED (independent transcript share) and,
 //    optionally, BUNDLE a shared-workspace invite into the SAME link (?tshare=…&invite=…). The two are
@@ -767,6 +768,9 @@ function MeetingsList() {
           : sent === "err" && <div style={{ fontSize: 11, color: "var(--danger)", marginTop: 5, lineHeight: 1.4 }}>{errMsg ?? "Gönderilemedi."}</div>}
         <div style={{ marginTop: 8 }}>
           <PlanMeetingButton />
+          {/* No bot was sent to this one: a recording that already exists becomes a meeting the
+              same way — same transcript, same list row, same post-meeting report. */}
+          <UploadRecordingButton />
           <CalendarSyncButton variant="row" />
         </div>
       </div>

@@ -10,6 +10,14 @@
 # contract files must be vendored into the image alongside src/.
 FROM python:3.12-slim
 
+# ffmpeg — the uploads module's ONE native dependency (POST /uploads). It decodes whatever a user
+# uploads (mp4 · mkv · mov · webm · mp3 · m4a · …) to 16 kHz mono PCM in one pass, which is what
+# makes every window offset afterwards exact integer arithmetic. `--no-install-recommends` keeps
+# this to the codec libraries; the X/GTK stack ffmpeg otherwise pulls is never used here.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
 # uv via PyPI (ghcr.io is unreachable in this build env) — pinned for deterministic resolves.
 RUN pip install --no-cache-dir uv==0.9.22
 

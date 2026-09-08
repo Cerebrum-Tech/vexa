@@ -1,0 +1,175 @@
+---
+title: "Upload a recording and get a transcript"
+description: "Turn an existing audio or video recording of a meeting into a transcript and a post-meeting report — no bot, no live call."
+---
+
+Not every meeting had a bot in it. A recording you already have — a screen capture, a phone
+recording, an export from another tool — becomes a meeting the same way one the bot attended does:
+same transcript, same row in your meetings list, same
+[post-meeting report](/how-to/post-meeting-report).
+
+Under the hood there is no separate pipeline. The upload's segments are published on the *same*
+stream a bot publishes to, so the collector persists them, the live view fans them out, and the
+meeting copilot arms and writes its report — none of it knowing a file rather than a call produced
+them.
+
+## In the terminal
+
+1. Open the workbench (`http://localhost:13000` on a compose install).
+2. In the **toplantılar** rail, click **⤒ Kayıt yükle**.
+3. Pick an audio or video file.
+
+You get the browser's upload percentage while the bytes move, then the server's own progress
+(`Yazıya dökülüyor — %38`) while the recording is transcribed. The meeting appears in your list
+immediately and its transcript fills in as it goes; when it finishes, the report is written like any
+other meeting's.
+
+## Over the API
+
+```bash
+curl -X POST "$API_BASE/uploads" \
+  -H "X-API-Key: $API_KEY" \
+  -F "file=@haftalik-toplanti.mp4" \
+  -F "title=Haftalık toplantı" \
+  -F "language=tr"
+```
+
+```json
+{
+  "id": 412,
+  "platform": "upload",
+  "native_meeting_id": "up-9f3c1a20b7d4",
+  "status": "requested",
+  "title": "Haftalık toplantı",
+  "upload": { "state": "queued", "bytes": 184738201, "language": "tr", "speaker": "Konuşmacı" }
+}
+```
+
+The response is `202` — the bytes are durably stored and the job is queued; the transcription itself
+takes minutes, not milliseconds.
+
+| form field | | |
+|---|---|---|
+| `file` | required | The recording. Video is accepted and its audio track is used. |
+| `title` | optional | Defaults to the filename. |
+| `language` | optional | ISO code passed to the transcriber (`tr`, `en`, …). Omit to auto-detect. |
+| `speaker` | optional | The speaker label (see [Speakers](#speakers)). Defaults to `VEXA_UPLOAD_SPEAKER_LABEL`. |
+
+### Poll the progress
+
+```bash
+curl "$API_BASE/uploads/412" -H "X-API-Key: $API_KEY"
+```
+
+```json
+{
+  "id": 412, "status": "active",
+  "upload": {
+    "state": "transcribing",
+    "duration_seconds": 3612.4,
+    "transcribed_seconds": 1500.0,
+    "segments": 214
+  }
+}
+```
+
+`status` walks `requested → active → completed` (or `failed`, with `upload.error` naming the
+reason). `transcribed_seconds / duration_seconds` is the honest progress — it advances once per
+window, not on a timer.
+
+### Read it like any other meeting
+
+Once `status` is `completed` the meeting is addressable everywhere a bot's meeting is:
+
+```bash
+curl "$API_BASE/transcripts/upload/up-9f3c1a20b7d4" -H "X-API-Key: $API_KEY"
+curl "$API_BASE/meetings" -H "X-API-Key: $API_KEY"
+```
+
+## The report on a long recording
+
+A two-hour recording is far more transcript than a small model's context window holds. The report is
+still written from the whole of it: the worker summarizes the transcript in chunks that fit the
+budget and writes from those digests. See
+[Long meetings, small context windows](/how-to/post-meeting-report#long-meetings-small-context-windows).
+
+## Formats
+
+**Anything ffmpeg reads.** Video: `mp4` `m4v` `mov` `qt` `mkv` `webm` `avi` `divx` `wmv` `asf` `flv`
+`f4v` `mpg` `mpeg` `ts` `m2ts` `mts` `vob` `ogv` `rm` `rmvb` `mxf` `dv` `3gp` `3g2`. Audio: `mp3`
+`m4a` `m4b` `aac` `wav` `flac` `ogg` `oga` `opus` `spx` `wma` `amr` `awb` `3ga` `aif` `aiff` `alac`
+`ape` `wv` `ac3` `dts` `mka` `caf` `au` `ra` `gsm` `w64` `tta` `mpc` `dsf` — 76 in all.
+
+The rule is deliberately asymmetric, because a filename is not evidence about content:
+
+- a **known recording** extension is accepted;
+- a **known non-recording** extension (`.pdf`, `.docx`, `.zip`, `.png`, `.exe`, …) is refused at the
+  door with `415`, so dragging the agenda instead of the recording fails immediately rather than
+  after a gigabyte of upload;
+- **anything else** — an unusual container, a codec this list has not heard of, a file your phone or
+  export tool wrote with no extension at all — is **accepted**, and ffmpeg decides by reading the
+  bytes. If it is not media, the job fails with ffmpeg's own words on the meeting row.
+
+A file with no audio track is rejected with that reason, not a generic failure.
+
+## What happens to the recording afterwards
+
+The source file is stored in object storage while the job runs — that is what lets a transcode
+resume instead of stranding your upload when a replica restarts. **Once the transcript exists, the
+source is deleted**: past that point it is a duplicate gigabyte whose value now lives in the
+transcript and the report. The meeting row records `upload.source_deleted: true` and clears
+`object_key`, so nothing points at an object that is gone.
+
+A **failed** upload keeps its source — that is exactly the case where re-running it is the remedy.
+
+Set `VEXA_UPLOAD_KEEP_SOURCE=true` to retain every original instead.
+
+The per-file ceiling is `VEXA_UPLOAD_MAX_MB` (default 1024 MB = 1 GB). It is enforced as the body is
+read, so an oversized upload is refused with `413` rather than half-stored. If you publish the
+terminal behind a reverse proxy, raise its body limit to match (`client_max_body_size 1g;`) or the
+proxy refuses first, with a page the app never sees.
+
+## Speakers
+
+Whisper does not diarize, so every segment of an upload carries **one** speaker label — by default
+`Konuşmacı`, or whatever `VEXA_UPLOAD_SPEAKER_LABEL` names, or the `speaker` field on the request.
+We name one speaker honestly rather than inventing several the audio does not support. A live bot
+attributes speakers because it can see who is talking; a file cannot.
+
+## What it needs
+
+`TRANSCRIPTION_SERVICE_URL` must be set — the same STT backend bots transcribe against
+([Custom STT](/how-to/custom-stt)). Without it `POST /uploads` answers `503` and names the key
+instead of accepting work the deployment cannot do. Uploads run on the transcriber's **deferred**
+tier, which reserves capacity for live meetings: a long upload queues politely behind a call in
+progress instead of competing with it.
+
+Tuning (all optional, on meeting-api):
+
+| key | default | |
+|---|---|---|
+| `VEXA_UPLOAD_MAX_MB` | `1024` | per-file ceiling (1 GB) |
+| `VEXA_UPLOAD_SPEAKER_LABEL` | `Konuşmacı` | the single speaker label |
+| `VEXA_UPLOAD_WINDOW_S` | `300` | nominal transcription window; the real cut moves to the nearest quiet point |
+| `VEXA_UPLOAD_KEEP_SOURCE` | `false` | keep the source recording after transcription |
+| `VEXA_UPLOAD_MAX_ATTEMPTS` | `3` | before a job that keeps killing its worker is failed for good |
+| `VEXA_UPLOAD_STT_READ_TIMEOUT_S` | `1800` | must cover one window on your slowest device |
+
+## Behind a reverse proxy
+
+The upload streams browser → terminal → gateway → meeting-api without being buffered at any hop, but
+a proxy in front will impose its own body limit (nginx defaults to **1 MB**) and will buffer the
+whole request to disk unless told not to. For nginx-proxy, a per-vhost file at
+`/etc/nginx/vhost.d/<your-host>` keeps this scoped to the app instead of every site on the proxy:
+
+```nginx
+client_max_body_size 1g;      # match VEXA_UPLOAD_MAX_MB
+proxy_request_buffering off;  # stream through instead of spooling a gigabyte first
+proxy_read_timeout 1800s;
+proxy_send_timeout 1800s;
+```
+
+<Note>
+A restart mid-transcode does not lose the job: the source recording is in object storage and the
+queue entry is durable, so another replica picks it up and resumes.
+</Note>
