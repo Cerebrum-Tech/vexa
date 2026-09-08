@@ -184,6 +184,24 @@
       ]
     },
     {
+      "key": "VEXA_LLM_CONTEXT_TOKENS",
+      "class": "defaulted",
+      "default": "8000",
+      "description": "per-request context budget (tokens) every prompt the meeting worker sends is held to — the live card beat trims its transcript window to fit, and the post-meeting report summarizes the meeting in chunks that fit and writes from those digests. Set it to your model's real window: a meeting has no maximum length, and an overflow costs the report entirely rather than degrading it. Stamped into each worker dispatch",
+      "targets": [
+        "compose"
+      ]
+    },
+    {
+      "key": "VEXA_LLM_MAX_TOKENS",
+      "class": "defaulted",
+      "default": "(unset — the server decides the reply length)",
+      "description": "reply-length cap sent on every completion request (OpenAI `max_tokens`). Read by both the anthropic and the openai-compat adapters; unset leaves the choice to the backend rather than inventing a truncation nobody asked for. Stamped into each worker dispatch",
+      "targets": [
+        "compose"
+      ]
+    },
+    {
       "key": "VEXA_REPORT_LANGUAGE",
       "class": "defaulted",
       "default": "en",

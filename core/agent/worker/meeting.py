@@ -29,6 +29,7 @@ from shared.agent_config import (
     DEFAULT_POLISH_RULES,
     DEFAULT_TAG_RULES,
 )
+from worker.budget import context_tokens, estimate_tokens, fit, pack
 from worker.engine import _Stream
 from worker.engine import run_turn_over_workspace as _engine_run_turn_over_workspace
 
@@ -105,8 +106,15 @@ def build_card_prompt(
     POLICY) and the wanted ``card_kinds`` around the transcript ``lines`` (the MECHANISM frame), plus the
     optional ``steering`` section. Changing a governed rule (via agents/meeting.md) changes the prompt."""
     section = _STEERING_SECTION.format(steering=steering.strip()) if steering.strip() else ""
+    # The transcript window is the ONE unbounded input here: the frame, the governed rules and the
+    # steering are all workspace-sized, while `lines` grows with however many segments the buffer
+    # accumulated before this beat fired (a long silence then a burst, a re-armed worker replaying
+    # from a cursor). Hold it to what is left of the budget after the fixed parts, keeping the
+    # NEWEST lines — a beat is about what was just said.
+    frame_cost = estimate_tokens(_CARD_FRAME) + estimate_tokens(section) + estimate_tokens(
+        (polish_rules or DEFAULT_POLISH_RULES) + (tag_rules or DEFAULT_TAG_RULES))
     return _CARD_FRAME.format(
-        lines=lines,
+        lines=fit(lines, context_tokens() - frame_cost),
         kinds=", ".join(card_kinds),
         polish=(polish_rules or DEFAULT_POLISH_RULES).strip(),
         tags=(tag_rules or DEFAULT_TAG_RULES).strip(),
@@ -441,7 +449,7 @@ def serve_meeting(
     stream: _Stream, *, transcript_stream: str, out_topic: str,
     card_turn: Callable[[list[dict]], Iterator[dict]], idle_ms: int,
     beat_segments: int = 4,
-    doc_turn: Callable[[list[dict]], Iterator[dict]] | None = None,
+    doc_turn: Callable[..., Iterator[dict]] | None = None,
     enabled: bool = True,
     start_id: str = "0",
     proc_stream: str | None = None,
@@ -588,7 +596,9 @@ def serve_meeting(
                 end_marker["cursor"] = str(last)
             stream.xadd(proc_stream, end_marker)
         if doc_turn is not None and notes:  # author/update only when transcript evidence exists
-            _emit_turn(stream, out_topic, lambda: doc_turn(cards), "meeting-doc")
+            # The notes ARE the report's evidence — held in memory here, so the doc turn never has
+            # to go read them back out of a file it cannot afford to open (see meeting_doc_turn).
+            _emit_turn(stream, out_topic, lambda: doc_turn(cards, notes), "meeting-doc")
 
     while True:
         resp = stream.xread({transcript_stream: last}, count=50, block=idle_ms)
@@ -691,7 +701,9 @@ MEETING_DOC_PROMPT = (
     "distilled summary), then the surfaced entities grouped under `## Attendees`, `## Companies`, "
     "`## Topics`, `## Decisions`, `## Actions` headings, each entry a `[[wikilink]]` (omit a heading if "
     "it has no entries). Here are the entities surfaced during the meeting (JSON):\n\n{cards}\n\n"
-    "Do NOT copy the raw transcript. When done, write/edit ONLY that one file."
+    "## The meeting\n\n{evidence}\n\n"
+    "Do NOT copy the raw transcript, and do not read any other file — the evidence above is all of "
+    "it. When done, write ONLY that one file."
 )
 
 
@@ -702,11 +714,22 @@ MEETING_DOC_PROMPT = (
 # `^## Özet`, `^## Alınan Kararlar`, `^## Aksiyon Maddeleri`): change a character here and the recap panel
 # stops recognizing the report.
 TURKISH_MEETING_DOC_PROMPT = (
-    "The meeting has ENDED. Author or update the knowledge-graph entity at the EXACT path "
-    "`kg/entities/meeting/{native}.md`. Read the existing file first and use its speaker-attributed "
-    "transcript as the only evidence for the report. You must preserve the exact YAML frontmatter. Replace "
-    "only the Markdown body, and write every narrative sentence in Turkish. This operation must be "
-    "idempotent: update the existing path and do not create a duplicate or a new path.\n\n"
+    "The meeting has ENDED. Write the knowledge-graph entity at the EXACT path "
+    "`kg/entities/meeting/{native}.md`, replacing whatever is there. Do NOT read any other file: the "
+    "meeting evidence is given to you below, in full, and it is the ONLY evidence for this report. "
+    "Write every narrative sentence in Turkish. This operation must be idempotent: write that one "
+    "path and do not create a duplicate or a new path.\n\n"
+    "The file MUST begin with this exact YAML frontmatter (between `---` fences), copied character "
+    "for character:\n"
+    "---\n"
+    "type: meeting\n"
+    "id: {native}\n"
+    "title: {title}\n"
+    "meeting_id: {meeting_id}\n"
+    "session_uid: {session_uid}\n"
+    "platform: {platform}\n"
+    "date: {date}\n"
+    "---\n\n"
     "Use exactly these three second-level headings, in this order, copied character for character — "
     "they are a contract with the reader's UI, so never translate, reword or re-order them:\n"
     "## Özet\n\n"
@@ -720,6 +743,7 @@ TURKISH_MEETING_DOC_PROMPT = (
     "cards. If no action was recorded, state that briefly in Turkish.\n\n"
     "The surfaced cards below may supplement entity links, but they are not evidence for decisions, "
     "actions, owners, or deadlines (JSON):\n\n{cards}\n\n"
+    "## The meeting\n\n{evidence}\n\n"
     "Write EVERY sentence of the body in Turkish — the summary, each decision and each action. Only the "
     "YAML frontmatter, the three headings above, and participant/product names are copied verbatim; no "
     "English prose appears anywhere in the file.\n"
@@ -727,9 +751,108 @@ TURKISH_MEETING_DOC_PROMPT = (
 )
 
 
+# ── the REPORT'S EVIDENCE, held to the context budget (map → reduce) ─────────────────────────────
+# A meeting has no maximum length and the model's context does. The report is where the two meet:
+# it is the one request that must see the WHOLE meeting, and the one whose overflow costs the user
+# everything rather than a little. So when the transcript does not fit, it is summarized in chunks
+# that do (the MAP), and the report is written from those digests (the REDUCE) — every part of the
+# meeting represented, at N+1 model calls instead of 1. A meeting that already fits skips all of it
+# and the raw transcript goes in verbatim, which is always the better evidence when it is affordable.
+_DIGEST_PROMPT_TR = (
+    "Below is PART {part} of {total} of a meeting transcript. Extract ONLY what these lines state — "
+    "never infer, never continue the conversation, never write a preamble.\n\n"
+    "Write compact Turkish bullet points under exactly these three labels, omitting a label that has "
+    "no entries:\n"
+    "KONULAR: what was discussed.\n"
+    "KARARLAR: an explicit agreement, approval, rejection or other commitment. If the lines record "
+    "none, omit this label entirely — do not invent one.\n"
+    "AKSIYONLAR: a task someone took on. Keep the owner and the deadline ONLY when the lines state "
+    "them; write `Sorumlu belirtilmedi` when no owner is named.\n\n"
+    "Keep every participant, company and product name verbatim. This digest is the only record of "
+    "this part of the meeting that the final report will see, so preserve specifics — names, "
+    "numbers, dates — over smoothness.\n\n{lines}"
+)
+_DIGEST_PROMPT_EN = (
+    "Below is PART {part} of {total} of a meeting transcript. Extract ONLY what these lines state — "
+    "never infer, never continue the conversation, never write a preamble.\n\n"
+    "Write compact bullet points under exactly these three labels, omitting a label that has no "
+    "entries:\nTOPICS:\nDECISIONS: an explicit agreement, approval, rejection or other commitment.\n"
+    "ACTIONS: a task someone took on, with owner and deadline only when stated.\n\n"
+    "Keep every participant, company and product name verbatim. This digest is the only record of "
+    "this part of the meeting that the final report will see, so preserve specifics — names, "
+    "numbers, dates — over smoothness.\n\n{lines}"
+)
+
+#: How many map→reduce rounds are allowed before the result is simply trimmed. Each round shrinks
+#: the evidence by roughly an order of magnitude, so two rounds cover a transcript far longer than
+#: any real meeting; the cap exists so a pathological model that echoes its input cannot loop.
+_DIGEST_MAX_ROUNDS = 2
+
+
+def note_lines(notes: list[dict]) -> str:
+    """The notes as speaker-attributed transcript lines — the report's evidence, in its densest
+    honest form. The id prefix the mirror file carries is dropped: it is addressing, not content,
+    and it costs a third of the budget to say nothing the report can use."""
+    out = []
+    for n in notes:
+        speaker = str(n.get("speaker") or "Speaker").strip() or "Speaker"
+        text = " ".join(str(n.get("text") or "").split())
+        if text:
+            out.append(f"{speaker}: {text}")
+    return "\n".join(out)
+
+
+def build_digest_prompt(lines: str, *, part: int, total: int, report_language: str = "en") -> str:
+    template = _DIGEST_PROMPT_TR if report_language.strip().lower() == "tr" else _DIGEST_PROMPT_EN
+    return template.format(part=part, total=total, lines=lines)
+
+
+def summarize_notes(
+    notes: list[dict], *, budget_tokens: int, completion=None, model: str | None = None,
+    report_language: str = "en", log_fn: Callable[[str], None] | None = None,
+) -> str:
+    """The meeting's evidence for the report, guaranteed to fit ``budget_tokens``.
+
+    Returns the raw transcript when it fits — no model call, no fidelity lost. Otherwise maps each
+    chunk to a digest and, if the digests still overflow, reduces again (bounded by
+    ``_DIGEST_MAX_ROUNDS``, after which the result is trimmed and the trim is announced in-band).
+
+    A chunk whose digest call FAILS falls back to that chunk's own trimmed transcript rather than
+    dropping it: a lost model call must cost detail, never a whole stretch of the meeting."""
+    text = note_lines(notes)
+    if not text or estimate_tokens(text) <= budget_tokens:
+        return text
+    if completion is None:
+        import worker.worker as _w
+        completion = getattr(_w, "completion_factory", completion_from_env)()
+
+    for _round in range(_DIGEST_MAX_ROUNDS):
+        lines = text.split("\n")
+        chunks = pack(lines, lambda line: line + "\n", budget_tokens)
+        if len(chunks) <= 1:
+            break
+        digests: list[str] = []
+        for index, chunk in enumerate(chunks, start=1):
+            body = "\n".join(chunk)
+            prompt = build_digest_prompt(body, part=index, total=len(chunks),
+                                         report_language=report_language)
+            try:
+                digests.append(completion.complete(prompt, model=model).text.strip())
+            except Exception as exc:  # noqa: BLE001 — one failed digest must not cost its whole part
+                if log_fn:
+                    log_fn(f"digest {index}/{len(chunks)} failed ({type(exc).__name__}: {exc}) — "
+                           f"falling back to this part's own trimmed transcript")
+                digests.append(fit(body, budget_tokens // max(1, len(chunks))))
+        text = "\n\n".join(d for d in digests if d)
+        if estimate_tokens(text) <= budget_tokens:
+            return text
+    return fit(text, budget_tokens)
+
+
 def build_meeting_doc_prompt(
     cards: list[dict], *, native: str, meeting_id: str, session_uid: str,
     platform: str, date: str, title: str, report_language: str = "en",
+    evidence: str = "",
 ) -> str:
     """Compose the post-meeting doc prompt. ``report_language`` is the ONE selector between the Turkish
     and the English report; it is workspace-governed (``agents/meeting.md`` frontmatter → ``MeetingConfig
@@ -739,6 +862,7 @@ def build_meeting_doc_prompt(
     return template.format(
         native=native, title=title, meeting_id=meeting_id, session_uid=session_uid,
         platform=platform, date=date, cards=json.dumps(cards, ensure_ascii=False),
+        evidence=evidence or "(no transcript evidence was captured for this meeting)",
     )
 
 
@@ -867,6 +991,7 @@ def _no_report_event(event: dict, defect: str) -> dict:
 def meeting_doc_turn(
     work: Path, cards: list[dict], *, native: str, meeting_id: str, session_uid: str,
     platform: str, date: str, title: str, model: str | None = None, report_language: str = "en",
+    notes: list[dict] | None = None, completion=None, budget_tokens: int | None = None,
 ) -> Iterator[dict]:
     """The post-meeting WRITE turn: ONE governed turn (commit=True, Write/Edit allowed,
     session_continuity=False so it never touches the chat session) that authors/updates the meeting
@@ -885,13 +1010,47 @@ def meeting_doc_turn(
     the pre-turn file. An AUTH failure never is — the credential will not fix itself in two seconds,
     and a retry only doubles the operator's wait. On the last attempt the failure SURFACES: the
     pre-turn file is restored and the turn's one terminal event carries ``ok: false`` and the reason."""
+    # THE BOUND (VEXA_LLM_CONTEXT_TOKENS). The evidence is placed IN the prompt and the frontmatter
+    # is dictated verbatim, so this turn needs no Read at all — which is what makes the budget real
+    # rather than requested. The previous shape told the model to open the transcript file itself,
+    # and a file read is context we neither see nor can cap: on a long meeting (and an uploaded
+    # recording is longer than any live one) it is exactly the overflow that costs the report.
+    budget = budget_tokens if budget_tokens is not None else context_tokens()
+    frame = build_meeting_doc_prompt(
+        cards, native=native, title=title, meeting_id=meeting_id, session_uid=session_uid,
+        platform=platform, date=date, report_language=report_language, evidence="",
+    )
+    evidence = summarize_notes(
+        notes or [], budget_tokens=max(1, budget - estimate_tokens(frame)),
+        completion=completion, model=model, report_language=report_language,
+        log_fn=lambda msg: log.warning("meeting_doc_turn: %s", msg),
+    )
     prompt = build_meeting_doc_prompt(
         cards, native=native, title=title, meeting_id=meeting_id, session_uid=session_uid,
-        platform=platform, date=date, report_language=report_language,
+        platform=platform, date=date, report_language=report_language, evidence=evidence,
     )
+    log.info("meeting_doc_turn: report prompt ~%d tokens (budget %d, %d note(s))",
+             estimate_tokens(prompt), budget, len(notes or []))
     target = work / "kg" / "entities" / "meeting" / f"{native}.md"
     previous = target.read_bytes() if target.exists() else None
     succeeded = False
+
+    def clear_target() -> None:
+        """Remove the target so the write turn faces an ABSENT file.
+
+        This is what makes the context budget above real rather than requested. The path currently
+        holds this module's own transcript mirror, and the harness's Write tool refuses to overwrite
+        a file it has not Read in the session:
+
+            Write → "File has not been read yet. Read it first before writing to it."
+            Read  → the whole transcript, straight back into the context we just spent the budget
+                    condensing (observed: 153 KB, 951 of 1634 lines, on one 77-minute meeting)
+
+        With nothing at the path, Write CREATES instead of overwriting, needs no Read, and the only
+        transcript in context is the digest we built. The mirror is not lost: ``previous`` holds it
+        and ``restore_target`` puts it back on any failure, which is the same rollback this turn
+        already relied on."""
+        target.unlink(missing_ok=True)
 
     def restore_target() -> None:
         if previous is None:
@@ -904,8 +1063,13 @@ def meeting_doc_turn(
         for attempt in range(1, _DOC_TURN_ATTEMPTS + 1):
             final_attempt = attempt == _DOC_TURN_ATTEMPTS
             retry = False
+            clear_target()   # the write turn must face an absent path — see clear_target()
             events = run_turn_over_workspace(
-                work, prompt, model=model, allowed_tools=["Read", "Write", "Edit"],
+                # Write ONLY — no Read, no Edit. Not a tightening for its own sake: an Edit needs a
+                # Read, a Read of this path pulls the whole transcript back into the context this
+                # turn just spent its budget bounding, and the prompt already carries the exact
+                # frontmatter, so a full overwrite is all the report has ever needed.
+                work, prompt, model=model, allowed_tools=["Write"],
                 commit=True, session_continuity=False,
             )
             try:

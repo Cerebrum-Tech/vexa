@@ -87,9 +87,11 @@ def _card_turn(segments):
     yield {"type": "card", "card": {"kind": "person", "title": "Ayşe", "body": "yeni katılımcı"}}
 
 
-def _doc_turn_recorder(calls):
-    def doc_turn(cards):
+def _doc_turn_recorder(calls, notes_seen=None):
+    def doc_turn(cards, notes=None):
         calls.append(list(cards))
+        if notes_seen is not None:
+            notes_seen.append(list(notes or []))
         yield {"type": "done", "ok": True, "reply": "kg/entities/meeting/m1.md yazıldı"}
     return doc_turn
 

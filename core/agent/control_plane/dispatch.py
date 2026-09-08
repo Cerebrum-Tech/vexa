@@ -18,15 +18,61 @@ import threading
 import time
 from typing import Optional
 
+from pathlib import Path
+
 import contracts
+from control_plane import system_mounts as _system_mounts
 from control_plane.workspace_attach import active_workspaces, shared_active_mounts
 from control_plane.workspace_purpose import read_purpose
 from control_plane.system_mounts import GLOBAL_SLUG, SYSTEM_SLUG, global_mount, system_mount
 from shared.config import Settings
+from shared.seeding import resolve_seed_dir, seed_workspace, validate_seed
 from shared.ports import IdentityPort, RuntimePort
 from shared.units import chat_session, dispatch_id, input_topic, output_topic
 
 logger = logging.getLogger("agent_api.dispatch")
+
+
+def ensure_subject_home(settings: Settings, subject: str) -> bool:
+    """Materialize this subject's private baseline if it is absent — BEFORE anything names its path.
+
+    The mount set "fails soft" to ``{root}/{subject}`` whenever resolution hiccups, and the runtime
+    then bind-mounts that path. But Docker refuses to mount a host path that does not exist, so the
+    soft failure only moved the hard one downstream, into container start:
+
+        docker start vexa-worker-meet-16 failed (404):
+        cannot access path .../agent-workspaces/_data/u_live: no such file or directory
+
+    Every meeting copilot on that deployment died exactly there, which is why no post-meeting report
+    was ever written. A dispatch that "never dies with no home" has to MAKE the home, not merely
+    name it. Idempotent — an existing workspace is refreshed, never re-created — and cheap enough to
+    run on the dispatch path.
+
+    Returns whether the subject now has a mountable home; the caller drops the mount if not, because
+    a turn with no private workspace still runs, while a container that cannot start never does.
+    """
+    root = Path(settings.workspaces_dir)
+    ws = root / subject
+    if (ws / ".git").exists():
+        return True
+    try:
+        seed_dir = resolve_seed_dir(
+            getattr(settings, "default_template", None),
+            seeds_root=getattr(settings, "workspace_seeds_dir", None),
+        )
+        problems = validate_seed(seed_dir)
+        if problems:
+            logger.error("cannot materialize workspace for subject=%s — invalid seed %s: %s",
+                         subject, seed_dir, "; ".join(problems))
+            return False
+        seed_workspace(ws, seed_dir)
+        _system_mounts.ensure_system_workspace(str(root), subject)
+        logger.info("materialized workspace for subject=%s at %s (it did not exist)", subject, ws)
+        return True
+    except Exception:  # noqa: BLE001 — reported to the caller, which drops the mount rather than
+        # handing the runtime a path that cannot be mounted.
+        logger.exception("failed to materialize workspace for subject=%s at %s", subject, ws)
+        return ws.is_dir()
 
 
 def build_active_set(settings: Settings, subject: str, memberships: Optional[list[dict]] = None) -> list[dict]:
@@ -47,6 +93,7 @@ def build_active_set(settings: Settings, subject: str, memberships: Optional[lis
     Fails SOFT: any error resolving the on-disk set (a never-seeded subject, a store hiccup) falls back to
     the lone private-baseline mount so a dispatch never dies on mount resolution."""
     root = settings.workspaces_dir
+    ensure_subject_home(settings, subject)
     try:
         mounts = active_workspaces(root, subject)
     except Exception:  # noqa: BLE001 — mount resolution must never break a dispatch; fall back to the baseline
@@ -104,8 +151,18 @@ def build_mount_set(settings: Settings, subject: str, memberships: Optional[list
     except Exception:  # noqa: BLE001 — a bad _global must never break a dispatch; run without it
         logger.warning("global-system (_global) mount resolution failed — running the turn without it")
 
-    # Tier 2 — the NORMAL active set (private baseline + activated extras).
-    stack.extend(active)
+    # Tier 2 — the NORMAL active set (private baseline + activated extras). A mount whose path is not
+    # on disk is DROPPED here rather than passed on: the runtime bind-mounts what this list names, and
+    # a missing path fails the container START (not the mount resolution), which is the failure mode
+    # that silently cost this deployment every one of its post-meeting reports. Losing a mount costs
+    # the turn some context; keeping a phantom one costs the turn its existence.
+    for mount in active:
+        path = mount.get("path")
+        if path and not Path(path).is_dir():
+            logger.error("dropping mount %s for subject=%s — %s is not on disk; the workload would "
+                         "fail to start with it", mount.get("slug"), subject, path)
+            continue
+        stack.append(mount)
 
     # Tier 3 — PRIVATE SYSTEM (read-write), always present (create-if-absent). A failure here degrades the
     # user's durable private-system memory — log loudly but never abort the dispatch.
@@ -328,6 +385,17 @@ def build_unit_env(settings: Settings, invocation: dict, *, unit_id: str, token:
     report_language = (os.environ.get("VEXA_REPORT_LANGUAGE") or "").strip()
     if report_language:
         env["VEXA_REPORT_LANGUAGE"] = report_language
+    # The worker's per-request context budget (worker/budget.py). Forwarded for the same reason
+    # VEXA_REPORT_LANGUAGE is: a key declared here but never stamped into the dispatch is inert, and
+    # the worker silently falls back to its code default — which is exactly how an operator who set
+    # a smaller window for their local model would still watch the report overflow it.
+    context_tokens = (os.environ.get("VEXA_LLM_CONTEXT_TOKENS") or "").strip()
+    if context_tokens:
+        env["VEXA_LLM_CONTEXT_TOKENS"] = context_tokens
+    # The reply cap the openai-compat adapter now actually sends (llm/openai_compat.py).
+    max_tokens = (os.environ.get("VEXA_LLM_MAX_TOKENS") or "").strip()
+    if max_tokens:
+        env["VEXA_LLM_MAX_TOKENS"] = max_tokens
     # Model-auth passthrough (see MODEL_AUTH_ENV_ALLOWLIST above): stamp the explicit allowlist from
     # agent-api's own env. Set-and-nonblank only — an unset var stays ABSENT so the worker's
     # preflight/auth taxonomy (llm/errors.py) still reports the actionable missing-credential error

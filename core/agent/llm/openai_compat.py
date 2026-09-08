@@ -8,7 +8,7 @@ Config (constructor args win over env): ``VEXA_LLM_BASE_URL`` (required — e.g.
 ``https://openrouter.ai/api/v1``, ``http://ollama:11434/v1``; falls back to ``ANTHROPIC_BASE_URL``
 for deployments that already point one at a multi-protocol gateway), ``VEXA_LLM_API_KEY`` (falls
 back ``ANTHROPIC_AUTH_TOKEN`` → ``ANTHROPIC_API_KEY``; optional — local runtimes need none),
-``VEXA_LLM_MODEL`` (the deployment-default model).
+``VEXA_LLM_MODEL`` (the deployment-default model), ``VEXA_LLM_MAX_TOKENS`` (the reply cap).
 """
 from __future__ import annotations
 
@@ -21,11 +21,29 @@ from llm.errors import LLMAuthError, LLMConfigError, LLMError
 from llm.ports import CompletionResult
 
 
+def _env_max_tokens() -> Optional[int]:
+    """``VEXA_LLM_MAX_TOKENS`` as a reply cap, or ``None`` to let the server decide.
+
+    The key was declared and set in deployments, but this adapter never sent it — only the
+    Anthropic one did — so on any openai-compat backend the configured cap was inert. Unset or
+    unparseable still means "server's choice": inventing a default here would silently truncate
+    replies on deployments that never asked for a cap."""
+    raw = (os.environ.get("VEXA_LLM_MAX_TOKENS") or "").strip()
+    if not raw:
+        return None
+    try:
+        value = int(raw)
+    except ValueError:
+        return None
+    return value if value > 0 else None
+
+
 class OpenAICompatCompletion:
     name = "openai-compat"
 
     def __init__(self, *, base_url: Optional[str] = None, api_key: Optional[str] = None,
-                 model: Optional[str] = None, timeout: float = 120.0,
+                 model: Optional[str] = None, max_tokens: Optional[int] = None,
+                 timeout: float = 120.0,
                  transport: Optional[httpx.BaseTransport] = None) -> None:
         self._base = (base_url or os.environ.get("VEXA_LLM_BASE_URL")
                       or os.environ.get("ANTHROPIC_BASE_URL") or "").rstrip("/")
@@ -33,6 +51,7 @@ class OpenAICompatCompletion:
                      or os.environ.get("ANTHROPIC_AUTH_TOKEN")
                      or os.environ.get("ANTHROPIC_API_KEY") or "")
         self._model = model or os.environ.get("VEXA_LLM_MODEL") or ""
+        self._max_tokens = max_tokens if max_tokens is not None else _env_max_tokens()
         self._client = httpx.Client(timeout=timeout, transport=transport)
 
     def complete(self, prompt: str, *, system: Optional[str] = None,
@@ -51,9 +70,11 @@ class OpenAICompatCompletion:
         messages = ([{"role": "system", "content": system}] if system else [])
         messages.append({"role": "user", "content": prompt})
         headers = {"Authorization": f"Bearer {self._key}"} if self._key else {}
+        payload: dict = {"model": target, "messages": messages}
+        if self._max_tokens is not None:
+            payload["max_tokens"] = self._max_tokens
         try:
-            r = self._client.post(f"{self._base}/chat/completions",
-                                  json={"model": target, "messages": messages}, headers=headers)
+            r = self._client.post(f"{self._base}/chat/completions", json=payload, headers=headers)
         except httpx.HTTPError as exc:
             raise LLMError(f"completion transport failure against {self._base}: {exc}") from exc
         if r.status_code in (401, 403):

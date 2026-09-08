@@ -176,6 +176,71 @@ def test_offline_meeting_card_turn_falls_back_when_reply_omits_notes(tmp_path):
     assert [n["id"] for n in fallback] == ["seg-0", "seg-1"]  # fallback covered every input line
 
 
+def test_the_write_turn_faces_an_absent_path_so_it_never_reads_the_transcript(tmp_path, monkeypatch):
+    """The context budget only binds if the turn never opens the transcript.
+
+    The harness's Write tool refuses to overwrite a file it has not Read this session
+    ("File has not been read yet"), and the target path holds this module's own transcript mirror —
+    so the turn read 153 KB straight back into the context the budget had just condensed. Deleting
+    the target first makes Write CREATE instead of overwrite: no Read, no leak. The mirror is not
+    lost, because a failed turn restores it."""
+    from worker import meeting as m
+
+    work = tmp_path
+    target = work / "kg" / "entities" / "meeting" / "abc-defg-hij.md"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    mirror = "---\ntype: meeting\n---\n\n## Transcript\n\n<!-- id:x --> **A:** " + ("söz " * 5000)
+    target.write_text(mirror)
+
+    seen: dict = {}
+
+    def fake_turn(work_dir, prompt, **kwargs):
+        # What the turn sees at the moment it starts is the whole point of the change.
+        seen["target_exists"] = target.exists()
+        seen["tools"] = list(kwargs.get("allowed_tools") or [])
+        target.write_text(
+            "---\ntype: meeting\nid: abc-defg-hij\n---\n\n"
+            "## Özet\n\nÖzet.\n\n## Alınan Kararlar\n\nKarar yok.\n\n"
+            "## Aksiyon Maddeleri\n\nAksiyon yok.\n"
+        )
+        yield {"type": "done", "ok": True, "reply": "yazıldı"}
+
+    monkeypatch.setattr(m, "run_turn_over_workspace", fake_turn)
+    events = list(m.meeting_doc_turn(
+        work, [], native="abc-defg-hij", meeting_id="1", session_uid="1",
+        platform="upload", date="2026-09-08", title="T", report_language="tr",
+        notes=[{"id": "x", "speaker": "A", "text": "merhaba"}],
+    ))
+
+    assert seen["target_exists"] is False, "the transcript must be gone before the turn starts"
+    assert "Read" not in seen["tools"], "the turn is a Write, not a read-modify-write"
+    assert events[-1]["ok"] is True
+    assert "## Özet" in target.read_text()
+
+
+def test_a_failed_write_turn_puts_the_transcript_back(tmp_path, monkeypatch):
+    """Deleting the target is only safe because a failure restores it — otherwise a bad turn would
+    destroy the transcript it was summarizing."""
+    from worker import meeting as m
+
+    work = tmp_path
+    target = work / "kg" / "entities" / "meeting" / "abc-defg-hij.md"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    mirror = "---\ntype: meeting\n---\n\n## Transcript\n\n<!-- id:x --> **A:** merhaba\n"
+    target.write_text(mirror)
+
+    def failing_turn(work_dir, prompt, **kwargs):
+        yield {"type": "done", "ok": False, "reply": "model reddetti", "detail": "permanent"}
+
+    monkeypatch.setattr(m, "run_turn_over_workspace", failing_turn)
+    list(m.meeting_doc_turn(
+        work, [], native="abc-defg-hij", meeting_id="1", session_uid="1",
+        platform="upload", date="2026-09-08", title="T", report_language="tr",
+        notes=[{"id": "x", "speaker": "A", "text": "merhaba"}],
+    ))
+    assert target.read_text() == mirror, "a failed report must not cost the meeting its transcript"
+
+
 def test_offline_meeting_doc_turn_authors_entity_from_fixed_cards(tmp_path):
     """The post-meeting WRITE turn, offline: a FIXED card set replayed through a deterministic exec that
     writes the entity file → assert one Turkish report with preserved frontmatter lands idempotently."""

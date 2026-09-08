@@ -570,10 +570,10 @@ def main() -> None:  # pragma: no cover — the container entrypoint (wired in t
         # write_meeting_doc=false ⇒ no doc_turn (independent of `enabled`, which gates the live beats).
         doc_turn = None
         if cfg.write_meeting_doc:
-            doc_turn = lambda cards: meeting_doc_turn(  # noqa: E731
+            doc_turn = lambda cards, notes=None: meeting_doc_turn(  # noqa: E731
                 work, cards, native=native, meeting_id=native, session_uid=session_uid,
                 platform=platform, date=date, title=title, model=cfg.model,
-                report_language=cfg.report_language,
+                report_language=cfg.report_language, notes=notes,
             )
         serve_meeting(
             client, transcript_stream=transcript_stream, out_topic=out_topic,

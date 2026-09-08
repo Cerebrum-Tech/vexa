@@ -29,6 +29,29 @@ the final document turn. The Turkish report contains exactly `## Özet`, `## Al�
 `## Aksiyon Maddeleri`. Decisions require an explicit commitment in the transcript. Action owners
 are retained only when stated; otherwise the report says `Sorumlu belirtilmedi`.
 
+## Long meetings, small context windows
+
+A meeting has no maximum length; your model's context window does. `VEXA_LLM_CONTEXT_TOKENS`
+(default `8000`) is the budget every prompt the worker sends is held to — set it to your model's
+real window.
+
+When a transcript fits, it goes to the report verbatim: raw transcript is always better evidence
+than a summary of it. When it does not, the worker **summarizes the meeting in chunks that fit and
+writes the report from those digests** — so an hour of conversation, or a two-hour
+[uploaded recording](/how-to/upload-a-recording), is represented end to end rather than truncated at
+the point where the decisions usually are. The cost is one extra model call per chunk. A digest call
+that fails falls back to its own chunk's transcript, so a lost call costs detail, never a stretch of
+the meeting.
+
+The report turn carries its evidence and its frontmatter in the prompt and writes the file in one
+shot. It deliberately never opens the transcript file: a file read is context that cannot be
+measured or capped, and that is what made a budget unenforceable before.
+
+<Note>
+`VEXA_LLM_MAX_TOKENS` caps the *reply*, not the request. Leave it unset to let the backend decide —
+a truncated report is worse than a long one.
+</Note>
+
 For a one-GPU local test with Ollama, bind the server to the Docker bridge gateway instead of a LAN
 interface. On a standard Linux Docker installation, first verify the gateway:
 
