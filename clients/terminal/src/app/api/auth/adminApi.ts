@@ -61,8 +61,10 @@ export function findUserByEmail(email: string): Promise<AdminResult<AdminUser>> 
   return adminRequest<AdminUser>(`/admin/users/email/${encodeURIComponent(email)}`, { method: "GET" });
 }
 
-export function createUser(email: string): Promise<AdminResult<AdminUser>> {
-  return adminRequest<AdminUser>(`/admin/users`, { method: "POST", body: JSON.stringify({ email }) });
+export function createUser(email: string, name?: string): Promise<AdminResult<AdminUser>> {
+  const body: { email: string; name?: string } = { email };
+  if (name && name.trim()) body.name = name.trim();
+  return adminRequest<AdminUser>(`/admin/users`, { method: "POST", body: JSON.stringify(body) });
 }
 
 export function createUserToken(userId: string | number): Promise<AdminResult<{ token: string }>> {
@@ -293,6 +295,7 @@ async function pruneLoginTokens(userId: string | number): Promise<void> {
  *  Returns the user + token, or an error with an HTTP-ish status for the caller to surface. */
 export async function findOrCreateUserToken(
   email: string,
+  name?: string,
 ): Promise<{ ok: true; user: AdminUser; token: string } | { ok: false; status: number; error: string }> {
   const found = await findUserByEmail(email);
 
@@ -301,7 +304,7 @@ export async function findOrCreateUserToken(
   if (found.ok && found.data) {
     user = found.data;
   } else if (found.notFound) {
-    const created = await createUser(email);
+    const created = await createUser(email, name);
     if (!created.ok || !created.data) {
       return { ok: false, status: created.status || 500, error: created.error || "Kullanıcı hesabı oluşturulamadı." };
     }

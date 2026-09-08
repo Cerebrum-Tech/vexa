@@ -322,6 +322,7 @@ async def auto_join_tick(
                 native_meeting_id=row["native_meeting_id"],
                 meeting_url=data.get("constructed_meeting_url"),
                 bot_name=_calendar_bot_name(data) or ctx.get("bot_name"),
+                owner_email=ctx.get("email"),
                 recording_enabled=recording_enabled,
                 transcribe_enabled=transcribe_enabled,
                 max_concurrent=ctx.get("max_concurrent"),

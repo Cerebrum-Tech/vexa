@@ -1,0 +1,31 @@
+# Deployment overlay — nginx-proxy edge (this host's convention).
+#
+# The host runs nginxproxy/nginx-proxy + acme-companion on the external bridge network
+# `webproxy`; a service is published by joining that network and declaring VIRTUAL_HOST +
+# VIRTUAL_PORT. TLS terminates upstream at the F5 (VIP 172.16.16.40) and reaches the origin
+# as plain HTTP, so no LETSENCRYPT_HOST is set (matching every other app on this proxy).
+#
+# Only the terminal is published: it is a full front door — it server-side proxies REST to
+# the gateway and performs the /ws upgrade itself (clients/terminal/server.mjs), so one vhost
+# carries the UI, the API proxy and the live transcript socket. Every other service keeps its
+# 127.0.0.1-only host binding from docker-compose.yml.
+#
+# VIRTUAL_HOST carries two names (comma-separated, the proxy's own list syntax): the test domain
+# ikanaliztest and the product domain toplantiasistani. Both resolve to the same F5 VIP and land on
+# this one container. Nothing in the app is pinned to a hostname — login/logout cookies are host-only
+# and the /ws upgrade is same-origin (server.mjs reads req.headers.host) — so both origins work as-is.
+#
+# Usage (both files, every time):
+#   docker compose -p vexa-v012 -f docker-compose.yml -f docker-compose.proxy.yml up -d
+services:
+  terminal:
+    environment:
+      - VIRTUAL_HOST=ikanaliztest.innova.com.tr,toplantiasistani.innova.com.tr
+      - VIRTUAL_PORT=3000
+    networks:
+      - vexa
+      - webproxy
+
+networks:
+  webproxy:
+    external: true

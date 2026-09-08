@@ -12,6 +12,8 @@ __pycache__/
 !.env.example
 !**/.env.example
 .recordings/
+# LDAPS CA bundle mounted into the terminal at /app/certs — operator-supplied, never committed.
+deploy/compose/certs/
 deploy/execution-targets.json
 # local test/debug artifacts (Playwright MCP screenshots + snapshots)
 .playwright-mcp/

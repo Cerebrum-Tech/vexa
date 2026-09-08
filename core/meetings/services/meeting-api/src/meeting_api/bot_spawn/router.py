@@ -231,6 +231,7 @@ def build_router(
     async def create_bot(
         request: Request,
         x_user_id: Optional[str] = Header(default=None),
+        x_user_email: Optional[str] = Header(default=None),
         x_user_limits: Optional[str] = Header(default=None),
         x_user_webhook_url: Optional[str] = Header(default=None),
         x_user_webhook_secret: Optional[str] = Header(default=None),
@@ -381,6 +382,7 @@ def build_router(
                 platform=platform,
                 native_meeting_id=native_meeting_id,
                 bot_name=body.get("bot_name"),
+                owner_email=x_user_email,
                 passcode=passcode,
                 meeting_url=meeting_url,
                 language=body.get("language"),

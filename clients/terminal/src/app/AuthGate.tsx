@@ -24,6 +24,13 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   const [email, setEmail] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Domain (LDAP/Active Directory) sign-in — the probe flips this on when LDAP_* is configured.
+  const [ldapEnabled, setLdapEnabled] = useState(false);
+  const [ldapUser, setLdapUser] = useState("");
+  const [ldapPass, setLdapPass] = useState("");
+  const [ldapSubmitting, setLdapSubmitting] = useState(false);
+  // When LDAP is the default sign-in, OAuth + the debug email path collapse behind this toggle.
+  const [showOther, setShowOther] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -40,6 +47,11 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     fetch("/api/auth/instance", { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : { admin_exists: true }))
       .then((d: { admin_exists?: boolean }) => active && setAdminExists(d.admin_exists !== false))
+      .catch(() => undefined);
+    // Domain sign-in probe — {enabled:true} when the deploy carries LDAP_* config.
+    fetch("/api/auth/ldap", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : { enabled: false }))
+      .then((d: { enabled?: boolean }) => active && setLdapEnabled(d.enabled === true))
       .catch(() => undefined);
     return () => { active = false; };
   }, []);
@@ -63,6 +75,30 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
       setError((err as Error).message || "Giriş yapılamadı");
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const submitLdap = async (e: FormEvent) => {
+    e.preventDefault();
+    const username = ldapUser.trim();
+    if (!username || !ldapPass || ldapSubmitting) return;
+    setLdapSubmitting(true);
+    setError(null);
+    try {
+      const r = await fetch("/api/auth/ldap", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password: ldapPass }),
+      });
+      if (r.ok) { window.location.reload(); return; }
+      const body = (await r.json().catch(() => ({}))) as { error?: string };
+      setError(body.error || `Giriş yapılamadı (${r.status})`);
+    } catch (err) {
+      setError((err as Error).message || "Giriş yapılamadı");
+    } finally {
+      // Never keep the password in memory after an attempt.
+      setLdapPass("");
+      setLdapSubmitting(false);
     }
   };
 
@@ -120,18 +156,79 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
           <div style={{ fontSize: 12, color: "var(--t3)", lineHeight: 1.5 }}>Devam etmek için giriş yapın.</div>
         )}
 
-        {providers.google && (
+        {ldapEnabled && (
+          <form onSubmit={submitLdap} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <div style={{ fontSize: 11, color: "var(--t3)", lineHeight: 1.4 }}>Domain hesabınızla giriş yapın.</div>
+            <input
+              type="text"
+              autoComplete="username"
+              required
+              value={ldapUser}
+              onChange={(e) => setLdapUser(e.target.value)}
+              placeholder="kullanıcı adı"
+              style={{
+                background: "var(--panel2)", border: "1px solid var(--line2)", borderRadius: 7,
+                padding: "9px 10px", color: "var(--t1)", fontSize: 13, outline: "none",
+              }}
+            />
+            <input
+              type="password"
+              autoComplete="current-password"
+              required
+              value={ldapPass}
+              onChange={(e) => setLdapPass(e.target.value)}
+              placeholder="şifre"
+              style={{
+                background: "var(--panel2)", border: "1px solid var(--line2)", borderRadius: 7,
+                padding: "9px 10px", color: "var(--t1)", fontSize: 13, outline: "none",
+              }}
+            />
+            {error && <div style={{ fontSize: 11, color: "var(--danger)", lineHeight: 1.4 }}>{error}</div>}
+            <button
+              type="submit"
+              disabled={!ldapUser.trim() || !ldapPass || ldapSubmitting}
+              style={{
+                background: ldapUser.trim() && ldapPass ? "var(--accent)" : "var(--panel2)",
+                color: ldapUser.trim() && ldapPass ? "var(--on-accent)" : "var(--t3)",
+                border: "none", borderRadius: 7, padding: "9px 10px", fontSize: 13, fontWeight: 600,
+                cursor: ldapUser.trim() && ldapPass && !ldapSubmitting ? "pointer" : "default",
+              }}
+            >
+              {ldapSubmitting ? "Giriş yapılıyor…" : "Domain ile giriş yap"}
+            </button>
+          </form>
+        )}
+
+        {/* LDAP is the default path: when it is on, the other methods hide behind this toggle. */}
+        {ldapEnabled && (
+          <button
+            onClick={() => setShowOther((v) => !v)}
+            style={{ background: "none", border: "none", color: "var(--t3)", fontSize: 11, cursor: "pointer", padding: 0, alignSelf: "flex-start" }}
+          >
+            {showOther ? "Diğer giriş seçeneklerini gizle" : "Diğer giriş seçenekleri"}
+          </button>
+        )}
+
+        {ldapEnabled && showOther && (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "2px 0" }}>
+            <div style={{ flex: 1, height: 1, background: "var(--line2)" }} />
+            <span style={{ fontSize: 10.5, color: "var(--t3)" }}>veya</span>
+            <div style={{ flex: 1, height: 1, background: "var(--line2)" }} />
+          </div>
+        )}
+
+        {(!ldapEnabled || showOther) && providers.google && (
           <button onClick={() => signIn("google", { callbackUrl: window.location.pathname + window.location.search })} style={oauthBtn}>
             <GoogleMark /> Google ile devam et
           </button>
         )}
-        {providers.microsoft && (
+        {(!ldapEnabled || showOther) && providers.microsoft && (
           <button onClick={() => signIn("microsoft", { callbackUrl: window.location.pathname + window.location.search })} style={oauthBtn}>
             <MicrosoftMark /> Microsoft ile devam et
           </button>
         )}
 
-        {hasOAuth && (
+        {(!ldapEnabled || showOther) && hasOAuth && (
           <button
             onClick={() => setShowDebug((v) => !v)}
             style={{ background: "none", border: "none", color: "var(--t3)", fontSize: 11, cursor: "pointer", padding: 0, alignSelf: "flex-start" }}
@@ -140,7 +237,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
           </button>
         )}
 
-        {(!hasOAuth || showDebug) && (
+        {(!ldapEnabled || showOther) && (!hasOAuth || showDebug) && (
           <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             <div style={{ fontSize: 11, color: "var(--t3)", lineHeight: 1.4 }}>
               {claiming && !hasOAuth
