@@ -703,7 +703,10 @@ def create_app() -> FastAPI:
             name=calendar.name,
             ics_url=calendar.ics_url,
             auto_join=calendar.auto_join,
-            bot_name=calendar.bot_name or data.get("calendar_bot_name") or "Vexa",
+            # No invented default: a stored name is read back by auto-join ahead of the
+            # deployment's own DEFAULT_BOT_NAME, so writing one here would silently re-name every
+            # calendar-sourced bot for good. Unset means "use the deployment's name".
+            bot_name=calendar.bot_name or data.get("calendar_bot_name") or None,
         )
         connections.append(created)
         await _save_calendar_connections(user, db, connections)
@@ -782,7 +785,7 @@ def create_app() -> FastAPI:
                     current = new_connection(name="Calendar", ics_url=url,
                                              auto_join=calendar_update.auto_join
                                              if calendar_update.auto_join is not None else True,
-                                             bot_name=data.get("calendar_bot_name") or "Vexa")
+                                             bot_name=data.get("calendar_bot_name") or None)
                     connections.append(current)
                 else:
                     current["ics_url"] = validate_ics_url(url)
@@ -807,7 +810,10 @@ def create_app() -> FastAPI:
             "ics_url_set": bool(masked and masked["ics_url_set"]),
             "ics_url_masked": masked["ics_url_masked"] if masked else None,
             "auto_join": masked["auto_join"] if masked else True,
-            "bot_name": data.get("calendar_bot_name") or "Vexa",
+            # Empty means "the deployment's own name" — the terminal renders its default as the
+            # placeholder. Showing a literal here invited the operator to save it, which is exactly
+            # how an invented name becomes a persisted one.
+            "bot_name": data.get("calendar_bot_name") or None,
         }
 
     # --- user tier: model + transcription self-serve prefs (users.data JSONB, like webhook) ---
@@ -1074,7 +1080,18 @@ def create_app() -> FastAPI:
         data = user.data if isinstance(user.data, dict) else {}
         resp: dict = {
             "max_concurrent": user.max_concurrent_bots,
-            "bot_name": data.get("calendar_bot_name") or "Vexa",
+            # The user's CHOSEN name, or nothing — never an invented one. Identity does not get to
+            # name a deployment's assistant: a literal default here arrives at bot_spawn as an
+            # EXPLICIT bot_name, which outranks the operator's own DEFAULT_BOT_NAME
+            # (`_display_bot_name`: `bot_name or DEFAULT_BOT_NAME or VexaBot-…`). That is how a
+            # deployment configured as "Innova Toplantı Asistanı" still joined scheduled meetings
+            # as "Vexa" — the manual send passed a name and looked right, while calendar auto-join
+            # took this one and did not. Absent lets the deployment default apply, which is the
+            # whole point of having one.
+            "bot_name": data.get("calendar_bot_name") or None,
+            # The owner's email — bot_spawn tags the in-meeting display name with its local-part so
+            # calendar auto-join bots are attributable to a person, like the UI/API spawn paths.
+            "email": user.email,
         }
         # Fixture collection (O-TEL-1): whether this spawn tapes its raw captured-signal stream.
         # ALWAYS present in the response — a missing key downstream is indistinguishable from an

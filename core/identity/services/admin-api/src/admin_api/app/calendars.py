@@ -58,14 +58,14 @@ def connections_from_data(data: dict, user_id: int, *, include_deleted: bool = F
             "name": "Calendar",
             "ics_url": legacy_url,
             "auto_join": bool(data.get("calendar_auto_join", True)),
-            "bot_name": data.get("calendar_bot_name") or "Vexa",
+            "bot_name": data.get("calendar_bot_name") or None,
             "enabled": True,
         }] if legacy_url else [])
     return connections if include_deleted else [c for c in connections if not c.get("deleted")]
 
 
 def new_connection(*, name: str, ics_url: str, auto_join: bool = True,
-                   bot_name: str = "Vexa") -> dict:
+                   bot_name: "str | None" = None) -> dict:
     cleaned_name = name.strip()
     if not cleaned_name:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail="name is required")
@@ -76,7 +76,10 @@ def new_connection(*, name: str, ics_url: str, auto_join: bool = True,
         "name": cleaned_name,
         "ics_url": validate_ics_url(ics_url),
         "auto_join": bool(auto_join),
-        "bot_name": validate_bot_name(bot_name),
+        # ``None`` = "this connection names no bot", which lets the DEPLOYMENT's DEFAULT_BOT_NAME
+        # apply downstream. Storing a literal instead is how a calendar-sourced bot ends up named
+        # something the operator never chose — auto-join reads this field ahead of that default.
+        "bot_name": validate_bot_name(bot_name) if bot_name else None,
         "enabled": True,
     }
 
@@ -104,7 +107,7 @@ def masked_connection(connection: dict) -> dict:
         "ics_url_set": bool(url),
         "ics_url_masked": f"{host}/…{url[-4:]}" if url else None,
         "auto_join": bool(connection.get("auto_join", True)),
-        "bot_name": connection.get("bot_name") or "Vexa",
+        "bot_name": connection.get("bot_name") or None,
         "enabled": bool(connection.get("enabled", True)),
     }
 
@@ -139,7 +142,9 @@ def internal_connections(data: dict, user_id: int) -> list[dict]:
             "user_id": user_id,
             "calendar_id": connection["id"],
             "calendar_name": connection.get("name") or "Calendar",
-            "bot_name": connection.get("bot_name") or "Vexa",
+            # Absent, not invented: meeting-api reads this to name a calendar auto-join bot and
+            # falls back to DEFAULT_BOT_NAME when it is missing.
+            "bot_name": connection.get("bot_name") or None,
         }
         if connection["id"] == legacy_id:
             entry["legacy"] = True
