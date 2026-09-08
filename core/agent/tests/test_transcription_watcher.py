@@ -81,6 +81,8 @@ def _fresh_state():
 def _reset_module_caches():
     w._native.clear()
     w._resolve_miss_at.clear()
+    w._owner.clear()
+    w._owner_miss_at.clear()
 
 
 def _native_streams(r):

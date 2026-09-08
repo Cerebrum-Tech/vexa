@@ -75,6 +75,9 @@ MEETINGS_LIST_LIMIT = 100
 # state." `relay_health()` is that channel (read by /api/meeting/relay-health → the control panel).
 _relay_health: dict = {
     "native_resolve": {"ok": True, "kind": None, "detail": None, "at": None, "misses": 0},
+    # Whether meetings are reaching their OWNER's workspace. A silent failure here is what made
+    # every post-meeting report unreachable, so it gets its own observable channel (P18).
+    "owner_resolve": {"ok": True, "kind": None, "detail": None, "at": None, "misses": 0},
     "ingest": {"ok": True, "last_segment_at": None, "segments": 0},
 }
 _HEALTH_LOCK = threading.Lock()
@@ -179,6 +182,69 @@ def _resolve_native(meeting_id: str) -> "tuple[str, str] | None":
     return hit
 
 
+# numeric meeting_id → the OWNER's subject, cached. A miss is retried (throttled) rather than cached:
+# the row is always resolvable eventually, and guessing wrong attributes someone's meeting to someone
+# else's workspace.
+_owner: dict[str, str] = {}
+_owner_miss_at: dict[str, float] = {}
+OWNER_RETRY_SEC = 3.0
+
+
+def _resolve_owner(meeting_id: str) -> "str | None":
+    """The subject (``str(user_id)``) that OWNS this meeting, via meeting-api's internal edge.
+
+    This is what makes the post-meeting report land in the workspace of the person whose meeting it
+    was. Before it, every copilot was dispatched under the hardcoded ``u_live`` placeholder — a
+    subject with no workspace on disk, so the worker container could not even start
+    (``docker start … cannot access path …/u_live``) and no meeting on the deployment ever got a
+    report.
+
+    Deliberately the INTERNAL edge, not the gateway: the gateway hop is user-scoped and needs
+    ``VEXA_BOT_API_KEY``, which is empty on a normal install — that is exactly why the sibling
+    ``_resolve_native`` has been failing here too. Ownership is a service-to-service question.
+    """
+    cached = _owner.get(meeting_id)
+    if cached:
+        return cached
+    now = time.monotonic()
+    if now - _owner_miss_at.get(meeting_id, 0.0) < OWNER_RETRY_SEC:
+        return None
+    # The DECLARED app var (config.v1), fed from the same deployment secret meeting-api validates
+    # against (compose: VEXA_INTERNAL_API_SECRET=${INTERNAL_API_SECRET}).
+    secret = os.environ.get("VEXA_INTERNAL_API_SECRET", "")
+    base = (os.environ.get("VEXA_MEETING_API_URL") or "http://meeting-api:8080").rstrip("/")
+    if not secret:
+        _report_fault("owner_resolve", "unauthorized",
+                      "VEXA_INTERNAL_API_SECRET not set — cannot attribute a meeting to its owner; "
+                      "reports would land in a placeholder workspace nobody reads")
+        _owner_miss_at[meeting_id] = now
+        return None
+    try:
+        req = urllib.request.Request(
+            f"{base}/internal/meetings/{meeting_id}/owner",
+            headers={"X-Internal-Secret": secret})
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            body = json.loads(resp.read().decode() or "{}")
+        user_id = body.get("user_id")
+        if user_id is None:
+            _owner_miss_at[meeting_id] = now
+            return None
+    except urllib.error.HTTPError as e:
+        _report_fault("owner_resolve", _classify_http(e.code),
+                      f"GET {base}/internal/meetings/{meeting_id}/owner → HTTP {e.code}")
+        _owner_miss_at[meeting_id] = now
+        return None
+    except Exception as e:  # noqa: BLE001 — network/parse: surface it, never swallow
+        _report_fault("owner_resolve", "unavailable",
+                      f"owner lookup for meeting {meeting_id} failed: {type(e).__name__}: {e}")
+        _owner_miss_at[meeting_id] = now
+        return None
+    _clear_fault("owner_resolve")
+    subject = str(user_id)
+    _owner[meeting_id] = subject
+    return subject
+
+
 def _record_meeting_doc(native: str, platform: str, subject: str) -> None:
     """Best-effort: connect the meeting's own kg doc ref to the meeting on session_end, via the
     gateway (X-API-Key). Recorded from the watcher — NOT the isolated worker — so the user key never
@@ -223,9 +289,10 @@ def start(redis_url: str, dispatcher, live, *, subject: str = "u_live") -> threa
     """Spawn the watcher (the ARM daemon thread) and return it (tests/introspection). ``keymap``
     (numeric meeting_id → row-id routing key) is the arm thread's own state.
 
-    ``subject`` is a PRE-M2 placeholder (defaults to ``u_live``): every armed copilot is attributed to
-    this one subject. Live-meeting dispatch (M2) must resolve and pass the real meeting OWNER instead —
-    until then the copilot's meeting doc lands in the placeholder workspace, not the owner's."""
+    ``subject`` is the FALLBACK attribution only. Each meeting is attributed to its real owner,
+    resolved per meeting from meeting-api's internal edge (``_resolve_owner``), so the copilot's
+    report lands in the workspace its reader actually opens. This placeholder is used only for a row
+    whose owner cannot be resolved, and that fallback is reported on ``relay_health``."""
     keymap: dict[str, str] = {}
     t = threading.Thread(
         target=_run_arm, args=(redis_url, dispatcher, live, subject, keymap),
@@ -309,6 +376,11 @@ def _handle(r, dispatcher, live, subject, p, last_arm, keymap, first_seen) -> No
     key = keymap.get(mid)
     if key is None:
         key = keymap[mid] = mid
+    # WHOSE meeting is this? The copilot is dispatched under the owner so the post-meeting report is
+    # written into THEIR workspace — the one the terminal's recap panel reads. ``subject`` (the
+    # ``u_live`` placeholder) is now only the fallback for a row we genuinely cannot attribute, and
+    # the fallback is loud rather than silent.
+    owner = _resolve_owner(mid) or subject
     kind = p.get("type")
     if kind == "transcription":  # P18 liveness: record that segments ARE arriving (distinct from relayed)
         with _HEALTH_LOCK:
@@ -333,7 +405,9 @@ def _handle(r, dispatcher, live, subject, p, last_arm, keymap, first_seen) -> No
         logger.info("meeting %s ended → reaping copilot", key)
         # Connect this meeting's own kg doc (authored by the §4 worker on session_end) to the
         # meeting — from here, so the user key stays out of the isolated worker container.
-        _record_meeting_doc(native, platform, subject)
+        _record_meeting_doc(native, platform, owner)
+        _owner.pop(mid, None)
+        _owner_miss_at.pop(mid, None)
         return
     if kind != "transcription":
         return
@@ -349,6 +423,8 @@ def _handle(r, dispatcher, live, subject, p, last_arm, keymap, first_seen) -> No
         # explicitly so /api/meeting/process keys the SAME copilot dispatch by it, and the worker writes
         # proc:meeting:{row_id} which the meeting-api db-writer persists into the meeting row's data JSONB.
         "numeric_meeting_id": mid if mid.isdigit() else None,
+        # Who this meeting belongs to — the subject its copilot (and therefore its report) runs under.
+        "subject": owner,
     })
     # EVERY streaming meeting arms (and keeps alive) a copilot — the post-meeting report is the
     # default journey, not an opt-in, so the worker's existence can never depend on a user toggle.
@@ -375,7 +451,7 @@ def _handle(r, dispatcher, live, subject, p, last_arm, keymap, first_seen) -> No
                 r.expire(f"proc:meeting:{key}:on", PROC_FLAG_ROLLING_TTL_SEC)
             except Exception:  # noqa: BLE001 — refresh is hygiene; never block the arm
                 pass
-        _arm(dispatcher, subject, key, platform, live_beats=live_beats,
+        _arm(dispatcher, owner, key, platform, live_beats=live_beats,
              transcript_start_id=_resume_cursor(r, key),
              numeric_meeting_id=mid if mid.isdigit() else None, native_id=native)
 

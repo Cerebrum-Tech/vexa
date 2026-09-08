@@ -948,6 +948,16 @@ class SqlAlchemyTranscriptStore:
             "updated_at": _iso_utc(m.updated_at),
         }
 
+    async def owner_of(self, meeting_id):
+        from sqlalchemy import select
+
+        from .models import Meeting
+
+        async with self._session_factory() as db:
+            return (await db.execute(
+                select(Meeting.user_id).where(Meeting.id == meeting_id)
+            )).scalars().first()
+
     async def create_planned_meeting(self, user_id, *, platform, native_meeting_id,
                                      title=None, scheduled_at=None, meeting_url=None,
                                      workspace_id=None, auto_join=True, calendar_uid=None,

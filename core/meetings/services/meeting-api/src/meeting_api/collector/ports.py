@@ -145,6 +145,16 @@ class TranscriptStore(Protocol):
         or ``None`` when the user owns no such meeting."""
         ...
 
+    async def owner_of(self, meeting_id: int) -> Optional[int]:
+        """The ``user_id`` that OWNS this meeting row, or ``None`` when the row is unknown.
+
+        NOT user-scoped, and deliberately so: this answers "whose meeting is this?" for a caller that
+        does not yet know, which is precisely the question every owner-scoped read already assumes an
+        answer to. Its one consumer is the internal owner lookup the agent's copilot dispatch uses to
+        attribute a meeting's report to the person whose meeting it was; it is never reachable from a
+        client edge."""
+        ...
+
     async def create_planned_meeting(
         self,
         user_id: int,

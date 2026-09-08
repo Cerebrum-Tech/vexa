@@ -52,6 +52,10 @@ class InMemoryTranscriptStore:
         # between the in-flight hash (redis) and the durable rows (the dict standing in for PG).
         self._redis = redis_client
 
+    async def owner_of(self, meeting_id: int):
+        row = self._meetings.get(meeting_id)
+        return row.get("user_id") if row else None
+
     def seed_meeting(
         self,
         *,

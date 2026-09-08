@@ -31,6 +31,8 @@ gateway's contextvars (the cross-hop trace ``test_tracing.py`` asserts).
 """
 from __future__ import annotations
 
+import hmac
+import os
 from typing import Any, Callable, Optional
 
 from fastapi import APIRouter, FastAPI, Header, HTTPException, Query, Request, Response
@@ -113,6 +115,29 @@ def build_router(
     TraceMiddleware so the conformance harness + this module's tests keep driving shipped code.
     """
     router = APIRouter()
+
+    # --- GET /internal/meetings/{meeting_id}/owner → {"user_id": n} ---------------------------------
+    # SERVICE-TO-SERVICE ONLY (X-Internal-Secret, never a client edge; the gateway proxies no
+    # /internal/* route). It answers the one question an owner-scoped read already presumes an answer
+    # to: whose meeting is this?
+    #
+    # Its consumer is the agent's copilot dispatch. That dispatch used to attribute EVERY meeting to a
+    # hardcoded `u_live` placeholder, which is why the post-meeting report — when it was written at all
+    # — landed in a workspace no user owns, and the reader's own workspace never had it.
+    @router.get("/internal/meetings/{meeting_id}/owner", include_in_schema=False)
+    async def internal_meeting_owner(
+        meeting_id: int,
+        x_internal_secret: Optional[str] = Header(default=None),
+    ):
+        secret = os.getenv("INTERNAL_API_SECRET") or ""
+        # Fail CLOSED when no secret is configured: an unset secret must not turn an internal lookup
+        # into an open one. A deployment without it simply does not get owner-attributed reports.
+        if not secret or not x_internal_secret or not hmac.compare_digest(x_internal_secret, secret):
+            raise HTTPException(status_code=401, detail="internal authentication required")
+        owner = await store.owner_of(meeting_id)
+        if owner is None:
+            raise HTTPException(status_code=404, detail=f"Meeting {meeting_id} not found")
+        return {"meeting_id": meeting_id, "user_id": int(owner)}
 
     # --- GET /transcripts/by-id/{meeting_id} → api.v1 TranscriptionResponse for an EXACT row (P0).
     # Registered BEFORE /transcripts/{platform}/{native_meeting_id} so `by-id` is not swallowed as a
