@@ -1202,6 +1202,104 @@ export interface SpeakController {
   stop(): Promise<void>;
 }
 
+export interface ChatController {
+  /** Post ONE message into the meeting chat. Resolves with whether it landed — never throws. */
+  send(text: string): Promise<boolean>;
+}
+
+/** Drive the meeting's own chat panel (acts.v1 ``chat_send`` + the join greeting).
+ *
+ *  The page-side half lives in the capture bricks and is already on ``window.VexaBrowserUtils``
+ *  (``sendTeamsChat``, ``sendJitsiChatMessage``); this is the Node side that calls it, mirroring
+ *  ``createSpeakController``. Like everything else in this file it is L4 — a chat panel is a DOM
+ *  no unit test has, so it is code-complete here and PROVEN only by a live meeting.
+ *
+ *  A failed send is REPORTED, never swallowed: the page half returns which step failed and what its
+ *  candidate selectors matched, and that lands on the bot's stdout. A greeting that silently does
+ *  not appear is indistinguishable from a deployment that never configured one. */
+export function createChatController(page: Page, inv: Invocation): ChatController {
+  const platform = inv.platform;
+  return {
+    async send(text: string): Promise<boolean> {
+      const body = (text ?? '').trim();
+      if (!body) return false;
+      try {
+        if (platform === 'jitsi') {
+          const ok = await page.evaluate((b) => {
+            const u = (globalThis as any).VexaBrowserUtils;
+            return !!(u?.sendJitsiChatMessage && u.sendJitsiChatMessage(b));
+          }, body);
+          console.log(`[bot] chat_send ${ok ? 'ok' : 'FAILED'} (jitsi)`);
+          return ok;
+        }
+        if (platform !== 'teams') { console.error(`[bot] chat_send: no sender for ${platform}`); return false; }
+
+        // (a) page side: open the chat panel and focus the compose box.
+        const prep = await page.evaluate(async () => {
+          const u = (globalThis as any).VexaBrowserUtils;
+          if (!u?.focusTeamsChatInput) return { ok: false, detail: 'focusTeamsChatInput missing on the page' };
+          return await u.focusTeamsChatInput();
+        });
+        if (!(prep as any)?.ok) {
+          console.log(`[bot] chat_send FAILED: ${JSON.stringify(prep)}`);
+          return false;
+        }
+
+        // (b) FOCUS VIA PLAYWRIGHT, then type. `el.focus()` inside a page.evaluate and
+        // `page.keyboard.type` are two separate CDP round-trips, and Teams can move focus between
+        // them — the keystrokes then land on whatever has focus instead. A Playwright click is a
+        // real mouse event on the element and leaves focus where the very next keystroke goes.
+        // Click the EDITABLE element (the page half descends past CKEditor's wrapper), then read
+        // document.activeElement before typing — "focused" is a fact to observe, not to assume.
+        const inputSel = ((prep as any)?.editableSel || (prep as any)?.matchedInput) as string | undefined;
+        if (inputSel) {
+          await page.click(inputSel, { timeout: 5_000 }).catch((e) =>
+            console.error(`[bot] chat_send: click on ${inputSel} failed: ${String(e)}`));
+        }
+        const activeBeforeType = await page.evaluate(() => {
+          const u = (globalThis as any).VexaBrowserUtils;
+          return !!(u?.teamsChatEditorIsActive && u.teamsChatEditorIsActive());
+        });
+        await page.keyboard.type(body, { delay: 8 });
+
+        // Did the keystrokes actually land IN the compose box? This is the datum that attributes a
+        // failure: without it every step reports success and the message is simply absent.
+        const composed = await page.evaluate(() => {
+          const u = (globalThis as any).VexaBrowserUtils;
+          return u?.teamsChatComposeText ? u.teamsChatComposeText() : '(helper missing)';
+        });
+        const landed = typeof composed === 'string' && composed.includes(body.slice(0, 20));
+
+        // (c) send: the button when the build has one, Enter otherwise.
+        const clicked = await page.evaluate(() => {
+          const u = (globalThis as any).VexaBrowserUtils;
+          return u?.clickTeamsChatSend ? u.clickTeamsChatSend() : null;
+        });
+        if (!clicked) await page.keyboard.press('Enter');
+
+        // (d) confirm by SEEING it in the chat's own message list — never by the box emptying.
+        const needle = body.slice(0, 40);
+        let posted = false;
+        for (let i = 0; i < 20 && !posted; i++) {
+          posted = await page.evaluate((n) => {
+            const u = (globalThis as any).VexaBrowserUtils;
+            return !!(u?.teamsChatHasMessage && u.teamsChatHasMessage(n));
+          }, needle);
+          if (!posted) await new Promise((r) => setTimeout(r, 400));
+        }
+        console.log(`[bot] chat_send ${posted ? 'ok' : 'FAILED'}: typed=${body.length} chars, ` +
+                    `editor_focused_before_type=${activeBeforeType}, landed_in_box=${landed}, ` +
+                    `box_after_type=${JSON.stringify(String(composed).slice(0, 60))}, ` +
+                    `send=${clicked ?? 'Enter'}, seen_in_list=${posted}, prep=${JSON.stringify(prep)}`);
+        return posted;
+      } catch (e) {
+        console.error(`[bot] chat_send threw: ${String(e)}`);
+        return false;
+      }
+    },
+  };
+}
+
 export function createSpeakController(page: Page, inv: Invocation): SpeakController {
   const enabled = !!inv.voiceAgentEnabled;
   const platform = inv.platform;

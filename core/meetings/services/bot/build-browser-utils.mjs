@@ -87,6 +87,11 @@ import {
 import {
   createTeamsSpeakers,
   createTeamsCaptions,
+  focusTeamsChatInput,
+  teamsChatHasMessage,
+  teamsChatComposeText,
+  teamsChatEditorIsActive,
+  clickTeamsChatSend,
 } from ${JSON.stringify(TEAMS)};
 import {
   createZoomSpeakers,
@@ -115,6 +120,11 @@ const VexaBrowserUtils = {
   // ── teams lane (voice-level "blue-square" outline → speaker hints) ──
   createTeamsSpeakers,       // capture-bridge.ts: w.VexaBrowserUtils.createTeamsSpeakers
   createTeamsCaptions,       // capture-bridge.ts: w.VexaBrowserUtils.createTeamsCaptions (live CC → diagnostics)
+  focusTeamsChatInput,       // acts.v1 chat_send + the join greeting: open panel + focus the box
+  teamsChatHasMessage,       // …the only honest proof a message was posted
+  teamsChatComposeText,      // …what the box holds, to attribute a failure
+  teamsChatEditorIsActive,   // …is the real editor focused, read just before typing
+  clickTeamsChatSend,        // …send button, when the build has one
   // ── zoom lane (active-speaker DOM watcher → 'dom-active' naming hints) ──
   createZoomSpeakers,        // capture-bridge.ts: w.VexaBrowserUtils.createZoomSpeakers
 };
@@ -162,5 +172,5 @@ console.log('  - createGmeetCapture / createGmeetSpeakers / createGmeetCaptureV1
 console.log('  - GmeetChannelBinder / createPcmCaptureNode');
 console.log('  - createMixedAudioCapture / installRemoteAudioHook / selectTeamsMixStreams / createCsrcPoll');
 console.log('  - createJitsiSpeakers / createJitsiChat / sendJitsiChatMessage');
-console.log('  - createTeamsSpeakers / createTeamsCaptions / createZoomSpeakers');
+console.log('  - createTeamsSpeakers / createTeamsCaptions / sendTeamsChat / createZoomSpeakers');
 console.log('  - window.performLeaveAction');

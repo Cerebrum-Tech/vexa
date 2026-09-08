@@ -524,6 +524,57 @@ async function main(): Promise<void> {
     check('missing port: not a raw property TypeError', !/Cannot read properties of undefined/.test(msg), msg);
   }
 
+  // ── the join greeting: runs ONCE after admission, and can never cost the meeting ────────────
+  {
+    const lc = recorder();
+    let fireLeave: (a: { action: 'leave' }) => void = () => {};
+    const calls: string[] = [];
+    const o = createOrchestrator(inv(), {
+      lifecycle: lc, join: mockJoin('admitted'), pipeline: noopPipeline(),
+      acts: noopActs((f) => { fireLeave = f; }), aloneness: noopAloneness(),
+      onAdmitted: async () => { calls.push('greeted'); },
+    });
+    const runP = o.run();
+    setTimeout(() => fireLeave({ action: 'leave' }), 5);
+    const res = await runP;
+    check('greeting: hook ran exactly once', calls.length === 1, JSON.stringify(calls));
+    check('greeting: meeting still completed', res.exitCode === 0 && res.status === 'completed');
+    check('greeting: only after the bot was seated', seq(lc.events).includes('active'));
+  }
+
+  {
+    // A chat panel that refuses a message is not a reason to leave a call.
+    const lc = recorder();
+    let fireLeave: (a: { action: 'leave' }) => void = () => {};
+    const o = createOrchestrator(inv(), {
+      lifecycle: lc, join: mockJoin('admitted'), pipeline: noopPipeline(),
+      acts: noopActs((f) => { fireLeave = f; }), aloneness: noopAloneness(),
+      onAdmitted: async () => { throw new Error('chat panel never opened'); },
+    });
+    const runP = o.run();
+    setTimeout(() => fireLeave({ action: 'leave' }), 5);
+    const res = await runP;
+    check('greeting: a failing hook does NOT fail the meeting',
+      res.exitCode === 0 && res.status === 'completed', JSON.stringify(res));
+    check('greeting: sequence unchanged by the failure',
+      JSON.stringify(seq(lc.events)) === JSON.stringify(['joining', 'awaiting_admission', 'active', 'completed']),
+      JSON.stringify(seq(lc.events)));
+  }
+
+  {
+    // No greeting configured ⇒ no hook at all: a bot nobody asked to speak stays silent.
+    const lc = recorder();
+    let fireLeave: (a: { action: 'leave' }) => void = () => {};
+    const o = createOrchestrator(inv(), {
+      lifecycle: lc, join: mockJoin('admitted'), pipeline: noopPipeline(),
+      acts: noopActs((f) => { fireLeave = f; }), aloneness: noopAloneness(),
+    });
+    const runP = o.run();
+    setTimeout(() => fireLeave({ action: 'leave' }), 5);
+    const res = await runP;
+    check('greeting: absent hook is a no-op', res.exitCode === 0 && res.status === 'completed');
+  }
+
   if (failed) { console.error(`\n❌ orchestrator (L2): ${failed} check(s) FAILED.`); process.exit(1); }
   console.log('\n✅ orchestrator (L2): the meeting machine drives a schema-valid lifecycle.v1 sequence and routes transcript.v1 — offline, every port faked.');
 }

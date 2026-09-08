@@ -22,6 +22,7 @@
         "platform": { "$ref": "#/$defs/Platform" },
         "meetingUrl": { "type": ["string", "null"], "description": "null only for native-SDK zoom" },
         "botName": { "type": "string" },
+        "greeting": { "type": "string", "description": "message the bot posts into the meeting chat once admitted (e.g. announcing that it is taking notes); absent or empty means it says nothing, which is the default — a bot that speaks into a customer's meeting must be asked to" },
         "passcode": { "type": "string", "description": "meeting passcode (zoom passcode screen / jitsi room password); placeholder in goldens" },
         "nativeMeetingId": { "type": "string" },
         "token": { "type": "string", "description": "SECRET — MeetingToken; placeholder in goldens" },

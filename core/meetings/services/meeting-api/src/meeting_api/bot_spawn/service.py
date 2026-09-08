@@ -24,6 +24,7 @@ The flow (parent ``meetings.py`` lines ~1010-1403, reduced to the standard-bot b
 from __future__ import annotations
 
 import os
+import re
 import uuid
 from typing import Any, Optional
 
@@ -253,6 +254,54 @@ async def _terminalize_as_stopped(
                   span="bots.create", meeting_id=str(meeting_id), fields={"error": str(e)})
 
 
+# The in-meeting display name carries WHO owns the bot, so an operator watching the
+# participant list can tell one deployment's bots apart. The owner is identified by the
+# local-part of their verified email (the gateway injects `x-user-email`); the full address
+# is never shown. Toggle with VEXA_BOT_NAME_APPEND_OWNER (default on).
+_OWNER_SUFFIX_MAX = 32
+
+
+def _owner_username(owner_email: Optional[str]) -> Optional[str]:
+    """The safe local-part of an email for a meeting display name, or None."""
+    if not owner_email:
+        return None
+    local = owner_email.split("@", 1)[0].strip()
+    # Meeting clients render display names verbatim — keep it to plain identifier characters.
+    local = re.sub(r"[^A-Za-z0-9._-]", "", local)
+    return local[:_OWNER_SUFFIX_MAX] or None
+
+
+def _greeting() -> Optional[str]:
+    """The message the bot posts into the meeting chat once admitted (``VEXA_BOT_GREETING``).
+
+    Unset or blank ⇒ ``None`` ⇒ the bot says nothing. Off by default on purpose: a bot that writes
+    into a customer's meeting has to be asked to, and a deployment that wants the notice (in many
+    places, telling people a notetaker is present is the point) turns it on explicitly."""
+    value = (os.getenv("VEXA_BOT_GREETING") or "").strip()
+    return value or None
+
+
+def _display_bot_name(bot_name: Optional[str], owner_email: Optional[str]) -> str:
+    """Resolve the effective bot display name and tag it with the owner's username.
+
+    The base is the caller's `bot_name`, else DEFAULT_BOT_NAME, else a random VexaBot label.
+    The owner username is appended (once) so every spawn path — UI, API, calendar — is
+    attributable to a person, unless VEXA_BOT_NAME_APPEND_OWNER is set false.
+    """
+    base = bot_name or os.getenv("DEFAULT_BOT_NAME") or f"VexaBot-{uuid.uuid4().hex[:6]}"
+    if not env_flag("VEXA_BOT_NAME_APPEND_OWNER", default=True):
+        return base
+    username = _owner_username(owner_email)
+    if not username:
+        return base
+    # Idempotent + respects a caller who already named the bot after themselves: skip only when the
+    # username is a whole token of the base (a raw substring test would false-match short usernames).
+    tokens = re.split(r"[^A-Za-z0-9._-]+", base.lower())
+    if username.lower() in tokens:
+        return base
+    return f"{base} - {username}"
+
+
 async def request_bot(
     repo: MeetingRepo,
     runtime: RuntimeClient,
@@ -262,6 +311,7 @@ async def request_bot(
     platform: str,
     native_meeting_id: str,
     bot_name: Optional[str] = None,
+    owner_email: Optional[str] = None,
     passcode: Optional[str] = None,
     meeting_url: Optional[str] = None,
     language: Optional[str] = None,
@@ -581,7 +631,8 @@ async def request_bot(
         meeting_id=meeting_id,
         platform=platform,
         meeting_url=constructed_url,
-        bot_name=bot_name or (os.getenv("DEFAULT_BOT_NAME") or f"VexaBot-{uuid.uuid4().hex[:6]}"),
+        bot_name=_display_bot_name(bot_name, owner_email),
+        greeting=_greeting(),
         passcode=passcode,
         token=token,
         native_meeting_id=native_meeting_id,
