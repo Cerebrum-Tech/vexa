@@ -11,8 +11,11 @@ import { waitFor } from "@testing-library/react";
  *  addresses a file that does not exist. Google Meet codes survive such reshaping unchanged, which is why
  *  only Teams meetings lose their report — these tests hold both shapes.
  *
- *  Also covered: the bounded wait budget. The report is authored minutes after the stop, so the panel
- *  polls; when the budget runs out it says so instead of spinning forever. */
+ *  Also covered: the bounded wait budget. The report is authored MINUTES after the stop — a long
+ *  meeting is summarized in chunks and then written from those digests — so the panel polls fast at
+ *  first and then patiently, and when the budget runs out it reports NOT READY rather than FAILED.
+ *  The 90-second budget it replaced declared failure on essentially every real meeting, including
+ *  ones whose report landed correctly moments later. */
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -36,8 +39,10 @@ vi.mock("../../surfaces/workspaceApi", async (importOriginal) => ({
   readWorkspaceFile: vi.fn(async () => null),
 }));
 
-import { AutomaticMeetingRecap, MAX_ATTEMPTS, RETRY_DELAY_MS } from "../AutomaticMeetingRecap";
+import { AutomaticMeetingRecap, FAST_ATTEMPTS, MAX_ATTEMPTS, RETRY_DELAY_MS, SLOW_RETRY_DELAY_MS, retryDelayMs } from "../AutomaticMeetingRecap";
 import { MeetingSourceProvider, useMeeting, useMeetingDocs } from "../useMeeting";
+
+const SLOW_MS = SLOW_RETRY_DELAY_MS;
 import * as workspaceApi from "../../surfaces/workspaceApi";
 
 const TEAMS_NATIVE = "19:meeting_AbC-dEf_123@thread.v2";
@@ -147,7 +152,7 @@ describe("recap wait budget", () => {
   beforeEach(() => { vi.useFakeTimers(); });
   afterEach(() => { vi.useRealTimers(); });
 
-  it("polls the whole budget, then reports that no report was produced", async () => {
+  it("waits long enough for a report that takes minutes, then says NOT READY — not failed", async () => {
     meetingsState = [meetingRow({ id: "42", native: TEAMS_NATIVE, platform: "Microsoft Teams" })];
     vi.mocked(workspaceApi.readWorkspaceFile).mockResolvedValue(null);
 
@@ -157,16 +162,30 @@ describe("recap wait budget", () => {
     expect(container.textContent).toContain("Özet hazırlanıyor…");
 
     for (let attempt = 1; attempt < MAX_ATTEMPTS; attempt++) {
-      await act(async () => { await vi.advanceTimersByTimeAsync(RETRY_DELAY_MS); });
+      await act(async () => { await vi.advanceTimersByTimeAsync(retryDelayMs(attempt - 1)); });
       expect(vi.mocked(workspaceApi.readWorkspaceFile)).toHaveBeenCalledTimes(attempt + 1);
-      if (attempt < MAX_ATTEMPTS - 1) expect(container.querySelector("[role=alert]")).toBeNull();
     }
 
-    expect(container.querySelector("[role=alert]")?.textContent).toBe("Toplantı özeti oluşturulamadı.");
+    // NOT an alert, and not the word "failed": the copilot may still be writing, and on a long
+    // meeting it usually is.
+    expect(container.querySelector("[role=alert]")).toBeNull();
+    const status = container.querySelector("[role=status]")?.textContent ?? "";
+    expect(status).toContain("henüz hazır değil");
+    expect(status).not.toContain("oluşturulamadı");
     expect(container.textContent).not.toContain("Özet hazırlanıyor…");
-    // the budget is bounded: no further poll is scheduled after it is spent
-    await act(async () => { await vi.advanceTimersByTimeAsync(RETRY_DELAY_MS * 5); });
+    // the budget is still BOUNDED: no further poll is scheduled after it is spent
+    await act(async () => { await vi.advanceTimersByTimeAsync(SLOW_MS * 5); });
     expect(vi.mocked(workspaceApi.readWorkspaceFile)).toHaveBeenCalledTimes(MAX_ATTEMPTS);
+  });
+
+  it("the budget is measured in minutes, because that is how long the report takes", () => {
+    // The replaced budget was 90 s. A 77-minute meeting's report needs chunk summaries plus the
+    // write turn — minutes of model time — so a budget shorter than that only ever reported a lie.
+    let total = 0;
+    for (let i = 0; i < MAX_ATTEMPTS; i++) total += retryDelayMs(i);
+    expect(total).toBeGreaterThan(15 * 60_000);
+    expect(retryDelayMs(0)).toBe(RETRY_DELAY_MS);              // fast while a quick report is plausible
+    expect(retryDelayMs(FAST_ATTEMPTS)).toBeGreaterThan(RETRY_DELAY_MS);  // then patient
   });
 
   it("a file that is not the Turkish report keeps the panel waiting", async () => {

@@ -3,10 +3,15 @@
  *
  *  Replaces the native `datetime-local` input (tiny hit-targets, locale-hostile formatting) on the
  *  planned-meeting surfaces. One button shows the friendly value ("13 Tem Pzt · 10:00"); clicking
- *  opens a popover with quick-pick chips, a month grid, and a 15-minute time list. Emits an ISO
- *  string via `onChange` when BOTH halves are chosen (picking a day keeps the current time;
- *  picking a time keeps the current day). `onClear` (optional) renders a "Saati kaldır" action —
- *  clearing a planned meeting's time flips it back to `idle`.
+ *  opens a popover with quick-pick chips, a month grid, a TYPED time field and a 15-minute time
+ *  list. Emits an ISO string via `onChange` when BOTH halves are chosen (picking a day keeps the
+ *  current time; picking a time keeps the current day). `onClear` (optional) renders a
+ *  "Saati kaldır" action — clearing a planned meeting's time flips it back to `idle`.
+ *
+ *  The slot list is a CONVENIENCE, never the vocabulary: real meetings start at 17:35, and a picker
+ *  that can only express quarter-hours makes the user round their own calendar to fit the tool. The
+ *  typed field accepts any minute, so the list is there for the common case and never in the way of
+ *  the uncommon one.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -26,7 +31,44 @@ function sameDay(a: Date, b: Date): boolean {
 function atTime(day: Date, h: number, m: number): Date {
   const d = new Date(day); d.setHours(h, m, 0, 0); return d;
 }
-/** Round UP to the next half-hour boundary — the default for a fresh plan. */
+/** Parse a typed time into `{h, m}`, or `null` when it is not a time.
+ *
+ *  Deliberately forgiving about SEPARATOR and PADDING, strict about RANGE. People type `9:05`,
+ *  `09.05`, `0905` and `9` for the same instant, and rejecting any of those teaches them to distrust
+ *  the field; but `25:00` is not a lenient spelling of anything, so it is refused rather than
+ *  silently clamped to a time the user did not ask for.
+ *
+ *  A bare number is read the way a person means it: `9` is 09:00, `930` is 09:30, `1735` is 17:35.
+ */
+export function parseTimeInput(raw: string): { h: number; m: number } | null {
+  const text = (raw ?? "").trim();
+  if (!text) return null;
+  let h: number;
+  let m: number;
+  const separated = text.match(/^(\d{1,2})\s*[:.,\s]\s*(\d{1,2})$/);
+  if (separated) {
+    h = Number(separated[1]);
+    m = Number(separated[2]);
+  } else if (/^\d{1,2}$/.test(text)) {
+    h = Number(text);
+    m = 0;
+  } else if (/^\d{3,4}$/.test(text)) {
+    h = Number(text.slice(0, text.length - 2));
+    m = Number(text.slice(-2));
+  } else {
+    return null;
+  }
+  if (!Number.isInteger(h) || !Number.isInteger(m)) return null;
+  if (h < 0 || h > 23 || m < 0 || m > 59) return null;
+  return { h, m };
+}
+
+/** `HH:MM` for the typed field. */
+export function formatTimeInput(d: Date): string {
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+/** Round UP to the next quarter-hour boundary — the default for a fresh plan. */
 export function nextHalfHour(from = new Date()): Date {
   const d = new Date(from); d.setSeconds(0, 0);
   d.setMinutes(d.getMinutes() + (15 - (d.getMinutes() % 15)));
@@ -54,6 +96,11 @@ export function DateTimePicker({ value, onChange, onClear, disabled, placeholder
   const [viewMonth, setViewMonth] = useState(() => selected ?? new Date());
   const ref = useRef<HTMLDivElement>(null);
   const timeListRef = useRef<HTMLDivElement>(null);
+  // The typed field is a DRAFT until it parses: we never rewrite what someone is halfway through
+  // typing ("17:" is a legal keystroke on the way to "17:35"), and we never commit a time they did
+  // not finish expressing. `null` error means "nothing typed yet or it parsed".
+  const [timeText, setTimeText] = useState("");
+  const [timeBad, setTimeBad] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -64,6 +111,14 @@ export function DateTimePicker({ value, onChange, onClear, disabled, placeholder
   }, [open, selected]);
 
   // scroll the time list to the selected (or working-hours) slot when the popover opens
+  // Re-seed the draft from the real value each time the popover opens, so it always shows what is
+  // actually set rather than the last thing anyone typed into it.
+  useEffect(() => {
+    if (!open) return;
+    setTimeText(selected ? formatTimeInput(selected) : "");
+    setTimeBad(false);
+  }, [open, selected]);
+
   useEffect(() => {
     if (!open || !timeListRef.current) return;
     const idx = selected ? selected.getHours() * 4 + Math.floor(selected.getMinutes() / 15) : 36; // 09:00
@@ -73,6 +128,19 @@ export function DateTimePicker({ value, onChange, onClear, disabled, placeholder
   const base = selected ?? nextHalfHour();
   const pickDay = (day: Date) => onChange(atTime(day, base.getHours(), base.getMinutes()).toISOString());
   const pickTime = (h: number, m: number) => onChange(atTime(base, h, m).toISOString());
+  /** Commit the typed field. An empty field is not an error — it is simply nothing to commit, so
+   *  the existing time stands. Returns whether the popover may close. */
+  const commitTyped = (): boolean => {
+    if (!timeText.trim()) { setTimeBad(false); return true; }
+    const parsed = parseTimeInput(timeText);
+    if (!parsed) { setTimeBad(true); return false; }
+    setTimeBad(false);
+    // Blur fires every time the popover closes, so committing unconditionally would PATCH the
+    // meeting on every glance at the picker. Only a real change is a change.
+    if (selected && selected.getHours() === parsed.h && selected.getMinutes() === parsed.m) return true;
+    pickTime(parsed.h, parsed.m);
+    return true;
+  };
 
   // month grid (Monday-first)
   const first = new Date(viewMonth.getFullYear(), viewMonth.getMonth(), 1);
@@ -157,8 +225,37 @@ export function DateTimePicker({ value, onChange, onClear, disabled, placeholder
                 })}
               </div>
             </div>
-            {/* time slots */}
-            <div ref={timeListRef} style={{ flex: 1, maxHeight: 208, overflowY: "auto", borderLeft: "1px solid var(--line)", paddingLeft: 10 }}>
+            {/* time: a typed field over the slot list. The field is outside the scroll container so
+                it stays reachable however far down the list you are. */}
+            <div style={{ flex: 1, display: "flex", flexDirection: "column", borderLeft: "1px solid var(--line)", paddingLeft: 10, minWidth: 0 }}>
+              <label style={{ fontSize: 10.5, color: "var(--t3)", textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 4 }}>
+                Saat
+              </label>
+              <input
+                value={timeText}
+                inputMode="numeric"
+                placeholder="ss:dd"
+                aria-label="Saati yazın"
+                aria-invalid={timeBad || undefined}
+                onChange={(e) => { setTimeText(e.target.value); setTimeBad(false); }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") { e.preventDefault(); if (commitTyped()) setOpen(false); }
+                  if (e.key === "Escape") { setOpen(false); }
+                }}
+                onBlur={() => commitTyped()}
+                style={{
+                  width: "100%", boxSizing: "border-box", marginBottom: 6, padding: "5px 8px",
+                  fontSize: 12.5, fontFamily: "var(--mono)", textAlign: "center",
+                  background: "var(--panel2)", color: "var(--t1)", borderRadius: 6,
+                  border: `1px solid ${timeBad ? "var(--danger)" : "var(--line)"}`, outline: "none",
+                }}
+              />
+              {timeBad && (
+                <div role="alert" style={{ fontSize: 10.5, color: "var(--danger)", marginBottom: 6, lineHeight: 1.35 }}>
+                  Geçerli bir saat yazın (örn. 17:35)
+                </div>
+              )}
+              <div ref={timeListRef} style={{ flex: 1, maxHeight: 208, overflowY: "auto" }}>
               {Array.from({ length: 96 }).map((_, i) => {
                 const h = Math.floor(i / 4), m = (i % 4) * 15;
                 const label = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
@@ -179,6 +276,7 @@ export function DateTimePicker({ value, onChange, onClear, disabled, placeholder
                   </button>
                 );
               })}
+              </div>
             </div>
           </div>
           {onClear && (
