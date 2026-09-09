@@ -641,6 +641,15 @@
    ]
   },
   {
+   "key": "VEXA_TRANSCRIPTION_LANGUAGE",
+   "class": "defaulted",
+   "default": "(unset — the STT service auto-detects per window)",
+   "description": "Language code (whisper set, e.g. `tr`, `en`) every transcription request is forced to when the caller names none — bot spawns on every path (UI, API, calendar auto-join) and uploaded recordings alike. A single-language deployment sets it so one noisy window cannot switch the meeting's language",
+   "targets": [
+    "compose"
+   ]
+  },
+  {
    "key": "VEXA_UPLOAD_SPEAKER_LABEL",
    "class": "defaulted",
    "default": "Konuşmacı",

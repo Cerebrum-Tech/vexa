@@ -326,6 +326,9 @@ services:
       # Message the bot posts into the meeting chat when it joins. Empty = says nothing.
       - VEXA_BOT_GREETING=${VEXA_BOT_GREETING:-}
       - VEXA_UPLOAD_MAX_MB=${VEXA_UPLOAD_MAX_MB:-1024}
+      # Language whisper is forced to on every transcription request (bot + upload) when the
+      # caller names none. Empty = auto-detect per window.
+      - VEXA_TRANSCRIPTION_LANGUAGE=${VEXA_TRANSCRIPTION_LANGUAGE:-}
       - VEXA_UPLOAD_SPEAKER_LABEL=${VEXA_UPLOAD_SPEAKER_LABEL:-Konuşmacı}
       # Windows transcribed at once. 1 = serial (slower, keeps whisper's cross-window prompt).
       - VEXA_UPLOAD_CONCURRENCY=${VEXA_UPLOAD_CONCURRENCY:-4}

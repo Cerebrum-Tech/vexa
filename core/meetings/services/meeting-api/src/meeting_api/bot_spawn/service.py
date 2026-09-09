@@ -281,6 +281,20 @@ def _greeting() -> Optional[str]:
     return value or None
 
 
+def _transcription_language(requested: Optional[str] = None) -> Optional[str]:
+    """The language whisper is told to transcribe in (``VEXA_TRANSCRIPTION_LANGUAGE``).
+
+    The caller's own ``language`` wins; otherwise the deployment's default; otherwise ``None`` and
+    the STT service auto-detects per window. A single-language deployment sets this so every spawn
+    path — UI, API, calendar auto-join — forces the code instead of letting a noisy first window
+    decide the language of the whole meeting."""
+    value = (requested or "").strip()
+    if value:
+        return value
+    value = (os.getenv("VEXA_TRANSCRIPTION_LANGUAGE") or "").strip()
+    return value or None
+
+
 def _display_bot_name(bot_name: Optional[str], owner_email: Optional[str]) -> str:
     """Resolve the effective bot display name and tag it with the owner's username.
 
@@ -637,7 +651,7 @@ async def request_bot(
         token=token,
         native_meeting_id=native_meeting_id,
         connection_id=connection_id,
-        language=language,
+        language=_transcription_language(language),
         task=task,
         transcription_tier=transcription_tier,
         redis_url=redis_url,

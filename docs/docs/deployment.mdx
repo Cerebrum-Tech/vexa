@@ -61,7 +61,9 @@ absent).
 - **Transcription (STT)** — `TRANSCRIPTION_SERVICE_URL` / `TRANSCRIPTION_SERVICE_TOKEN`. Unset →
   default `POST /bots` answers **503** (refuse loud). Capture-only: set `TRANSCRIBE_ENABLED=false`
   or pass `{"transcribe_enabled": false}` on the spawn. See
-  [Configuration](/configuration#transcription-stt).
+  [Configuration](/configuration#transcription-stt). `VEXA_TRANSCRIPTION_LANGUAGE` (unset =
+  auto-detect) pins the language every request is forced to — bots on every spawn path and
+  uploads alike — when the caller names none; a single-language deployment sets it (`tr`).
 - **Media upload** — `VEXA_UPLOAD_MAX_MB` (default 1024 = 1 GB; match your reverse proxy's
   `client_max_body_size`) / `VEXA_UPLOAD_SPEAKER_LABEL` (default
   `Konuşmacı`). A recording nobody sent a bot to becomes a meeting through `POST /uploads`; it uses

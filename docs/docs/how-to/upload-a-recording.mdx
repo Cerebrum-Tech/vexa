@@ -52,7 +52,7 @@ takes minutes, not milliseconds.
 |---|---|---|
 | `file` | required | The recording. Video is accepted and its audio track is used. |
 | `title` | optional | Defaults to the filename. |
-| `language` | optional | ISO code passed to the transcriber (`tr`, `en`, …). Omit to auto-detect. |
+| `language` | optional | ISO code passed to the transcriber (`tr`, `en`, …). Omit to use `VEXA_TRANSCRIPTION_LANGUAGE`, else auto-detect. |
 | `speaker` | optional | The speaker label (see [Speakers](#speakers)). Defaults to `VEXA_UPLOAD_SPEAKER_LABEL`. |
 
 ### Poll the progress
@@ -150,6 +150,7 @@ Tuning (all optional, on meeting-api):
 |---|---|---|
 | `VEXA_UPLOAD_MAX_MB` | `1024` | per-file ceiling (1 GB) |
 | `VEXA_UPLOAD_SPEAKER_LABEL` | `Konuşmacı` | the single speaker label |
+| `VEXA_TRANSCRIPTION_LANGUAGE` | unset | language forced on every window when the request names none (shared with bot spawns); unset = auto-detect |
 | `VEXA_UPLOAD_WINDOW_S` | `300` | nominal transcription window; the real cut moves to the nearest quiet point |
 | `VEXA_UPLOAD_KEEP_SOURCE` | `false` | keep the source recording after transcription |
 | `VEXA_UPLOAD_MAX_ATTEMPTS` | `3` | before a job that keeps killing its worker is failed for good |

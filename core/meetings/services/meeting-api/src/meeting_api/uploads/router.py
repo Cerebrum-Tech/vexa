@@ -120,6 +120,7 @@ def build_router(
     *,
     max_bytes: int = 1024 * 1024 * 1024,
     default_speaker: str = "Konuşmacı",
+    default_language: Optional[str] = None,
     stt_configured: Optional[Callable[[], bool]] = None,
     spool_dir: Optional[str] = None,
     log_event: Callable[..., dict] = _default_log_event,
@@ -175,7 +176,7 @@ def build_router(
         upload = {
             "id": native, "filename": filename, "content_type": file.content_type,
             "bytes": size, "object_key": object_key,
-            "language": (language or "").strip() or None,
+            "language": (language or "").strip() or default_language,
             "speaker": (speaker or "").strip() or default_speaker,
             "state": "queued", "queued_at": _now_iso(),
             "duration_seconds": None, "transcribed_seconds": 0.0, "segments": 0, "error": None,

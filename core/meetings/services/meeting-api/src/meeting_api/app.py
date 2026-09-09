@@ -326,6 +326,7 @@ def create_app(
             upload_store, upload_media_store, upload_queue,
             max_bytes=upload_max_bytes if upload_max_bytes is not None else _upload_max_bytes(),
             default_speaker=upload_default_speaker or _upload_default_speaker(),
+            default_language=_transcription_language(),
             stt_configured=_stt_configured,
         )
     )
@@ -1028,6 +1029,15 @@ def _upload_max_bytes() -> int:
     except ValueError:
         mb = 1024
     return max(1, mb) * 1024 * 1024
+
+
+def _transcription_language() -> Optional[str]:
+    """``VEXA_TRANSCRIPTION_LANGUAGE`` — the code whisper is forced to when an upload names none.
+    The same key the bot spawn reads, so a bot-attended meeting and an uploaded recording of the
+    same deployment are transcribed in the same language. Unset ⇒ per-window auto-detect."""
+    import os
+
+    return (os.getenv("VEXA_TRANSCRIPTION_LANGUAGE") or "").strip() or None
 
 
 def _upload_default_speaker() -> str:

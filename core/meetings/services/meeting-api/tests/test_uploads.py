@@ -169,8 +169,10 @@ async def test_job_carries_the_previous_windows_tail_as_context(store, media_sto
     row = await seed(store, media_store)
     tx = ScriptedTranscriber([[{"start": 0.0, "end": 2.0, "text": "önceki cümlenin sonu"}],
                              [{"start": 0.0, "end": 2.0, "text": "devamı"}]])
+    # The tail is carried only on the serial lane (concurrency=1): parallel windows have no
+    # "previous" result to hand on, and the service drops the prompt there deliberately.
     await run_upload_job(job_for(row), store=store, media_store=media_store, transcriber=tx,
-                         bus=RecordingBus(), window_s=6.0, decode=fake_decoder(12.0))
+                         bus=RecordingBus(), window_s=6.0, decode=fake_decoder(12.0), concurrency=1)
     assert tx.calls[0]["prompt"] is None                       # nothing precedes the first window
     assert tx.calls[1]["prompt"] == "önceki cümlenin sonu"     # continuity across the cut
     assert all(c["language"] == "tr" for c in tx.calls)
