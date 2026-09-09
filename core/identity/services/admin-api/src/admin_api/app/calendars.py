@@ -29,10 +29,21 @@ def validate_ics_url(value: str) -> str:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail="ics_url is required")
     if len(url) > 2048:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail="ics_url too long")
+    # Outlook and Apple hand out the feed as webcal:// — the same https resource under the
+    # subscribe-me scheme. Accept it and store the fetchable form.
+    lowered = url.lower()
+    if lowered.startswith("webcal://"):
+        url = "https://" + url[len("webcal://"):]
+    elif lowered.startswith("webcals://"):
+        url = "https://" + url[len("webcals://"):]
     parsed = urlparse(url)
     if parsed.scheme not in ("http", "https") or not parsed.hostname:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
-                            detail="ics_url must be an http(s) URL")
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=("Takvim adresi https:// (veya webcal://) ile başlayan bir ICS bağlantısı olmalı — "
+                    "Outlook: Ayarlar → Takvim → Paylaşılan takvimler → Takvim yayımla → ICS bağlantısı; "
+                    "Google: Ayarlar → Takvimi entegre et → iCal biçimindeki gizli adres"),
+        )
     if "/calendar/embed" in (parsed.path or "").lower():
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY,

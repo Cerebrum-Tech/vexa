@@ -211,7 +211,7 @@ function AddCalendarForm({ busy, onAdd, onCancel }: {
       <label style={labelled}>
         <span style={labelCol}>Gizli ICS</span>
         <input value={icsUrl} onChange={(e) => setIcsUrl(e.target.value)} type="password" autoComplete="off"
-          placeholder="https://calendar.google.com/…/basic.ics" style={field} aria-label="Gizli ICS adresi"
+          placeholder="https://outlook.office365.com/owa/calendar/…/calendar.ics" style={field} aria-label="Gizli ICS adresi"
           onKeyDown={(e) => { if (e.key === "Enter" && ready && !busy) onAdd({ name: name.trim(), ics_url: icsUrl.trim(), auto_join: autoJoin, bot_name: botName.trim() || undefined }); }} />
       </label>
       <label style={labelled}>

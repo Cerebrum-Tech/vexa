@@ -43,6 +43,11 @@ export async function POST(req: Request): Promise<NextResponse> {
   form.append("response_format", "verbose_json");
   form.append("timestamp_granularities", "word");
   if (prompt) form.append("prompt", prompt.slice(0, 800));
+  // The deployment's transcription language — the same key meeting-api forces on bot and
+  // upload requests, so dictation is decoded in the language the meetings are. A short clip
+  // is exactly where auto-detect guesses worst; unset → the service auto-detects.
+  const language = (process.env.VEXA_TRANSCRIPTION_LANGUAGE ?? "").trim();
+  if (language) form.append("language", language);
 
   const headers: Record<string, string> = {};
   const token = process.env.TRANSCRIPTION_SERVICE_TOKEN;

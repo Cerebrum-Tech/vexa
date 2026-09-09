@@ -663,13 +663,14 @@ function CalendarSyncButton({ variant = "icon" }: { variant?: "icon" | "row" }) 
           ) : (
             <>
               <div style={{ fontSize: 11.5, color: "var(--t3)", lineHeight: 1.5 }}>
-                Takviminizin <b>gizli ICS adresini</b> yapıştırın (Google Calendar → Ayarlar → &ldquo;iCal biçiminde gizli adres&rdquo;).
+                Takviminizin <b>gizli ICS adresini</b> yapıştırın. Outlook: Ayarlar → Takvim → Paylaşılan takvimler → Takvim yayımla → <b>ICS</b> bağlantısı.
+                Google Calendar: Ayarlar → Takvimi entegre et → &ldquo;iCal biçiminde gizli adres&rdquo;.
                 Meet/Zoom/Teams bağlantısı olan yaklaşan toplantılar Yaklaşan bölümünde görünür ve başlangıçta otomatik katılır.
               </div>
               <input value={name} onChange={(e) => setName(e.target.value)} disabled={busy} maxLength={100}
                 aria-label="Takvim adı" placeholder="Takvim adı"
                 style={{ fontSize: 11.5, padding: "5px 7px", background: "var(--panel2)", border: "1px solid var(--line)", borderRadius: 6, color: "var(--t1)", outline: "none" }} />
-              <input value={url} placeholder="https://calendar.google.com/…/basic.ics" disabled={busy}
+              <input value={url} placeholder="https://outlook.office365.com/owa/calendar/…/calendar.ics" disabled={busy}
                 type="password" autoComplete="off" aria-label="Gizli ICS adresi"
                 onChange={(e) => setUrl(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && url.trim()) void connectFirst(); }}
                 style={{ fontSize: 11.5, padding: "5px 7px", background: "var(--panel2)", border: "1px solid var(--line)", borderRadius: 6, color: "var(--t1)", outline: "none" }} />

@@ -527,6 +527,8 @@ services:
       # server-side. Empty → the mic button reports "not configured" instead of failing silently.
       # MODEL rides along so dictation hits a validating backend with the same id as the bots.
       - TRANSCRIPTION_SERVICE_URL=${TRANSCRIPTION_SERVICE_URL:-}
+      # Language dictation is decoded in (same key meeting-api forces on bot + upload requests).
+      - VEXA_TRANSCRIPTION_LANGUAGE=${VEXA_TRANSCRIPTION_LANGUAGE:-}
       - TRANSCRIPTION_SERVICE_TOKEN=${TRANSCRIPTION_SERVICE_TOKEN:-}
       - TRANSCRIPTION_MODEL=${TRANSCRIPTION_MODEL:-}
       - NEXTAUTH_SECRET=${NEXTAUTH_SECRET:-dev-nextauth-secret}
