@@ -8,3 +8,13 @@ Beni takip etmeyi unutmayın
 İzlediğiniz için teşekkürler
 Bir sonraki videoda görüşmek üzere
 Kanalıma abone olmayı unutmayın
+# Subtitle credit ("Altyazı M.K." — a subtitler's initials from the training data). Emitted on
+# silence and faint audio in Turkish meetings; never something a person says.
+Altyazı M.K.
+Altyazı M.K
+Altyazı M. K.
+Altyazı MK
+Altyazı: M.K.
+Alt yazı M.K.
+Altyazı M.K. tarafından
+Altyazı çevirmeni M.K.

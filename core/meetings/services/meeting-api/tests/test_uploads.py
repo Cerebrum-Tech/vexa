@@ -105,6 +105,20 @@ def test_to_segments_places_a_window_on_the_recordings_timeline():
     assert out[0]["absolute_start_time"] == "2026-09-08T10:10:01.500000Z"
 
 
+def test_to_segments_drops_whispers_turkish_silence_phrases():
+    from datetime import datetime, timezone
+    from meeting_api.uploads.service import is_hallucination
+    start = datetime(2026, 9, 1, 12, 0, tzinfo=timezone.utc)
+    raw = [{"start": 0.0, "end": 6.7, "text": " Altyazı M.K. "},
+           {"start": 7.0, "end": 8.0, "text": "altyazı m.k"},
+           {"start": 9.0, "end": 12.0, "text": "İzlediğiniz için teşekkürler."},
+           {"start": 13.0, "end": 16.0, "text": "altyazı dosyasını yarın gönderirim"}]
+    segs = to_segments(raw, offset_s=0.0, native="up-1", speaker="Konuşmacı", speaker_key="upload-1",
+                       language="tr", session_start=start)
+    assert [s["text"] for s in segs] == ["altyazı dosyasını yarın gönderirim"]
+    assert is_hallucination("Altyazı M.K.") and not is_hallucination("Bu altyazı yanlış")
+
+
 def test_to_segments_drops_rows_the_collector_would_silently_discard():
     from datetime import datetime, timezone
 

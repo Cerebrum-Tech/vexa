@@ -36,6 +36,11 @@ check('ja: "ご視聴ありがとうございました" filtered', isHallucinati
 check('ja: "次の動画でお会いしましょう" filtered', isHallucination("次の動画でお会いしましょう") === true);
 check('tr: "Abone olmayı unutmayın" filtered', isHallucination("Abone olmayı unutmayın") === true);
 check('tr: case/punctuation-insensitive ("abone olmayı unutmayın.")', isHallucination("abone olmayı unutmayın.") === true);
+// The Turkish subtitle credit whisper emits on silence — seen on every Teams meeting of a customer.
+check('tr: "Altyazı M.K." filtered', isHallucination("Altyazı M.K.") === true);
+check('tr: "altyazı m.k" (case, trailing dot) filtered', isHallucination("altyazı m.k") === true);
+check('tr: "Altyazı M.K. tarafından" filtered', isHallucination("Altyazı M.K. tarafından") === true);
+check("tr: real speech mentioning altyazı kept", isHallucination("altyazı dosyasını yarın gönderirim") === false);
 check("real Spanish speech still kept (no over-filter)",
   isHallucination("empecemos con el bounded context de facturacion") === false);
 

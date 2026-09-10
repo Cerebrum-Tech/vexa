@@ -57,6 +57,29 @@ def _noop_log(*_args, **_kwargs) -> dict:
     return {}
 
 
+#: Whisper's known Turkish hallucinations — the subtitle credit and YouTube-outro boilerplate it
+#: emits on silence. The bot filters the same phrases through the gmeet-pipeline phrase lists
+#: (``hallucinations/tr.txt``, the canonical list); an uploaded recording never passes through that
+#: pipeline, so its producer holds the verified floor too. Matched case-insensitively after trim,
+#: trailing punctuation stripped.
+HALLUCINATIONS: frozenset[str] = frozenset(t.casefold() for t in (
+    "Altyazı M.K.", "Altyazı M.K", "Altyazı M. K.", "Altyazı MK", "Altyazı: M.K.", "Alt yazı M.K.",
+    "Altyazı M.K. tarafından", "Altyazı çevirmeni M.K.",
+    "Abone olmayı unutmayın", "Abone olmayı unutmayınız", "Beni takip etmeyi unutmayın",
+    "İzlediğiniz için teşekkür ederim", "İzlediğiniz için teşekkürler",
+    "Bir sonraki videoda görüşmek üzere", "Kanalıma abone olmayı unutmayın",
+))
+
+
+def is_hallucination(text: str) -> bool:
+    """True when ``text`` is one of whisper's known silence phrases, not something a person said."""
+    t = text.strip().casefold()
+    if t in HALLUCINATIONS:
+        return True
+    stripped = t.rstrip(".!?… ")
+    return stripped in HALLUCINATIONS or (stripped + ".") in HALLUCINATIONS
+
+
 def to_segments(
     raw: list, *, offset_s: float, native: str, speaker: str, speaker_key: str,
     language: Optional[str], session_start: datetime,
@@ -68,7 +91,8 @@ def to_segments(
     ``{session_uid}:{speaker_key}:{startMs}`` form, which is what makes a re-transcribed window
     overwrite its own rows instead of duplicating them.
 
-    Rows whisper emits with no text, or with an end at or before their start, are DROPPED here
+    Rows whisper emits with no text, with a known hallucination phrase (``HALLUCINATIONS``), or
+    with an end at or before their start, are DROPPED here
     rather than downstream: the collector would silently discard them (``ingest._coerce_segment``),
     and a segment count that counts rows nobody stores is a lie on the progress bar.
     """
@@ -77,7 +101,7 @@ def to_segments(
         if not isinstance(row, dict):
             continue
         text = (row.get("text") or "").strip()
-        if not text:
+        if not text or is_hallucination(text):
             continue
         try:
             start = float(row["start"]) + offset_s
