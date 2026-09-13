@@ -10,6 +10,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { processedNotesOf, mergeNotesById, fetchDurableTranscript } from "../liveMeetings";
 import fixture from "./fixtures/TranscriptResponse.processedViews.json";
+import { buildProcessedNotes } from "../../canvas/notes";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -77,6 +78,16 @@ describe("mergeNotesById", () => {
 });
 
 describe("fetchDurableTranscript", () => {
+  it("preserves segment identity so corrected text replaces raw text after reload", async () => {
+    const payload = { segments: [{ segment_id: "seg-1", speaker: "Ayşe", text: "ham metin", start: 12 }],
+      data: { processed: { views: [{ id: "copilot-notes", doc: { notes: [{ id: "seg-1", speaker: "Ayşe", text: "Düzeltilmiş metin" }] } }] } } };
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(payload), { status: 200 })));
+    const { lines, notes } = await fetchDurableTranscript("42");
+    expect(lines[0]).toMatchObject({ id: "seg-1", text: "ham metin" });
+    const rendered = buildProcessedNotes(notes, lines.map((line) => ({ ...line, ts: line.t })), []);
+    expect(rendered).toHaveLength(1);
+    expect(rendered[0].text).toBe("Düzeltilmiş metin");
+  });
   it("returns transcript lines AND hydrated processed notes from one GET", async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify(fixture), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);

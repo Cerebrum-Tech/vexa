@@ -40,7 +40,7 @@ describe("MeetingNotFound — the clean dead end", () => {
 
   it("offers a way out when one is wired", () => {
     render(<MeetingNotFound meetingId="9999" onOpenToday={() => {}} />);
-    expect(screen.getByRole("button", { name: "Bugün’ü aç" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Toplantıları aç" })).toBeTruthy();
   });
 
   it("an id-less route still renders an answer, not an empty shell", () => {

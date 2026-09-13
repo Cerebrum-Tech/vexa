@@ -104,14 +104,14 @@ function makeActions(layout?: LayoutService): HarnessActions {
     research(entity) {
       postMeetingTurn(researchPrompt(entity), "meeting/research");
     },
-    openDoc(path) {
+    openDoc(path, workspace) {
       const safePath = String(path ?? "").trim();
       if (!safePath) return;
       layout?.openTab({
-        id: `doc:${safePath}`,
+        id: workspace ? `doc:${workspace}:${safePath}` : `doc:${safePath}`,
         title: baseName(safePath),
         kind: "doc",
-        params: { path: safePath },
+        params: { path: safePath, ...(workspace ? { slug: workspace } : {}) },
         context: null,
       });
     },

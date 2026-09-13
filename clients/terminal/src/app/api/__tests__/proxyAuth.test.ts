@@ -131,3 +131,27 @@ describe("catch-all proxy — PATCH and PUT verbs forward (regression: handler e
     expect(seen.url).toContain("/meetings/google_meet/abc/intent");
   });
 });
+
+
+describe("catch-all proxy — explicit summary edits", () => {
+  it.each([200, 409])("forwards canonical scope and revision to agent-api and preserves status %s", async (status) => {
+    jar.set("vexa-token", "summary-owner-token");
+    const body = JSON.stringify({ workspace: "owner-workspace", path: "/meetings/run/report.md", expected_revision: "report-sha256", summary: "Düzenlenen özet." });
+    const responseBody = status === 200
+      ? { meeting_id: 42, workspace: "owner-workspace", path: "/meetings/run/report.md", revision: "next-sha256", content: "committed report" }
+      : { detail: "Report revision changed" };
+    const upstream = vi.fn(async () => new Response(JSON.stringify(responseBody), { status, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", upstream);
+
+    const response = await catchAllPatch(makeReqM("PATCH", body), {
+      params: Promise.resolve({ path: ["meeting", "42", "summary"] }),
+    });
+
+    expect(upstream).toHaveBeenCalledExactlyOnceWith(expect.stringMatching(/\/agent\/meeting\/42\/summary$/), {
+      method: "PATCH", cache: "no-store", body,
+      headers: { "X-API-Key": "summary-owner-token", "Content-Type": "application/json" },
+    });
+    expect(response.status).toBe(status);
+    expect(await response.json()).toEqual(responseBody);
+  });
+});

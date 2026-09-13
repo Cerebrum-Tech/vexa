@@ -11,6 +11,7 @@
 import { NextResponse } from "next/server";
 import { resolveApiKey } from "../proxyAuth";
 import { sttEndpoint } from "./endpoint";
+import { lowConfidence, spreadWords, sttResponseFormatFor, wavSeconds } from "./words";
 
 export const runtime = "nodejs";
 
@@ -39,9 +40,14 @@ export async function POST(req: Request): Promise<NextResponse> {
   form.append("file", new Blob([wav], { type: "audio/wav" }), "dictation.wav");
   // The deployment's STT model id (validating backends reject unknown ids) — same env the
   // meeting pipeline's invocation carries; unset → whisper-1.
-  form.append("model", process.env.TRANSCRIPTION_MODEL || "whisper-1");
-  form.append("response_format", "verbose_json");
-  form.append("timestamp_granularities", "word");
+  const model = process.env.TRANSCRIPTION_MODEL || "whisper-1";
+  const responseFormat = sttResponseFormatFor(model);
+  form.append("model", model);
+  form.append("response_format", responseFormat);
+  // Word times are a Whisper-only request; the gpt-4o-transcribe family rejects it.
+  if (responseFormat === "verbose_json") form.append("timestamp_granularities", "word");
+  // The family's only confidence signal — a low mean means noise the model narrated, not speech.
+  if (responseFormat === "json") form.append("include[]", "logprobs");
   if (prompt) form.append("prompt", prompt.slice(0, 800));
   // The deployment's transcription language — the same key meeting-api forces on bot and
   // upload requests, so dictation is decoded in the language the meetings are. A short clip
@@ -59,11 +65,15 @@ export async function POST(req: Request): Promise<NextResponse> {
       const detail = await r.text().catch(() => "");
       return NextResponse.json({ error: `Transkripsiyon tamamlanamadı (${r.status}).`, detail: detail.slice(0, 300) }, { status: 502 });
     }
-    const data = (await r.json()) as { text?: string; segments?: UpstreamSegment[] };
-    const words = (data.segments ?? []).flatMap((s) => s.words ?? [])
+    const data = (await r.json()) as { text?: string; segments?: UpstreamSegment[]; logprobs?: { logprob?: number }[] };
+    const text = lowConfidence(data.logprobs) ? "" : (data.text ?? "").trim();
+    const upstreamWords = (data.segments ?? []).flatMap((s) => s.words ?? [])
       .filter((w) => typeof w.word === "string")
       .map((w) => ({ word: w.word as string, start: w.start ?? 0, end: w.end ?? 0 }));
-    return NextResponse.json({ text: (data.text ?? "").trim(), words });
+    // A text-only reply still has to drive the composer's confirm/trim loop: spread the words
+    // over the window that was actually submitted (its length is in the WAV header).
+    const words = upstreamWords.length ? upstreamWords : spreadWords(text, wavSeconds(wav));
+    return NextResponse.json({ text, words });
   } catch (err) {
     const timeout = err instanceof Error && err.name === "TimeoutError";
     return NextResponse.json({ error: timeout ? "Transkripsiyon zaman aşımına uğradı." : "Transkripsiyon hizmetine ulaşılamadı." }, { status: 502 });

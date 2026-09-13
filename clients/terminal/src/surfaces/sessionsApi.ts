@@ -23,3 +23,12 @@ export async function sessionHistory(session: string): Promise<SessionHistory> {
   const data = await getJson<{ turns?: SessionHistory["turns"] }>(`/api/sessions/${encodeURIComponent(session)}/history`);
   return { turns: data.turns ?? [] };
 }
+
+/** Stable browser identity; authorization remains the gateway's authenticated subject.
+ * Canonical row IDs distinguish recurring runs. Hex encoding keeps each part path-safe
+ * and unambiguous without persisting an identity mapping in browser storage. */
+export function meetingConversationSession(subject: string, meetingRowId: string): string {
+  if (!subject.trim() || !meetingRowId.trim()) throw new Error("A user and canonical meeting row are required");
+  const hex = (value: string) => Array.from(new TextEncoder().encode(value), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return `meeting-${hex(subject)}-${hex(meetingRowId)}`;
+}

@@ -12,6 +12,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { refreshMeetings } from "./liveMeetings";
+import { Upload } from "lucide-react";
 
 /** What the file picker offers.
  *
@@ -76,7 +77,7 @@ function humanDuration(seconds: number | null | undefined): string {
   return m < 60 ? `${m} dk` : `${Math.floor(m / 60)} sa ${m % 60} dk`;
 }
 
-export function UploadRecordingButton() {
+export function UploadRecordingButton({ onOpen }: { onOpen?: (meetingId: number) => void } = {}) {
   const fileRef = useRef<HTMLInputElement | null>(null);
   const [phase, setPhase] = useState<UploadPhase>("idle");
   const [sentPct, setSentPct] = useState(0);
@@ -146,16 +147,15 @@ export function UploadRecordingButton() {
   const busy = phase === "uploading" || phase === "transcribing";
 
   return (
-    <div style={{ marginBottom: 2 }}>
-      <input ref={fileRef} type="file" accept={ACCEPTED} style={{ display: "none" }}
+    <div className="recording-upload" style={{ minWidth: 0, maxWidth: 320 }}>
+      <input ref={fileRef} type="file" aria-label="Toplantı kaydı seç" accept={ACCEPTED} style={{ display: "none" }}
         onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) send(f); }} />
-      <button onClick={() => fileRef.current?.click()} disabled={busy}
+      <button type="button" className="secondary-button" onClick={() => fileRef.current?.click()} disabled={busy}
         title="Bir toplantı kaydını (ses veya video) yükleyip transkriptini ve raporunu çıkarın"
-        style={{ display: "block", width: "100%", textAlign: "left", background: "transparent", border: "1px dashed var(--line2)", color: busy ? "var(--t3)" : "var(--t2)", borderRadius: 7, padding: "6px 9px", fontSize: 12, cursor: busy ? "default" : "pointer" }}
-        onMouseEnter={(e) => { if (!busy) e.currentTarget.style.background = "var(--panel2)"; }}
-        onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}>
-        ⤒ Kayıt yükle
+        >
+        <Upload size={17} aria-hidden="true" /> Kayıt yükle
       </button>
+      <div aria-live="polite">
       {phase === "uploading" && (
         <div style={{ fontSize: 11, color: "var(--t3)", marginTop: 5, lineHeight: 1.4 }}>
           Yükleniyor — %{sentPct}
@@ -170,12 +170,14 @@ export function UploadRecordingButton() {
       )}
       {phase === "done" && (
         <div style={{ fontSize: 11, color: "var(--green)", marginTop: 5, lineHeight: 1.4 }}>
-          Hazır — transkript ve toplantı raporu toplantılar listenizde.
+          Transkript hazır. Toplantı özeti ayrıca hazırlanır.
         </div>
       )}
       {phase === "error" && (
         <div role="alert" style={{ fontSize: 11, color: "var(--danger)", marginTop: 5, lineHeight: 1.4 }}>{error}</div>
       )}
+      </div>
+      {status?.id && onOpen && <button type="button" className="text-button" onClick={() => onOpen(status.id)}>Transkripti aç</button>}
     </div>
   );
 }

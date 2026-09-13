@@ -1,0 +1,8 @@
+.meeting-canvas { height: 100%; display: flex; flex-direction: column; min-height: 0; background: var(--bg); }
+.meeting-canvas-tabs { display: flex; gap: 28px; margin: 0 24px 16px; border-bottom: 1px solid var(--line); flex: none; }
+.meeting-canvas-tabs button { padding: 18px 0 13px; background: none; border: none; border-bottom: 3px solid transparent; font-size: 15px; font-weight: 600; color: var(--t2); cursor: pointer; }
+.meeting-canvas-tabs button[aria-selected=true] { color: var(--accent); border-bottom-color: var(--accent); }
+.meeting-canvas :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.meeting-canvas-empty, .meeting-canvas-notes { padding: 28px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); font-size: 14px; line-height: 1.6; color: var(--t2); }
+.meeting-canvas-empty h2, .meeting-canvas-notes h2 { margin: 0 0 10px; color: var(--t1); font-size: 20px; }
+.meeting-canvas-notes button { padding: 10px 15px; margin: 8px 12px 0 0; border: 1px solid var(--line2); border-radius: 9px; background: var(--bg); color: var(--accent); cursor: pointer; font-weight: 600; }

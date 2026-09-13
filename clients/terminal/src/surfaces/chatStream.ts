@@ -151,13 +151,20 @@ export async function streamChatTurn(
   ): Promise<{ done: boolean; value?: Uint8Array } | "stalled"> => {
     let hb: ReturnType<typeof setInterval> | undefined;
     let to: ReturnType<typeof setTimeout> | undefined;
+    let onAbort: (() => void) | undefined;
     try {
       const guard = new Promise<"stalled">((resolve) => {
         hb = setInterval(() => cb.onStatus?.(sawVisibleOutput ? "working" : "connecting"), heartbeatMs);
         to = setTimeout(() => resolve("stalled"), idleReconnectMs);
       });
-      return await Promise.race([reader.read(), guard]);
+      const canceled = new Promise<{ done: true }>((resolve) => {
+        onAbort = () => { void reader.cancel("aborted").catch(() => {}); resolve({ done: true }); };
+        signal.addEventListener("abort", onAbort, { once: true });
+        if (signal.aborted) onAbort();
+      });
+      return await Promise.race([reader.read(), guard, canceled]);
     } finally {
+      if (onAbort) signal.removeEventListener("abort", onAbort);
       if (hb !== undefined) clearInterval(hb);
       if (to !== undefined) clearTimeout(to);
     }
@@ -178,6 +185,7 @@ export async function streamChatTurn(
       if (signal.aborted) throw e;      // user stop → propagate
       return "closed";                  // the POST itself failed (a network blip) → resume from the cursor
     }
+    if (signal.aborted) { void r.body?.cancel().catch(() => {}); return "closed"; }
     if (!r.ok) {
       // 4xx is a real client/terminal error — surface it, don't retry for the whole hard cap. A 5xx
       // (transient gateway/upstream) is resumable → reconnect from the cursor.
@@ -201,6 +209,7 @@ export async function streamChatTurn(
         try { await reader.cancel("stream-error"); } catch { /* ignore */ }
         return terminal ? "terminal" : "closed";
       }
+      if (signal.aborted) return "closed";
       if (res === "stalled") {
         // Open stream, no bytes for idleReconnectMs → force a reconnect from the cursor rather than hang.
         cb.onStatus?.("stalled");
@@ -260,7 +269,7 @@ export async function streamChatTurn(
 
   while (!signal.aborted) {
     const outcome = await drainOnce();
-    if (outcome === "terminal" || terminal) break;
+    if (signal.aborted || outcome === "terminal" || terminal) break;
     if (now() - startedAt > hardTimeoutMs) break;
     cb.onStarting();  // still waiting on the worker — keep the pane honest between attempts
     cb.onStatus?.("reconnecting");

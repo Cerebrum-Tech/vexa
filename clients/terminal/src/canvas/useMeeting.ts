@@ -4,6 +4,7 @@ import { useLiveMeetings, fetchDurableTranscript, mergeNotesById, type DurableTr
 import { meetingEntities, type MeetingMock, type TranscriptLine } from "../surfaces/meetingModel";
 import { useMeetingLive } from "../surfaces/meetingLive";
 import { useCanvasActionState } from "./actions";
+import { reportPathForRun } from "./reportReadiness";
 import { cleanTranscriptText, extractNotableNumbers } from "./textSignals";
 import type { EntityItem, EntityKind, MeetingDocLink, MeetingState, SpeakerSummary, TranscriptSegment } from "./types";
 
@@ -45,10 +46,6 @@ function pickMeeting(meetings: MeetingMock[]): MeetingMock {
   return meetings.find((m) => m.status === "live") ?? meetings[0] ?? EMPTY_MEETING;
 }
 
-function matchesMeeting(m: MeetingMock, meetingId: string): boolean {
-  return m.id === meetingId || m.native_id === meetingId;
-}
-
 function unresolvedMeeting(meetingId: string): MeetingMock {
   return { ...EMPTY_MEETING, id: meetingId, title: "Toplantı" };
 }
@@ -56,7 +53,7 @@ function unresolvedMeeting(meetingId: string): MeetingMock {
 function resolveMeeting(meetings: MeetingMock[], meetingId: string): MeetingMock {
   // A real meeting id must NEVER resolve to a MOCK meeting. If it isn't in the live+past list yet,
   // show an empty placeholder for THAT id (it fills in when the list loads) — not a wrong meeting.
-  return meetings.find((m) => matchesMeeting(m, meetingId)) ?? unresolvedMeeting(meetingId);
+  return meetings.find((m) => m.id === meetingId) ?? meetings.find((m) => m.native_id === meetingId) ?? unresolvedMeeting(meetingId);
 }
 
 function latestCaption(segments: { text: string; completed?: boolean }[], note: string): string | undefined {
@@ -252,9 +249,10 @@ function mergeEntityItems(items: EntityItem[]): EntityItem[] {
   return [...merged.values()];
 }
 
-function docsFromSections(value: unknown): { path?: string; title?: string; kind?: string; present?: boolean }[] {
+function docsFromSections(value: unknown): { workspace?: string; path?: string; title?: string; kind?: string; present?: boolean }[] {
   if (!Array.isArray(value)) return [];
   return value.filter(isRecord).map((item) => ({
+    workspace: textOf(item.workspace, undefined),
     path: textOf(item.path),
     title: textOf(item.title, undefined),
     kind: textOf(item.kind, undefined),
@@ -262,9 +260,10 @@ function docsFromSections(value: unknown): { path?: string; title?: string; kind
   })).filter((item) => item.path || item.kind);
 }
 
-function knownDoc(docs: { path?: string; title?: string; kind?: string; present?: boolean }[], path: string, kinds: string[]): MeetingDocLink {
+function knownDoc(docs: { workspace?: string; path?: string; title?: string; kind?: string; present?: boolean }[], path: string, kinds: string[]): MeetingDocLink {
   const match = docs.find((doc) => doc.path === path || (doc.kind ? kinds.includes(doc.kind.toLowerCase()) : false));
   return {
+    workspace: match?.workspace,
     path: match?.path || path,
     title: match?.title,
     present: Boolean(match && match.present !== false),
@@ -369,8 +368,8 @@ function useLiveMeetingState(meetingId?: string): MeetingState {
       docs: safeArray(selected.docs),
     };
     const liveSegments = safeArray(live.transcript).map((s) => ({ id: s.id, speaker: s.speaker, text: cleanTranscriptText(s.text), ts: s.t, tsMs: s.tsMs, completed: s.completed }));
-    const recordedSegments = safeArray(durable.lines).map((s) => ({ speaker: s.speaker, text: cleanTranscriptText(s.text), ts: lineTs(s) }));
-    const fallbackSegments = normalizedSelected.transcript.map((s) => ({ speaker: s.speaker, text: cleanTranscriptText(s.text), ts: lineTs(s) }));
+    const recordedSegments = safeArray(durable.lines).map((s) => ({ id: s.id, speaker: s.speaker, text: cleanTranscriptText(s.text), ts: lineTs(s) }));
+    const fallbackSegments = normalizedSelected.transcript.map((s) => ({ id: s.id, speaker: s.speaker, text: cleanTranscriptText(s.text), ts: lineTs(s) }));
     const segments = selected.session_uid ? liveSegments : (recordedSegments.length ? recordedSegments : fallbackSegments);
     const copilotCards = safeArray(live.cards).map((c, i) => ({ id: `live-${i}-${c.kind}-${c.title}`, kind: c.kind, title: cleanTranscriptText(c.title), body: c.body ? cleanTranscriptText(c.body) : c.body }));
     const diagnostics = {
@@ -416,12 +415,14 @@ function useLiveMeetingState(meetingId?: string): MeetingState {
       meeting: {
         id: selected.id,
         nativeId: selected.native_id,
+        workspaceId: selected.workspace_id,
         title: selected.title,
         status: selected.live_status ?? selected.status,
         live: Boolean(selected.session_uid),
         startedAt: selected.scheduled_at,
         participants: participants.map((p) => p.name),
         docs: normalizedSelected.docs.map((doc) => ({
+          workspace: doc.workspace,
           path: doc.path,
           title: doc.title,
           kind: doc.kind,
@@ -575,16 +576,15 @@ export function useMeetingDocs(): { brief: MeetingDocLink; report: MeetingDocLin
     // `knownDoc` matches the ref by kind and returns the path the writer reported.
     const key = meeting.meeting.nativeId || meeting.meeting.id || "meeting";
     const briefPath = `kg/entities/meeting/${key}.md`;
-    // The post-meeting writer updates the canonical meeting entity in place; prep and recap therefore
-    // share one path, with the terminal waiting for the Turkish report headings before presenting it.
-    const reportPath = briefPath;
+    // Completed reports carry a canonical run suffix; the native entity remains the preparation note.
+    const reportPath = reportPathForRun(key, meeting.meeting.id);
     const docs = [
       ...safeArray(meeting.meeting.docs),
       ...docsFromSections(meeting.sections.docs),
     ];
     return {
       brief: knownDoc(docs, briefPath, ["brief", "prep", "meeting"]),
-      report: knownDoc(docs, reportPath, ["report", "post-meeting-report", "meeting"]),
+      report: { ...knownDoc(docs, reportPath, ["report", "post-meeting-report"]), workspace: knownDoc(docs, reportPath, ["report", "post-meeting-report"]).workspace || meeting.meeting.workspaceId },
     };
-  }, [meeting.meeting.docs, meeting.meeting.id, meeting.meeting.nativeId, meeting.sections.docs]);
+  }, [meeting.meeting.docs, meeting.meeting.id, meeting.meeting.nativeId, meeting.meeting.workspaceId, meeting.sections.docs]);
 }

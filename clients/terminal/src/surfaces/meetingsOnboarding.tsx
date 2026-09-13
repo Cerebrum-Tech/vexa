@@ -12,7 +12,7 @@
  *  The connect surface TEACHES where the secret iCal URL lives (the step users bounce off),
  *  including the two field-tested traps (public-vs-secret address, Workspace-admin lock), and
  *  answers immediately on connect — sync-now runs and reports what it found. */
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { defaultBotName } from "./defaultBotName";
 import { useService } from "../platform";
 import { LayoutServiceId } from "../workbench/layout";
@@ -149,62 +149,65 @@ function ConnectCalendarModal({ onClose, onConnected }: { onClose: () => void; o
   );
 }
 
-/** The drop-a-bot card's inline sender — same POST /api/bots edge and error taxonomy as the sidebar. */
-function DropBotInline() {
+/** Join an ongoing meeting through the authenticated bot endpoint. */
+export function JoinMeetingForm({ onJoined, prominent = false }: { onJoined?: (meetingId: string) => void; prominent?: boolean }) {
+  const pending = useRef(false);
   const [url, setUrl] = useState("");
   const [sent, setSent] = useState<null | "sending" | "ok" | "err">(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [denial, setDenial] = useState<ServiceDenialPresentation | null>(null);
   const send = async () => {
     const u = url.trim();
-    if (!u || sent === "sending") return;
-    const parsed = parseMeetingInput(u, await getJitsiHosts());
-    if (!parsed) { setSent("err"); setMsg("Bu, bir Meet / Zoom / Teams / Jitsi bağlantısına benzemiyor."); setDenial(null); return; }
+    if (!u || pending.current) return;
+    pending.current = true;
     setSent("sending"); setMsg(null); setDenial(null);
     try {
+      const parsed = parseMeetingInput(u, await getJitsiHosts());
+      if (!parsed) { setSent("err"); setMsg("Bu, bir Meet / Zoom / Teams / Jitsi bağlantısına benzemiyor."); return; }
       const r = await fetch("/api/bots", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ platform: parsed.platform, native_meeting_id: parsed.native_meeting_id, meeting_url: u, bot_name: defaultBotName() }),
       });
       if (r.ok) {
+        const result = await r.json();
         setSent("ok"); setUrl("");
         refreshMeetings(); setTimeout(refreshMeetings, 2000); setTimeout(refreshMeetings, 6000);
+        if (result.id != null) onJoined?.(String(result.id));
       } else {
         setSent("err");
         if (r.status === 429) setMsg("Toplantı sınırınıza ulaştınız — önce birini durdurun.");
         else if (r.status === 409) setMsg("Bu toplantıda zaten bir bot var.");
         else if (r.status === 401) setMsg("Giriş yapılmadı — giriş yapıp yeniden deneyin.");
         else {
-          // Everything else used to land as `Couldn't send (403): {"code":"service_not_allowed",…}`
-          // — the raw denial payload, in the user's face. A service-authority refusal now gets its
-          // own panel; the rest still goes through the presenter seam.
+          // Service-authority refusals retain their action panel until the next attempt.
           const state = resolveJoinError(await readApiFailure(r, "/api/bots"));
           if (state.kind === "denial") { setDenial(state.presentation); setMsg(null); }
           else setMsg(state.headline);
         }
       }
     } catch { setSent("err"); setMsg("Sunucuya ulaşılamadı."); }
+    finally { pending.current = false; }
   };
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-      <div style={{ display: "flex", gap: 6 }}>
-        <input value={url} onChange={(e) => setUrl(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") void send(); }}
-          placeholder="Toplantı bağlantısını yapıştırın (Meet / Zoom / Teams / Jitsi)…" style={fieldStyle} />
-        <button onClick={() => void send()} disabled={!url.trim() || sent === "sending"}
-          style={{ flex: "none", background: url.trim() ? "var(--accent)" : "var(--panel2)", color: url.trim() ? "var(--on-accent)" : "var(--t3)", border: "none", borderRadius: 7, padding: "0 10px", fontSize: 12, fontWeight: 600, cursor: url.trim() ? "pointer" : "default" }}>
-          {sent === "sending" ? "…" : "Botu gönder"}
+    <form aria-label="Canlı toplantıya katıl" className={prominent ? "meeting-quick-join-form" : undefined} onSubmit={(e) => { e.preventDefault(); void send(); }} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      <div className={prominent ? "meeting-quick-join-fields" : undefined} style={{ display: "flex", gap: 8 }}>
+        <input aria-label="Toplantı bağlantısı" value={url} onChange={(e) => setUrl(e.target.value)} disabled={sent === "sending"} autoComplete="off" autoCapitalize="none" spellCheck={false}
+          placeholder="Toplantı bağlantısını yapıştırın (Meet / Zoom / Teams / Jitsi)…" style={prominent ? undefined : fieldStyle} />
+        <button type="submit" disabled={!url.trim() || sent === "sending"} className={prominent ? "meeting-library-primary" : undefined}
+          style={prominent ? undefined : { flex: "none", background: url.trim() ? "var(--accent)" : "var(--panel2)", color: url.trim() ? "var(--on-accent)" : "var(--t3)", border: "none", borderRadius: 7, padding: "0 10px", fontSize: 12, fontWeight: 600, cursor: url.trim() ? "pointer" : "default" }}>
+          {sent === "sending" ? "Katılıyor…" : prominent ? "Hemen katıl" : "Botu gönder"}
         </button>
       </div>
-      {sent === "ok" && <div style={{ fontSize: 11, color: "var(--green)", lineHeight: 1.4 }}>Bot gönderildi — toplantıda kabul edin.</div>}
+      {sent === "ok" && <div role="status" style={{ fontSize: 12, color: "var(--green)", lineHeight: 1.4 }}>Asistan katılıyor — gerekirse toplantıda kabul edin.</div>}
       {denial
         ? <ServiceDenialPanel presentation={denial} onRetry={() => void send()} />
         : sent === "err" && msg && <div role="alert" style={{ fontSize: 11, color: "var(--danger)", lineHeight: 1.4 }}>⚠ {msg}</div>}
-    </div>
+    </form>
   );
 }
 
-export function MeetingsOnboarding({ variant }: { variant: "full" | "slim" }) {
+export function MeetingsOnboarding({ variant, showJoin = true }: { variant: "full" | "slim"; showJoin?: boolean }) {
   const [connected, reprobe] = useCalendarConnected();
   const [modal, setModal] = useState(false);
   const layout = useService(LayoutServiceId);
@@ -234,7 +237,7 @@ export function MeetingsOnboarding({ variant }: { variant: "full" | "slim" }) {
             style={{ flex: "none", background: "transparent", border: "1px dashed var(--line2)", color: "var(--t2)", borderRadius: 7, padding: "7px 11px", fontSize: 12, cursor: "pointer" }}>
             + Toplantı planla
           </button>
-          <div style={{ flex: 1, minWidth: 220 }}><DropBotInline /></div>
+          {showJoin && <div style={{ flex: 1, minWidth: 220 }}><JoinMeetingForm /></div>}
         </div>
         {modal && <ConnectCalendarModal onClose={() => setModal(false)} onConnected={reprobe} />}
       </>
@@ -263,11 +266,11 @@ export function MeetingsOnboarding({ variant }: { variant: "full" | "slim" }) {
           <span style={cardBody}>Tek bir toplantıyı elle oluşturun — başlık, saat, Meet bağlantısı. İlk deneme için ideal.</span>
           <button style={cta} onClick={() => plan()}>+ Toplantı planla</button>
         </div>
-        <div style={cardBase}>
+        {showJoin && <div style={cardBase}>
           <span style={cardTitle}><Icon name="send" size={14} /> Hemen bot gönder</span>
           <span style={cardBody}>Hâlihazırda devam eden bir toplantıya botu gönderin.</span>
-          <DropBotInline />
-        </div>
+          <JoinMeetingForm />
+        </div>}
       </div>
       {connected === true && (
         <div style={{ marginTop: 10, fontSize: 11.5, color: "var(--t3)" }}>

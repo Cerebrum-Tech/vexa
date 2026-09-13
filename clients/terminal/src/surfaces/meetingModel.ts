@@ -5,7 +5,7 @@ export interface Participant { name: string; role: string; initials: string }
 /** A calendar-invited human (data.attendees, prep-v3 slice b) — email is the identity key. */
 export interface Attendee { email: string; name?: string; partstat?: string }
 export interface ProposedAction { id: string; label: string; detail: string }
-export interface TranscriptLine { t: string; speaker: string; text: string }
+export interface TranscriptLine { id?: string; t: string; speaker: string; text: string }
 export interface MeetingMock {
   id: string;
   session_uid?: string;       // set on a LIVE-backend meeting → the tab subscribes to the real Stream
@@ -17,6 +17,7 @@ export interface MeetingMock {
   live_status?: string;       // the RAW meeting-api status — drives the status badge + action dropdown
   shared?: boolean;           // surfaced via a share/membership (not owned by the caller) — badged in the list
   scheduled_at?: string;      // when a `scheduled` meeting is due (data.scheduled_at)
+  created_at?: string;        // persisted row creation time; date fallback before an actual join
   start_time?: string;        // when the run actually started (row start_time) — sorts recordings
   end_time?: string;          // when the run ended (row end_time) — with start_time gives duration
   title_custom?: string;      // the user-given planned-meeting title (data.title) — wins over the fallback

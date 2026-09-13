@@ -33,7 +33,10 @@ export function meetingGroupKey(m: Pick<MeetingMock, "id" | "native_id" | "platf
 }
 
 /** Newest-first ordering key for a run: when it actually ran, else when it's due. */
-const runStamp = (m: MeetingMock): string => m.start_time ?? m.scheduled_at ?? "";
+const runStamp = (m: MeetingMock, missing = Number.NEGATIVE_INFINITY): number => {
+  const stamp = meetingTimestamp(m);
+  return stamp ? Date.parse(stamp) : missing;
+};
 
 const PHASE_RANK: Record<MeetingPhase, number> = { live: 0, prep: 1, post: 2 };
 
@@ -48,7 +51,7 @@ function pickCurrent(runs: MeetingMock[]): MeetingMock {
     if (PHASE_RANK[p] > PHASE_RANK[bestPhase]) continue;
     if (p === "prep") {
       // two plans on one identity: the sooner scheduled one is next (unscheduled last)
-      const a = r.scheduled_at ?? "￿", b = best.scheduled_at ?? "￿";
+      const a = runStamp(r, Infinity), b = runStamp(best, Infinity);
       if (a < b) best = r;
     } else if (runStamp(r) > runStamp(best)) best = r;
   }
@@ -69,9 +72,57 @@ export function groupMeetings(list: MeetingMock[]): MeetingGroup[] {
   return order.map((key) => {
     const rows = byKey.get(key)!;
     const current = pickCurrent(rows);
-    const rest = rows.filter((r) => r !== current).sort((a, b) => runStamp(b).localeCompare(runStamp(a)));
+    const rest = rows.filter((r) => r !== current).sort((a, b) => runStamp(b) - runStamp(a));
     const pastRuns = rows.filter((r) => meetingPhase(r) === "post")
-      .sort((a, b) => runStamp(b).localeCompare(runStamp(a)));
+      .sort((a, b) => runStamp(b) - runStamp(a));
     return { key, current, phase: meetingPhase(current), runs: [current, ...rest], pastRuns };
   });
+}
+
+export type LibraryView = "past" | "upcoming" | "live";
+export type LibraryOwnership = "all" | "mine" | "shared";
+export interface LibraryFilters {
+  view: LibraryView;
+  ownership?: LibraryOwnership;
+  search?: string;
+  from?: string;
+  to?: string;
+}
+
+/** Library entries are canonical runs, independent of their recurring calendar/link grouping. */
+export function filterMeetingLibrary(rows: MeetingMock[], filters: LibraryFilters): MeetingMock[] {
+  const phase = { past: "post", upcoming: "prep", live: "live" }[filters.view];
+  const query = filters.search?.trim().toLocaleLowerCase("tr-TR") ?? "";
+  const seen = new Set<string>();
+  return rows.filter((m) => {
+    if (seen.has(m.id)) return false;
+    seen.add(m.id);
+    if (meetingPhase(m) !== phase) return false;
+    if (filters.ownership === "mine" && m.shared) return false;
+    if (filters.ownership === "shared" && !m.shared) return false;
+    const text = [m.title_custom, m.title, m.platform, ...(m.attendees ?? []).flatMap((a) => [a.name, a.email])]
+      .filter(Boolean).join(" ").toLocaleLowerCase("tr-TR");
+    if (query && !text.includes(query)) return false;
+    const stamp = meetingTimestamp(m);
+    if (filters.from || filters.to) {
+      const date = stamp ? new Date(stamp) : null;
+      if (!date || !Number.isFinite(date.getTime())) return false;
+      const day = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+      if (filters.from && day < filters.from) return false;
+      if (filters.to && day > filters.to) return false;
+    }
+    return true;
+  }).sort((a, b) => filters.view === "upcoming"
+    ? runStamp(a, Infinity) - runStamp(b, Infinity)
+    : runStamp(b) - runStamp(a));
+}
+
+
+/** Stable display/filter date: preserve planned time, prefer actual joins, then persisted creation. */
+export function meetingTimestamp(m: Pick<MeetingMock, "start_time" | "scheduled_at" | "created_at" | "end_time" | "live_status">): string | undefined {
+  const planned = m.live_status === "idle" || m.live_status === "scheduled";
+  const candidates = planned
+    ? [m.scheduled_at, m.start_time, m.created_at, m.end_time]
+    : [m.start_time, m.scheduled_at, m.created_at, m.end_time];
+  return candidates.find((at) => !!at && Number.isFinite(new Date(at).getTime()));
 }

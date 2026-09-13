@@ -10,11 +10,47 @@ vi.mock("../../platform", async (importOriginal) => ({
   useService: () => ({ openTab: vi.fn() }),
 }));
 
-import { MeetingsOnboarding, connectOutcome } from "../meetingsOnboarding";
+import { MeetingsOnboarding, JoinMeetingForm, connectOutcome } from "../meetingsOnboarding";
+import { getJitsiHosts } from "../jitsiHosts";
+vi.mock("../jitsiHosts", () => ({ getJitsiHosts: vi.fn(async () => []) }));
 
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  vi.mocked(getJitsiHosts).mockResolvedValue([]);
+});
+
+describe("quick join", () => {
+  it("rejects an invalid link without sending a bot", async () => {
+    const request = vi.fn(); vi.stubGlobal("fetch", request);
+    render(<JoinMeetingForm />);
+    fireEvent.change(screen.getByRole("textbox", { name: "Toplantı bağlantısı" }), { target: { value: "not a meeting" } });
+    fireEvent.submit(screen.getByRole("form", { name: "Canlı toplantıya katıl" }));
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("bağlantısına benzemiyor"));
+    expect(request).not.toHaveBeenCalled();
+  });
+  it("prevents duplicate joins while link validation is pending", async () => {
+    let release!: (hosts: string[]) => void;
+    vi.mocked(getJitsiHosts).mockImplementation(() => new Promise<string[]>((resolve) => { release = resolve; }));
+    const request = vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) => new Response(JSON.stringify({ id: 54 }), { status: 201 }));
+    vi.stubGlobal("fetch", request);
+    const onJoined = vi.fn(); render(<JoinMeetingForm onJoined={onJoined} />);
+    fireEvent.change(screen.getByRole("textbox", { name: "Toplantı bağlantısı" }), { target: { value: "abc-defg-hij" } });
+    const form = screen.getByRole("form", { name: "Canlı toplantıya katıl" });
+    fireEvent.submit(form); fireEvent.submit(form); release([]);
+    await waitFor(() => expect(onJoined).toHaveBeenCalledWith("54"));
+    expect(request.mock.calls.filter(([url, init]) => url === "/api/bots" && init?.method === "POST")).toHaveLength(1);
+  });
+  it("keeps the link and actionable error when a bot already exists", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 409 })));
+    const onJoined = vi.fn(); render(<JoinMeetingForm onJoined={onJoined} />);
+    const field = screen.getByRole("textbox", { name: "Toplantı bağlantısı" });
+    fireEvent.change(field, { target: { value: "abc-defg-hij" } });
+    fireEvent.submit(screen.getByRole("form", { name: "Canlı toplantıya katıl" }));
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("zaten bir bot"));
+    expect((field as HTMLInputElement).value).toBe("abc-defg-hij");
+    expect(onJoined).not.toHaveBeenCalled();
+  });
 });
 
 function stubCalendarApi(opts: { connected: boolean; syncCounts?: { created?: number; updated?: number }; syncError?: string }) {

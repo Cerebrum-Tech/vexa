@@ -109,11 +109,11 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   const claiming = !adminExists; // fresh instance → this sign-in claims the admin role
 
   return (
-    <div style={{ height: "100vh", background: "var(--bg)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+    <div className="auth-screen" style={{ minHeight: "100dvh", background: "var(--bg)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
       <div
         style={{
-          width: claiming ? 380 : 320, background: "var(--panel)", border: "1px solid var(--line2)", borderRadius: 12,
-          padding: 24, display: "flex", flexDirection: "column", gap: 14, boxShadow: "0 8px 32px rgba(0,0,0,.3)",
+          width: 420, maxWidth: "100%", background: "var(--panel)", border: "1px solid var(--line2)", borderRadius: 12,
+          padding: 34, display: "flex", flexDirection: "column", gap: 20, boxShadow: "0 12px 50px rgba(0,0,0,.06)",
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -153,19 +153,20 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
             )}
           </>
         ) : (
-          <div style={{ fontSize: 12, color: "var(--t3)", lineHeight: 1.5 }}>Devam etmek için giriş yapın.</div>
+          <div style={{ fontSize: 12, color: "var(--t3)", lineHeight: 1.5 }}>Toplantılarınız, notlarınız ve bağlantılarınız tek bir yerde. Devam etmek için giriş yapın.</div>
         )}
 
         {ldapEnabled && (
           <form onSubmit={submitLdap} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            <div style={{ fontSize: 11, color: "var(--t3)", lineHeight: 1.4 }}>Domain hesabınızla giriş yapın.</div>
+            <div style={{ fontSize: 11, color: "var(--t3)", lineHeight: 1.4 }}>Kurum hesabınızla güvenli giriş yapın.</div>
             <input
               type="text"
               autoComplete="username"
               required
               value={ldapUser}
               onChange={(e) => setLdapUser(e.target.value)}
-              placeholder="kullanıcı adı"
+              aria-label="Kullanıcı adı"
+              placeholder="Kullanıcı adı"
               style={{
                 background: "var(--panel2)", border: "1px solid var(--line2)", borderRadius: 7,
                 padding: "9px 10px", color: "var(--t1)", fontSize: 13, outline: "none",
@@ -177,7 +178,8 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
               required
               value={ldapPass}
               onChange={(e) => setLdapPass(e.target.value)}
-              placeholder="şifre"
+              aria-label="Şifre"
+              placeholder="Şifre"
               style={{
                 background: "var(--panel2)", border: "1px solid var(--line2)", borderRadius: 7,
                 padding: "9px 10px", color: "var(--t1)", fontSize: 13, outline: "none",
@@ -194,7 +196,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
                 cursor: ldapUser.trim() && ldapPass && !ldapSubmitting ? "pointer" : "default",
               }}
             >
-              {ldapSubmitting ? "Giriş yapılıyor…" : "Domain ile giriş yap"}
+              {ldapSubmitting ? "Giriş yapılıyor…" : "Kurum hesabıyla giriş yap"}
             </button>
           </form>
         )}

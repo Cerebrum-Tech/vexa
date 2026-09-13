@@ -176,3 +176,88 @@ describe("liveMeetings store", () => {
     await waitFor(() => expect(hook.result.current.length).toBe(0));
   });
 });
+
+describe("complete authorized library", () => {
+  it("loads page two and retains every canonical recurring run", async () => {
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input), "http://test");
+      if (url.pathname !== "/api/meetings") return jsonResp({});
+      const offset = Number(url.searchParams.get("offset") ?? 0);
+      const count = offset === 0 ? 100 : 2;
+      return jsonResp({ meetings: Array.from({ length: count }, (_, i) => ({
+        ...meetingsPayload("completed").meetings[0], id: offset + i + 1,
+        shared: offset > 0,
+      })) });
+    });
+    const mod = await import("../liveMeetings");
+    const hook = renderHook(() => mod.useLiveMeetings());
+    await waitFor(() => expect(hook.result.current).toHaveLength(102));
+    expect(hook.result.current.at(-1)).toMatchObject({ id: "102", shared: true, native_id: NATIVE });
+  });
+
+  it("clears previously authorized rows when a reload is denied", async () => {
+    const { mod, hook } = await startStore();
+    fetchMock.mockResolvedValue({ ok: false, status: 403, json: async () => ({}) } as Response);
+    await act(async () => mod.refreshMeetings());
+    await waitFor(() => expect(hook.result.current).toEqual([]));
+  });
+
+  it("does not publish a partial library if a later page fails", async () => {
+    const { mod, hook } = await startStore();
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input), "http://test");
+      if (Number(url.searchParams.get("offset") ?? 0) > 0) return { ok: false, status: 403 } as Response;
+      return jsonResp({ meetings: Array.from({ length: 100 }, (_, i) => ({
+        ...meetingsPayload("completed").meetings[0], id: i + 1,
+      })) });
+    });
+    await act(async () => mod.refreshMeetings());
+    await waitFor(() => expect(hook.result.current).toEqual([]));
+  });
+
+  it("refreshes sharing, dates and attendee names even when status is unchanged", async () => {
+    const { mod, hook } = await startStore();
+    fetchMock.mockResolvedValue(jsonResp({ meetings: [{ ...meetingsPayload("idle").meetings[0],
+      shared: true, start_time: "2026-09-10T10:00:00Z", data: { attendees: [{ email: "a@example.com", name: "Ayşe" }] },
+    }] }));
+    await act(async () => mod.refreshMeetings());
+    await waitFor(() => expect(hook.result.current[0]).toMatchObject({ shared: true, attendees: [{ name: "Ayşe" }] }));
+  });
+});
+
+
+const dateLabel = (at: string) => new Date(at).toLocaleString("tr-TR", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+
+it.each(["idle", "requested", "failed"])("uses persisted creation time for a %s meeting without a join time", async (status) => {
+  const created = "2026-09-10T09:24:00Z";
+  fetchMock.mockImplementation(async (input: RequestInfo | URL) => String(input).includes("/api/meetings")
+    ? jsonResp({ meetings: [{ ...meetingsPayload(status).meetings[0], created_at: created }] })
+    : jsonResp({ url: "ws://test/ws" }));
+  const { mod, hook } = await startStore();
+  expect(hook.result.current[0].when).toContain(dateLabel(created));
+  expect(hook.result.current[0].created_at).toBe(created);
+  expect(hook.result.current[0].start_time).toBeUndefined();
+  const before = hook.result.current[0].when;
+  await act(async () => mod.refreshMeetings());
+  expect(hook.result.current[0].when).toBe(before);
+});
+
+it("keeps explicit calendar time and refreshes its label when a scheduling frame arrives", async () => {
+  const scheduled = "2026-09-15T09:24:00Z";
+  fetchMock.mockImplementation(async (input: RequestInfo | URL) => String(input).includes("/api/meetings")
+    ? jsonResp({ meetings: [{ ...meetingsPayload("scheduled").meetings[0], created_at: "2026-09-10T09:24:00Z", data: { scheduled_at: scheduled } }] })
+    : jsonResp({ url: "ws://test/ws" }));
+  const { hook } = await startStore();
+  expect(hook.result.current[0].when).toBe(dateLabel(scheduled));
+  await act(async () => FakeWebSocket.last!.push(golden));
+  expect(hook.result.current[0].when).toBe(dateLabel(golden.when));
+});
+
+it("falls back from an invalid join timestamp to persisted creation time", async () => {
+  const created = "2026-09-10T09:24:00Z";
+  fetchMock.mockImplementation(async (input: RequestInfo | URL) => String(input).includes("/api/meetings")
+    ? jsonResp({ meetings: [{ ...meetingsPayload("completed").meetings[0], start_time: "invalid", created_at: created }] })
+    : jsonResp({ url: "ws://test/ws" }));
+  const { hook } = await startStore();
+  expect(hook.result.current[0].when).toBe(dateLabel(created));
+});

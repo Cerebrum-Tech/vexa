@@ -2,7 +2,7 @@
  *  calendar UID / native link collapse into ONE meeting whose `current` run carries the state. */
 import { describe, expect, it } from "vitest";
 import type { MeetingMock } from "../meetingModel";
-import { groupMeetings, meetingGroupKey } from "../meetingGroups";
+import { groupMeetings, meetingGroupKey, filterMeetingLibrary } from "../meetingGroups";
 
 const m = (over: Partial<MeetingMock>): MeetingMock => ({
   id: over.id ?? Math.random().toString(36).slice(2),
@@ -61,4 +61,46 @@ describe("groupMeetings", () => {
     const [g] = groupMeetings([later, sooner]);
     expect(g.current.id).toBe("sooner");
   });
+});
+
+describe("filterMeetingLibrary", () => {
+  it("orders and groups timestamps by instant across UTC offsets", () => {
+    const earlier = m({ id: "earlier", native_id: "same", live_status: "scheduled", scheduled_at: "2026-09-10T10:00:00+03:00" });
+    const later = m({ id: "later", native_id: "same", live_status: "scheduled", scheduled_at: "2026-09-10T08:00:00Z" });
+    expect(filterMeetingLibrary([later, earlier], { view: "upcoming" }).map((r) => r.id)).toEqual(["earlier", "later"]);
+    expect(groupMeetings([later, earlier])[0].current.id).toBe("earlier");
+    const past = [earlier, later].map((r) => ({ ...r, live_status: "completed", start_time: r.scheduled_at }));
+    expect(filterMeetingLibrary(past, { view: "past" }).map((r) => r.id)).toEqual(["later", "earlier"]);
+    const grouped = groupMeetings(past)[0];
+    expect(grouped.current.id).toBe("later");
+    expect(grouped.pastRuns.map((r) => r.id)).toEqual(["later", "earlier"]);
+  });
+  it("keeps recurring runs separately and sorts every past run newest first", () => {
+    const rows = Array.from({ length: 12 }, (_, i) => m({ id: String(i), native_id: "same-link", calendar_uid: "same-event", live_status: "completed", start_time: `2026-09-${String(i + 1).padStart(2, "0")}T10:00:00Z` }));
+    expect(filterMeetingLibrary(rows, { view: "past" }).map((r) => r.id)).toEqual(rows.map((r) => r.id).reverse());
+  });
+  it("filters shared ownership, Turkish names, inclusive dates and live/upcoming independently", () => {
+    const rows = [
+      m({ id: "old", title: "İNNOVA satış", shared: true, start_time: "2026-09-09T10:00:00", live_status: "completed" }),
+      m({ id: "new", title: "İNNOVA satış", shared: true, start_time: "2026-09-10T10:00:00", live_status: "completed" }),
+      m({ id: "mine", title: "İNNOVA satış", start_time: "2026-09-10T10:00:00", live_status: "completed" }),
+      m({ id: "live", status: "live", live_status: "active" }),
+      m({ id: "plan", live_status: "scheduled", scheduled_at: "2027-03-01T12:00:00" }),
+    ];
+    expect(filterMeetingLibrary(rows, { view: "past", ownership: "shared", search: "innova", from: "2026-09-10", to: "2026-09-10" }).map((r) => r.id)).toEqual(["new"]);
+    expect(filterMeetingLibrary(rows, { view: "past", ownership: "mine" }).map((r) => r.id)).toEqual(["mine"]);
+    expect(filterMeetingLibrary(rows, { view: "live" }).map((r) => r.id)).toEqual(["live"]);
+    expect(filterMeetingLibrary(rows, { view: "upcoming" }).map((r) => r.id)).toEqual(["plan"]);
+  });
+});
+
+
+it("filters and sorts unjoined meetings by persisted creation while respecting planned dates", () => {
+  const older = m({ id: "older", live_status: "failed", created_at: "2026-09-09T10:00:00" });
+  const newer = m({ id: "newer", live_status: "failed", created_at: "2026-09-10T10:00:00" });
+  expect(filterMeetingLibrary([older, newer], { view: "past" }).map((r) => r.id)).toEqual(["newer", "older"]);
+  expect(filterMeetingLibrary([older, newer], { view: "past", from: "2026-09-10", to: "2026-09-10" }).map((r) => r.id)).toEqual(["newer"]);
+  const plan = m({ id: "plan", live_status: "scheduled", scheduled_at: "2026-09-15T10:00:00", created_at: "2026-09-10T10:00:00" });
+  const idle = m({ id: "idle", live_status: "idle", created_at: "2026-09-10T11:00:00" });
+  expect(filterMeetingLibrary([plan, idle], { view: "upcoming", from: "2026-09-10", to: "2026-09-10" }).map((r) => r.id)).toEqual(["idle"]);
 });

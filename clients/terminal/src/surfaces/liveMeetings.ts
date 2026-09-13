@@ -6,6 +6,7 @@
  *  recorded view whose transcript is fetched on demand from `GET /api/transcripts/{platform}/{native}`. */
 import { useSyncExternalStore } from "react";
 import type { MeetingMock, TranscriptLine } from "./meetingModel";
+import { meetingTimestamp } from "./meetingGroups";
 import { onGatewayWSConnected, onMeetingStatus } from "./gatewayWS";
 
 /** A row from meeting-api GET /meetings (live AND past). */
@@ -15,6 +16,7 @@ interface MeetingRowDTO {
   native_meeting_id: string | null;   // null on a link-less PLANNED meeting (platform 'unknown')
   status: string;
   shared?: boolean;   // surfaced via a share/membership (not owned by the caller)
+  created_at?: string | null;
   start_time?: string | null;
   end_time?: string | null;
   constructed_meeting_url?: string | null;
@@ -43,6 +45,7 @@ function displayStatus(d: MeetingRowDTO): string {
 
 /** A transcript segment from meeting-api GET /transcripts/{platform}/{native}. */
 interface SegmentDTO {
+  segment_id?: string | null;
   start?: number | null;
   speaker?: string | null;
   text?: string | null;
@@ -129,6 +132,7 @@ function formatTranscriptTime(start?: number | null): string {
 const LIVE_STATUSES = new Set(["active", "joining", "requested", "awaiting_admission", "needs_help", "stopping"]);
 
 let meetings: MeetingMock[] = [];
+let loadError: string | null = null;
 let loaded = false;        // a snapshot has come back at least once — an id absent from the list is then
                            // genuinely unknown (not merely not-fetched-yet), which is what lets a meeting
                            // route render a not-found state instead of a forever-"Connecting…" shell.
@@ -144,17 +148,11 @@ let storeRevision = 0;
 const LOCALE = "tr-TR";
 
 function whenLabel(d: MeetingRowDTO, live: boolean): string {
-  if (live) return "Şimdi · canlı";
-  // a PLANNED meeting's row shows its planned time, not "Kayıt alındı"
-  if ((d.status === "scheduled" || d.status === "idle") && !d.start_time) {
-    const at = d.data?.scheduled_at;
-    if (!at) return "saat belirtilmedi";
-    try { return new Date(at).toLocaleString(LOCALE, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }); }
-    catch { return "Zamanlandı"; }
-  }
-  if (!d.start_time) return "Kayıt alındı";
-  try { return new Date(d.start_time).toLocaleString(LOCALE, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }); }
-  catch { return "Kayıt alındı"; }
+  const at = meetingTimestamp({ live_status: d.status, scheduled_at: d.data?.scheduled_at,
+    start_time: d.start_time ?? undefined, created_at: d.created_at ?? undefined, end_time: d.end_time ?? undefined });
+  if (!at) return "Tarih bilgisi alınamadı";
+  const label = new Date(at).toLocaleString(LOCALE, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  return live ? `${label} · canlı` : label;
 }
 
 function toMock(d: MeetingRowDTO): MeetingMock {
@@ -190,12 +188,13 @@ function toMock(d: MeetingRowDTO): MeetingMock {
     auto_join: d.data?.auto_join,
     auto_join_error: d.data?.auto_join_error ?? undefined,
     meeting_url: d.constructed_meeting_url ?? d.data?.constructed_meeting_url ?? undefined,
+    created_at: d.created_at ?? undefined,
     start_time: d.start_time ?? undefined,
     end_time: d.end_time ?? undefined,
     platform: d.platform === "google_meet" ? "Google Meet" : d.platform,
-    has_recording: !!(d.data?.recordings?.length),
+    has_recording: Array.isArray(d.data?.recordings) ? d.data.recordings.length > 0 : undefined,
     docs: d.data?.docs ?? [],
-    participants: [],
+    participants: (d.data?.attendees ?? []).map((a) => ({ name: a.name || a.email, role: "", initials: (a.name || a.email).slice(0, 2).toLocaleUpperCase("tr-TR") })),
     mentioned: [],
     actions: [],
     transcript: [],
@@ -203,32 +202,41 @@ function toMock(d: MeetingRowDTO): MeetingMock {
   };
 }
 
-/** ONE snapshot fetch of the real meetings list (gateway → meeting-api). Seeds / re-seeds the store; the
- *  live deltas thereafter arrive over the WebSocket. Called once on mount and on each (re)connect. */
+/** Load the complete authorized list. Pages are staged together so a failed later page cannot
+ * publish a partial library. Cached content is retired when its authorization is revalidated. */
 async function snapshot() {
   const revision = ++storeRevision;
+  meetings = [];
+  loaded = false;
+  loadError = null;
+  subs.forEach((f) => f());
   try {
-    const r = await fetch("/api/meetings", { cache: "no-store" });
-    const { meetings: list } = (await r.json()) as { meetings: MeetingRowDTO[] };
-    if (revision !== storeRevision) return;
-    // P0: meeting-api returns one row per bot-launch. Each row is a DISTINCT meeting run (its own
-    // transcript/processed doc), so we keep them ALL — no longer collapsed to one row per native (that
-    // collapse hydrated the wrong row's notes). Dedup is keyed by the ROW id purely to defend against a
-    // duplicated row in the list (idempotent), never to merge distinct rows sharing a native.
-    const seen = new Set<string>();
-    const next = (list || []).map(toMock).filter((m) => !seen.has(m.id) && (seen.add(m.id), true));
-    const key = (m: MeetingMock[]) => m.map((x) =>
-      `${x.id}|${x.live_status}|${x.has_recording}|${x.title_custom ?? ""}|${x.scheduled_at ?? ""}|${x.workspace_id ?? ""}|${x.auto_join ?? ""}|${x.auto_join_error ?? ""}|${x.native_id ?? ""}|${(x.attendees ?? []).map((a) => a.email).join("+")}`,
-    ).join(",");
-    const wasLoaded = loaded;
-    loaded = true;
-    if (!wasLoaded || key(next) !== key(meetings)) {
-      meetings = next;
-      subs.forEach((f) => f());
+    const pageSize = 100;
+    const rows = new Map<string, MeetingMock>();
+    for (let offset = 0; ; offset += pageSize) {
+      const r = await fetch(`/api/meetings?limit=${pageSize}&offset=${offset}`, { cache: "no-store" });
+      if (!r.ok) throw new Error("Toplantılar yüklenemedi. Erişiminizi kontrol edip yeniden deneyin.");
+      const body = await r.json() as { meetings?: MeetingRowDTO[] };
+      if (revision !== storeRevision) return;
+      if (!Array.isArray(body.meetings)) throw new Error("Toplantı listesi okunamadı. Yeniden deneyin.");
+      let added = 0;
+      for (const row of body.meetings) {
+        const id = String(row.id);
+        if (!rows.has(id)) { rows.set(id, toMock(row)); added++; }
+      }
+      if (body.meetings.length < pageSize) break;
+      if (!added) throw new Error("Toplantı listesinin devamı yüklenemedi. Yeniden deneyin.");
     }
-  } catch {
-    /* offline — keep last known, and stay UNLOADED: an unreachable list must not make every meeting
-       look deleted. The view keeps resolving until a snapshot actually answers. */
+    if (revision !== storeRevision) return;
+    meetings = [...rows.values()];
+    loaded = true;
+    subs.forEach((f) => f());
+  } catch (error) {
+    if (revision !== storeRevision) return;
+    meetings = [];
+    loaded = true;
+    loadError = error instanceof Error ? error.message : "Toplantılar yüklenemedi. Yeniden deneyin.";
+    subs.forEach((f) => f());
   }
 }
 
@@ -260,6 +268,9 @@ function applyFrame(f: { meeting_id?: number | string; native?: string; status: 
     session_uid: live ? cur.id : undefined,  // subscribe by the ROW id (P0)
     scheduled_at: f.status === "scheduled" ? (f.when ?? cur.scheduled_at) : cur.scheduled_at,
   };
+  nextRow.when = whenLabel({ id: nextRow.id, platform: nextRow.platform, native_meeting_id: nextRow.native_id ?? null,
+    status: f.status, start_time: nextRow.start_time, created_at: nextRow.created_at, end_time: nextRow.end_time,
+    data: { scheduled_at: nextRow.scheduled_at } }, live);
   meetings = [...meetings.slice(0, i), nextRow, ...meetings.slice(i + 1)];
   subs.forEach((fn) => fn());
 }
@@ -302,7 +313,7 @@ export async function fetchDurableTranscript(meetingId: string): Promise<Durable
     const list = body.segments || [];
     const lines = list
       .filter((s) => (s.text ?? "").trim())
-      .map((s) => ({ t: formatTranscriptTime(s.start), speaker: s.speaker || "Konuşmacı", text: s.text ?? "" }));
+      .map((s) => ({ ...(s.segment_id ? { id: s.segment_id } : {}), t: formatTranscriptTime(s.start), speaker: s.speaker || "Konuşmacı", text: s.text ?? "" }));
     return { lines, notes: processedNotesOf(body) };
   } catch {
     return EMPTY_DURABLE;
@@ -362,5 +373,15 @@ export function useLiveMeetings(): MeetingMock[] {
     (cb) => { subs.add(cb); return () => subs.delete(cb); },
     () => meetings,
     () => meetings,
+  );
+}
+
+/** A failed list is distinct from an empty authorized library. */
+export function useLiveMeetingsError(): string | null {
+  ensureStarted();
+  return useSyncExternalStore(
+    (cb) => { subs.add(cb); return () => subs.delete(cb); },
+    () => loadError,
+    () => null,
   );
 }

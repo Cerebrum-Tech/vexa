@@ -1,0 +1,64 @@
+.meeting-library { height: 100%; overflow-y: auto; padding: clamp(20px, 3.2vw, 48px); color: var(--t1); }
+.meeting-library-header { display: flex; justify-content: space-between; align-items: center; gap: 24px; margin-bottom: 36px; }
+.meeting-library-actions { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: flex-end; gap: 12px; }
+@media (max-width: 600px) { .meeting-library-header { flex-wrap: wrap; } .meeting-library-actions { justify-content: flex-start; width: 100%; } }
+.meeting-library-eyebrow { font-size: 11px; letter-spacing: .14em; font-weight: 650; color: var(--t3); margin: 0 0 10px; }
+.meeting-library h1 { font-size: clamp(28px, 3vw, 38px); line-height: 1.2; letter-spacing: -.035em; margin: 0 0 12px; }
+.meeting-library-header p:last-child { color: var(--t2); margin: 0; font-size: 15px; }
+.meeting-library button { cursor: pointer; }
+.meeting-library-primary { background: var(--accent); color: var(--on-accent); border: 0; border-radius: 10px; padding: 13px 19px; font-weight: 600; font-size: 14px; white-space: nowrap; }
+.meeting-library-primary:disabled { opacity: .55; cursor: default; }
+.meeting-quick-join { padding: 22px 24px; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; margin-bottom: 24px; }
+.meeting-quick-join h2 { font-size: 18px; margin: 0 0 7px; }
+.meeting-quick-join > p { color: var(--t2); font-size: 13px; margin: 0 0 17px; line-height: 1.5; }
+.meeting-quick-join-fields input { flex: 1; min-width: 0; padding: 13px 15px; border: 1px solid var(--line2); border-radius: 10px; background: var(--bg); color: var(--t1); font-size: 14px; }
+.meeting-library-live { display: grid; gap: 9px; margin-bottom: 22px; }
+.meeting-library-live h2 { font-size: 13px; margin: 0 0 4px; color: var(--t2); }
+.meeting-library-live h2 > span { color: var(--green); margin-right: 5px; }
+.meeting-library-live > button { display: flex; justify-content: space-between; align-items: center; gap: 14px; padding: 14px 17px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: var(--t1); text-align: left; }
+.meeting-library-live strong { font-size: 14px; overflow-wrap: anywhere; }
+.meeting-library-live button > span { color: var(--accent); font-size: 12px; white-space: nowrap; }
+.meeting-library-toolbar { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--line); gap: 12px; }
+.meeting-library-tabs { display: flex; gap: 24px; }
+.meeting-library-tabs button { display: flex; align-items: center; gap: 8px; background: none; border: 0; border-bottom: 3px solid transparent; padding: 15px 0; color: var(--t2); font-size: 15px; font-weight: 600; }
+.meeting-library-tabs button[aria-selected=true] { color: var(--accent); border-bottom-color: var(--accent); }
+.meeting-library-tabs span { border-radius: 6px; padding: 2px 6px; font-size: 11px; background: var(--panel2); color: var(--t2); }
+.meeting-library-refresh { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--t2); padding: 8px 12px; }
+.meeting-library-filters { display: flex; gap: 14px; padding: 25px 0 18px; flex-wrap: wrap; }
+.meeting-library-filters label { display: flex; flex-direction: column; gap: 7px; color: var(--t2); font-size: 12px; min-width: 145px; }
+.meeting-library-search { flex: 1; min-width: 220px !important; }
+.meeting-library-filters input, .meeting-library-filters select { border: 1px solid var(--line); border-radius: 9px; padding: 11px 13px; background: var(--panel); color: var(--t1); font-size: 14px; min-height: 43px; }
+.meeting-library-count { color: var(--t3); font-size: 12px; margin: 8px 0 14px; }
+.meeting-library-list { margin: 0; padding: 0; list-style: none; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); }
+.meeting-library-row { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; padding: 21px 23px; border-bottom: 1px solid var(--line); }
+.meeting-library-row:last-child { border-bottom: 0; }
+.meeting-library-open { display: flex; align-items: center; gap: 18px; background: none; border: 0; padding: 0; text-align: left; color: inherit; flex: 1; min-width: 0; }
+.meeting-library-symbol { display: grid; place-items: center; width: 46px; height: 46px; flex-shrink: 0; border: 1px solid var(--line); background: var(--bg); color: var(--t2); border-radius: 12px; font-size: 23px; }
+.meeting-library-symbol.is-live { color: var(--green); }
+.meeting-library-description { display: flex; flex-direction: column; min-width: 0; gap: 7px; flex: 1; }
+.meeting-library-description strong { font-size: 16px; font-weight: 600; overflow-wrap: anywhere; }
+.meeting-library-description > span { font-size: 12px; color: var(--t2); }
+.meeting-library-description .meeting-library-attendees { color: var(--t3); }
+.meeting-library-ownership { font-size: 11px; color: var(--t3); white-space: nowrap; padding: 5px 8px; background: var(--bg); border-radius: 5px; }
+.meeting-library-actions { display: flex; align-items: center; gap: 12px; }
+.meeting-library-actions > button { background: none; border: 0; padding: 8px 0; color: var(--accent); font-size: 13px; font-weight: 600; }
+.meeting-library-failure { color: var(--danger); flex-basis: 100%; margin: 0; font-size: 13px; }
+.meeting-library-empty { padding: 60px 20px; text-align: center; color: var(--t2); background: var(--panel); border: 1px dashed var(--line); border-radius: 12px; }
+.meeting-library-empty h2 { font-size: 19px; color: var(--t1); }
+.meeting-library :focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+@media (max-width: 760px) { .meeting-library-header { flex-direction: column; align-items: flex-start; margin-bottom: 24px; } .meeting-library-filters label { flex: 1; min-width: 130px; } .meeting-library-tabs { gap: 16px; } .meeting-library-row { padding: 18px 14px; } .meeting-library-open { gap: 12px; flex-wrap: wrap; } .meeting-library-ownership { margin-left: 58px; } .meeting-library-actions { margin-left: auto; } }
+@media (max-width: 600px) {
+  .meeting-quick-join { padding: 18px 16px; }
+  .meeting-quick-join-fields { flex-direction: column; }
+  .meeting-quick-join-fields input { width: 100%; box-sizing: border-box; }
+  .meeting-library-live > button { align-items: flex-start; flex-direction: column; gap: 8px; }
+  .meeting-library-tabs { gap: 16px; }
+  .meeting-library-tabs button { font-size: 13px; gap: 5px; }
+  .meeting-library-toolbar { flex-wrap: wrap; }
+  .meeting-library-refresh { margin-left: auto; font-size: 12px; }
+  .meeting-library-open { flex-basis: 100%; display: grid; grid-template-columns: 42px minmax(0, 1fr); gap: 10px 14px; }
+  .meeting-library-symbol { width: 42px; height: 42px; }
+  .meeting-library-description strong { overflow-wrap: break-word; font-size: 15px; line-height: 1.5; }
+  .meeting-library-ownership { grid-column: 2; margin-left: 0; justify-self: start; }
+  .meeting-library-actions { padding-top: 2px; }
+}

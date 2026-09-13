@@ -1,4 +1,4 @@
-/** Theme — dark (default) vs day mode. The choice is persisted and applied as data-theme on <html>;
+/** Theme — light (default) and dark mode. The choice is persisted and applied as data-theme on <html>;
  *  globals.css repaints every surface from the swapped CSS variables. */
 import { useEffect, useState } from "react";
 
@@ -6,7 +6,7 @@ export type Theme = "dark" | "light";
 const KEY = "vexa.terminal.theme";
 
 export function getTheme(): Theme {
-  try { return localStorage.getItem(KEY) === "light" ? "light" : "dark"; } catch { return "dark"; }
+  try { return localStorage.getItem(KEY) === "dark" ? "dark" : "light"; } catch { return "light"; }
 }
 
 export function applyTheme(t: Theme) {
@@ -18,7 +18,7 @@ export function applyTheme(t: Theme) {
 
 /** Reactive theme state + a toggle, kept in sync with the DOM/localStorage. */
 export function useTheme(): [Theme, () => void] {
-  const [theme, setTheme] = useState<Theme>("dark");
+  const [theme, setTheme] = useState<Theme>("light");
   useEffect(() => { const t = getTheme(); setTheme(t); applyTheme(t); }, []);
   const toggle = () => setTheme((prev) => { const next = prev === "dark" ? "light" : "dark"; applyTheme(next); return next; });
   return [theme, toggle];

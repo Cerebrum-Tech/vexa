@@ -54,6 +54,7 @@ export interface SpeakerSummary {
 }
 
 export interface MeetingDocLink {
+  workspace?: string;
   path: string;
   present: boolean;
   title?: string;
@@ -72,12 +73,13 @@ export interface MeetingState {
   meeting: {
     id: string;
     nativeId?: string;
+    workspaceId?: string;
     title: string;
     status?: string;
     live?: boolean;             // true while the backend session is live (session_uid present)
     startedAt?: string;
     participants?: string[];
-    docs?: { path: string; title?: string; kind?: string; present?: boolean }[];
+    docs?: { workspace?: string; path: string; title?: string; kind?: string; present?: boolean }[];
   };
   transcript: {
     segments: TranscriptSegment[];
@@ -106,7 +108,7 @@ export interface MeetingState {
 export interface HarnessActions {
   ask(prompt: string): void;
   research(entity: { name: string; kind: string }): void;
-  openDoc(path: string): void;
+  openDoc(path: string, workspace?: string): void;
   copyRef(token: string): void;
   note(text: string): void;
   pin(id: string): void;

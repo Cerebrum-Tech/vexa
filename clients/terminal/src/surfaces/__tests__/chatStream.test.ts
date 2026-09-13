@@ -333,3 +333,24 @@ describe("streamChatTurn — turn-accepted liveness ack", () => {
     expect(result.terminal).toBe(true);
   });
 });
+
+describe("streamChatTurn — cancellation", () => {
+  it("cancels a silent reader promptly and never renders buffered output after cancellation", async () => {
+    const ctrl = new AbortController();
+    let readerStarted: () => void = () => {};
+    const ready = new Promise<void>((resolve) => { readerStarted = resolve; });
+    let push: ReadableStreamDefaultController<Uint8Array>;
+    const body = new ReadableStream<Uint8Array>({ start(controller) { push = controller; }, pull() { readerStarted(); } });
+    const { state, cb } = recorder();
+    const result = streamChatTurn({ prompt: "private A", session: "a", active: undefined }, cb, {
+      signal: ctrl.signal, fetchImpl: vi.fn(async () => ({ ok: true, body }) as Response),
+    });
+    await ready;
+    ctrl.abort();
+    try { push!.enqueue(new TextEncoder().encode(ev({ type: "message-delta", text: "late output" }))); } catch { /* canceled reader */ }
+    const completed = await Promise.race([result, new Promise<"waiting">((resolve) => setTimeout(() => resolve("waiting"), 200))]);
+    expect(completed).not.toBe("waiting");
+    expect(state.text).toBe("");
+    expect(completed).toMatchObject({ aborted: true });
+  });
+});

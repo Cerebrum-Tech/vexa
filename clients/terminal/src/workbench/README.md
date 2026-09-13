@@ -1,7 +1,13 @@
 # workbench
 
-The shell. The parts layout (activity bar · primary sidebar · main · auxiliary · panel · status bar)
-and the `LayoutService` that toggles/sizes them, plus the `Composer` that turns `/`-input into commands
-and routes plain text to the active surface's `onSubmit`. Surfaces are contributed (see `../surfaces/`),
-never hardcoded here — adding a surface is a `registerSurface` call, not an edit to the shell (P2/P6 on
-the client). VSCode-inspired: parts + a contribution registry + DI services (`../platform`).
+The responsive shell renders one registered page and an optional assistant panel. Its primary
+navigation is Toplantılar, Kişiler, Şirketler and İş Ortağı Notları; additional contributions are
+available under Diğer araçlar. Account controls, theme and report notifications live in the shell.
+
+`LayoutService.usePages()` enables page navigation with bounded back history. Existing tab descriptors,
+preview retargeting and contribution commands resolve to pages. Direct meeting URLs restore the requested
+meeting; private page descriptors are not restored from browser storage on a new login.
+
+The shell resolves the authenticated subject and canonical meeting row before mounting meeting chat.
+`Chat` owns conversation isolation. `ReportNotifications` observes reports from authorized workspaces
+while any page is open. Surfaces own their content and use the existing API boundaries.

@@ -13,7 +13,8 @@
  *  typed field accepts any minute, so the list is there for the common case and never in the way of
  *  the uncommon one.
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 
 // The surface is Turkish, so every rendered date/time is formatted against tr-TR — the browser's
 // default locale never decides what a Turkish user reads.
@@ -96,19 +97,16 @@ export function DateTimePicker({ value, onChange, onClear, disabled, placeholder
   const [viewMonth, setViewMonth] = useState(() => selected ?? new Date());
   const ref = useRef<HTMLDivElement>(null);
   const timeListRef = useRef<HTMLDivElement>(null);
+  const timeInputRef = useRef<HTMLInputElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const discarded = useRef(false);
+  const [popupLeft, setPopupLeft] = useState(0);
+  const [popupWidth, setPopupWidth] = useState(362);
   // The typed field is a DRAFT until it parses: we never rewrite what someone is halfway through
   // typing ("17:" is a legal keystroke on the way to "17:35"), and we never commit a time they did
   // not finish expressing. `null` error means "nothing typed yet or it parsed".
   const [timeText, setTimeText] = useState("");
   const [timeBad, setTimeBad] = useState(false);
-
-  useEffect(() => {
-    if (!open) return;
-    setViewMonth(selected ?? new Date());
-    const close = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
-    document.addEventListener("mousedown", close);
-    return () => document.removeEventListener("mousedown", close);
-  }, [open, selected]);
 
   // scroll the time list to the selected (or working-hours) slot when the popover opens
   // Re-seed the draft from the real value each time the popover opens, so it always shows what is
@@ -126,21 +124,52 @@ export function DateTimePicker({ value, onChange, onClear, disabled, placeholder
   }, [open, selected]);
 
   const base = selected ?? nextHalfHour();
-  const pickDay = (day: Date) => onChange(atTime(day, base.getHours(), base.getMinutes()).toISOString());
+  const pickDay = (day: Date) => {
+    const typed = timeText.trim() ? parseTimeInput(timeText) : null;
+    if (timeText.trim() && !typed) { setTimeBad(true); return; }
+    onChange(atTime(day, typed?.h ?? base.getHours(), typed?.m ?? base.getMinutes()).toISOString());
+  };
   const pickTime = (h: number, m: number) => onChange(atTime(base, h, m).toISOString());
-  /** Commit the typed field. An empty field is not an error — it is simply nothing to commit, so
-   *  the existing time stands. Returns whether the popover may close. */
-  const commitTyped = (): boolean => {
+  /** Commit a valid draft before the next outside action can consume the selected date. */
+  const commitTyped = useCallback((): boolean => {
+    if (discarded.current) return true;
     if (!timeText.trim()) { setTimeBad(false); return true; }
     const parsed = parseTimeInput(timeText);
     if (!parsed) { setTimeBad(true); return false; }
     setTimeBad(false);
-    // Blur fires every time the popover closes, so committing unconditionally would PATCH the
-    // meeting on every glance at the picker. Only a real change is a change.
     if (selected && selected.getHours() === parsed.h && selected.getMinutes() === parsed.m) return true;
-    pickTime(parsed.h, parsed.m);
+    onChange(atTime(selected ?? nextHalfHour(), parsed.h, parsed.m).toISOString());
     return true;
-  };
+  }, [timeText, selected, onChange]);
+
+  useEffect(() => {
+    if (!open) return;
+    const outside = (event: Event) => {
+      if (!ref.current || ref.current.contains(event.target as Node)) return;
+      let valid = false;
+      // Keyboard clicks and submit events can follow immediately in this same event turn.
+      flushSync(() => { valid = commitTyped(); if (valid) setOpen(false); });
+      if (!valid) {
+        event.preventDefault(); event.stopImmediatePropagation();
+        timeInputRef.current?.focus();
+      }
+    };
+    const events = ["pointerdown", "mousedown", "click", "submit"] as const;
+    for (const name of events) document.addEventListener(name, outside, true);
+    return () => { for (const name of events) document.removeEventListener(name, outside, true); };
+  }, [open, commitTyped]);
+
+  useEffect(() => {
+    if (!open) return;
+    const align = () => {
+      const left = ref.current?.getBoundingClientRect().left ?? 0;
+      const width = Math.min(362, window.innerWidth - 32);
+      setPopupWidth(width);
+      setPopupLeft(Math.max(16 - left, Math.min(0, window.innerWidth - 16 - left - width)));
+    };
+    align(); window.addEventListener("resize", align); window.addEventListener("scroll", align, true);
+    return () => { window.removeEventListener("resize", align); window.removeEventListener("scroll", align, true); };
+  }, [open]);
 
   // month grid (Monday-first)
   const first = new Date(viewMonth.getFullYear(), viewMonth.getMonth(), 1);
@@ -156,8 +185,17 @@ export function DateTimePicker({ value, onChange, onClear, disabled, placeholder
   ].filter((q) => q.d.getTime() > Date.now());
 
   return (
-    <div ref={ref} style={{ position: "relative", display: "inline-block", minWidth: 0 }}>
-      <button type="button" disabled={disabled} onClick={() => setOpen((v) => !v)}
+    <div ref={ref} style={{ position: "relative", display: "inline-block", minWidth: 0 }}
+      onKeyDown={(event) => {
+        if (open && event.key === "Escape") {
+          event.preventDefault(); event.stopPropagation(); discarded.current = true; setOpen(false); triggerRef.current?.focus();
+        }
+      }}>
+      <button ref={triggerRef} type="button" aria-label="Tarih ve saat" aria-haspopup="dialog" aria-expanded={open} disabled={disabled}
+        onClick={() => {
+          if (open) { if (commitTyped()) setOpen(false); else timeInputRef.current?.focus(); }
+          else { discarded.current = false; setViewMonth(selected ?? new Date()); setOpen(true); }
+        }}
         style={{
           display: "inline-flex", alignItems: "center", gap: 7, fontSize: 12.5, padding: "6px 10px",
           background: "var(--panel)", border: "1px solid var(--line)", borderRadius: 7,
@@ -169,7 +207,7 @@ export function DateTimePicker({ value, onChange, onClear, disabled, placeholder
       </button>
       {open && (
         <div role="dialog" aria-label="Tarih ve saat seçin"
-          style={{ position: "absolute", top: "100%", left: 0, marginTop: 6, zIndex: 60, width: 336,
+          style={{ position: "absolute", top: "100%", left: popupLeft, marginTop: 6, zIndex: 60, width: popupWidth, boxSizing: "border-box", maxHeight: "80dvh", overflowY: "auto",
             background: "var(--panel)", border: "1px solid var(--line2)", borderRadius: 10,
             boxShadow: "0 10px 32px rgba(0,0,0,.35)", padding: 12 }}>
           {quick.length > 0 && (
@@ -184,9 +222,9 @@ export function DateTimePicker({ value, onChange, onClear, disabled, placeholder
               ))}
             </div>
           )}
-          <div style={{ display: "flex", gap: 12 }}>
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
             {/* calendar */}
-            <div style={{ flex: "none", width: 196 }}>
+            <div style={{ flex: "1 1 196px", minWidth: 0 }}>
               <div style={{ display: "flex", alignItems: "center", marginBottom: 6 }}>
                 <button type="button" aria-label="Önceki ay"
                   onClick={() => setViewMonth(new Date(viewMonth.getFullYear(), viewMonth.getMonth() - 1, 1))}
@@ -227,11 +265,12 @@ export function DateTimePicker({ value, onChange, onClear, disabled, placeholder
             </div>
             {/* time: a typed field over the slot list. The field is outside the scroll container so
                 it stays reachable however far down the list you are. */}
-            <div style={{ flex: 1, display: "flex", flexDirection: "column", borderLeft: "1px solid var(--line)", paddingLeft: 10, minWidth: 0 }}>
+            <div style={{ flex: "1 1 96px", display: "flex", flexDirection: "column", borderLeft: "1px solid var(--line)", paddingLeft: 10, minWidth: 0 }}>
               <label style={{ fontSize: 10.5, color: "var(--t3)", textTransform: "uppercase", letterSpacing: ".04em", marginBottom: 4 }}>
                 Saat
               </label>
               <input
+                ref={timeInputRef}
                 value={timeText}
                 inputMode="numeric"
                 placeholder="ss:dd"
@@ -240,7 +279,6 @@ export function DateTimePicker({ value, onChange, onClear, disabled, placeholder
                 onChange={(e) => { setTimeText(e.target.value); setTimeBad(false); }}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") { e.preventDefault(); if (commitTyped()) setOpen(false); }
-                  if (e.key === "Escape") { setOpen(false); }
                 }}
                 onBlur={() => commitTyped()}
                 style={{

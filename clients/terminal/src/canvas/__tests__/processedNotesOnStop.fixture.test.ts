@@ -29,7 +29,7 @@ describe("processed-notes-on-stop (fixture: session-trace-meeting35)", () => {
     // the bug condition: the meetings-list row is stuck live after stop → live=true
     expect(deriveProcessingView({ override: null, live: true, hasNotes, durableTerminal })).toBe(true);
     // documents the OLD behaviour that produced "raw until reload":
-    expect(defaultProcessingView(true, hasNotes)).toBe(false);
+    expect(defaultProcessingView(true, hasNotes)).toBe(false);   // raw is the default view
   });
 
   it("a user override still wins over the default in both directions", () => {

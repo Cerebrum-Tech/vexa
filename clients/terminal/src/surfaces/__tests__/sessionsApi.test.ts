@@ -28,3 +28,24 @@ describe("sessionsApi — scoped (no subject) + fail-loud", () => {
     await expect(listSessions()).rejects.toBeInstanceOf(ApiError);
   });
 });
+
+describe("meeting conversation identities", () => {
+  it("resumes the same canonical row after module reload, independently of other users and runs", async () => {
+    const { meetingConversationSession } = await import("../sessionsApi");
+    const session = meetingConversationSession("alice", "42");
+    expect(meetingConversationSession("alice", "43")).not.toBe(session);
+    expect(meetingConversationSession("bob", "42")).not.toBe(session);
+    expect(session).not.toBe("main");
+    expect(session).not.toMatch(/[\\/]/);
+    vi.resetModules();
+    const reloaded = await import("../sessionsApi");
+    expect(reloaded.meetingConversationSession("alice", "42")).toBe(session);
+  });
+
+  it("does not confuse identity boundaries or accept an anonymous/missing row", async () => {
+    const { meetingConversationSession } = await import("../sessionsApi");
+    expect(meetingConversationSession("a-b", "c")).not.toBe(meetingConversationSession("a", "b-c"));
+    expect(() => meetingConversationSession("", "42")).toThrow();
+    expect(() => meetingConversationSession("alice", "")).toThrow();
+  });
+});

@@ -11,7 +11,7 @@ import { AgentWindow, Conversation, opIcon, type Turn, type Op } from "../workbe
 import { Icon } from "../ui-kit";
 import { startStreamingDictation, type StreamingDictation } from "../ui-kit/micDictation";
 import { sessionTitle, type SessionSummary } from "./sessions";
-import { listSessions } from "./sessionsApi";
+import { listSessions, sessionHistory } from "./sessionsApi";
 import { streamChatTurn, type ChatPhase } from "./chatStream";
 import { buildChatContext, focusTarget, readIncludeSchedule, scheduleEligible, writeIncludeSchedule, type FocusPayload } from "./chatContext";
 import { useLiveMeetings } from "./liveMeetings";
@@ -25,11 +25,11 @@ function toolOp(tool: string): Op {
   const [icon, verb] = /read|cat|open/.test(t) ? [opIcon.read, "Okunuyor"]
     : /glob|search|grep|find|ls\b/.test(t) ? [opIcon.search, "Aranıyor"]
     : /edit|write|append/.test(t) ? [opIcon.edit, "Yazılıyor"]
-    : /git|commit/.test(t) ? [opIcon.git, "Commit ediliyor"]
+    : /git|commit/.test(t) ? [opIcon.git, "Kaydediliyor"]
     : /web|fetch|http/.test(t) ? [opIcon.web, "Göz atılıyor"]
     : /bash|exec|run/.test(t) ? [opIcon.tool, "Çalıştırılıyor"]
-    : [opIcon.tool, tool];
-  return { icon, label: verb === tool ? tool : `${verb} · ${tool}`, status: "done" };
+    : [opIcon.tool, "Çalışılıyor"];
+  return { icon, label: verb, status: "done" };
 }
 
 /** the backend history turn shape (GET /api/sessions/:session/history) */
@@ -42,14 +42,18 @@ type ChatSessionState = {
   turns: Turn[];
   busy: boolean;
   loading: boolean;
+  historyError: string | null;
   loaded: boolean;
   nextId: number;
   abort: AbortController | null;
+  draft: string;
+  attachments: ComposerAttachment[];
 };
 
-const EMPTY_CHAT_STATE: ChatSessionState = { turns: [], busy: false, loading: false, loaded: false, nextId: 0, abort: null };
+const EMPTY_CHAT_STATE: ChatSessionState = { turns: [], busy: false, loading: false, historyError: null, loaded: false, nextId: 0, abort: null, draft: "", attachments: [] };
 const chatSessions = new Map<string, ChatSessionState>();
 const chatSubscribers = new Map<string, Set<() => void>>();
+let attachmentSequence = 0;
 
 function chatStateKey(subject: string, session: string): string {
   return `${subject}\u0000${session}`;
@@ -94,9 +98,9 @@ function patchAgentTurn(key: string, agentId: string, fn: (turn: AgentTurn) => A
 }
 
 /** map a backend op label (read/search/edit/git/web/tool) to a frontend Op (icon from opIcon) */
-const OP_VERB: Record<string, string> = { read: "Okunuyor", search: "Aranıyor", edit: "Yazılıyor", git: "Commit ediliyor", web: "Göz atılıyor", tool: "Çalıştırılıyor" };
+const OP_VERB: Record<string, string> = { read: "Okunuyor", search: "Aranıyor", edit: "Yazılıyor", git: "Kaydediliyor", web: "Göz atılıyor", tool: "Çalıştırılıyor" };
 function historyOp(op: { label: string }): Op {
-  return { icon: opIcon[op.label] ?? opIcon.tool, label: OP_VERB[op.label] ?? op.label, status: "done" };
+  return { icon: opIcon[op.label] ?? opIcon.tool, label: OP_VERB[op.label] ?? "Çalışılıyor", status: "done" };
 }
 
 type ReferenceToken = { kind: "file" | "meeting"; value: string; raw: string };
@@ -156,9 +160,9 @@ function fileLabel(path: string): string {
 
 function ReferenceChip({ refToken }: { refToken: ReferenceToken }) {
   const isFile = refToken.kind === "file";
-  const label = isFile ? fileLabel(refToken.value) : refToken.value;
+  const label = isFile ? fileLabel(refToken.value) : "Toplantı";
   return (
-    <span title={refToken.raw}
+    <span title={label}
       style={{ display: "inline-flex", alignItems: "center", gap: 5, maxWidth: 220, verticalAlign: "baseline", margin: "0 2px", padding: "1px 7px 1px 5px", borderRadius: 6, border: "1px solid var(--line2)", background: isFile ? "var(--bluebg)" : "var(--accentbg)", color: isFile ? "var(--blue)" : "var(--accent)", fontSize: "0.92em", lineHeight: 1.45, whiteSpace: "nowrap" }}>
       <Icon name={isFile ? "file" : "cal"} size={11} />
       <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{label}</span>
@@ -272,7 +276,7 @@ function ChatHeader({ subject, session, onSelectSession, onNewChat, onClose }: {
     let cancelled = false;
     const load = async () => {
       try {
-        const list = await listSessions();
+        const list = (await listSessions()).filter((s) => !s.session.startsWith("meeting-"));
         if (!cancelled) { setSessions(list); setError(null); }
       } catch (e) {
         // Fail loud: surface the backend error instead of silently showing an empty list.
@@ -288,7 +292,7 @@ function ChatHeader({ subject, session, onSelectSession, onNewChat, onClose }: {
     let cancelled = false;
     const load = async () => {
       try {
-        const list = await listSessions();
+        const list = (await listSessions()).filter((s) => !s.session.startsWith("meeting-"));
         if (!cancelled) { setSessions(list); setError(null); }
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : "Bilinmeyen hata");
@@ -317,7 +321,7 @@ function ChatHeader({ subject, session, onSelectSession, onNewChat, onClose }: {
 
   const activeSummary = sessions.find((s) => s.session === session) ?? { session };
   const visibleSessions = sessions.some((s) => s.session === session) ? sessions : [activeSummary, ...sessions];
-  const currentTitle = sessionTitle(activeSummary);
+  const currentTitle = activeSummary.title ? sessionTitle(activeSummary) : "Asistan";
   const iconButton: CSSProperties = { width: 28, height: 28, borderRadius: 7, border: "1px solid transparent", background: "transparent", color: "var(--t3)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flex: "none" };
 
   return (
@@ -349,7 +353,7 @@ function ChatHeader({ subject, session, onSelectSession, onNewChat, onClose }: {
                 style={{ width: "100%", minWidth: 0, display: "flex", alignItems: "center", gap: 8, padding: "7px 8px", border: "none", borderRadius: 6, background: active ? "var(--panel2)" : "transparent", color: active ? "var(--t1)" : "var(--t2)", cursor: "pointer", textAlign: "left", fontSize: 12.5 }}
               >
                 <Icon name="msg" size={13} style={{ color: active ? "var(--t2)" : "var(--t3)" }} />
-                <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sessionTitle(s)}</span>
+                <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.title ? sessionTitle(s) : "Sohbet"}</span>
               </button>
             );
           })}
@@ -549,22 +553,48 @@ function routineCreationPrompt(commandText: string): string {
   ].join("\n");
 }
 
-type ChatProps = Partial<TabProps>;
+export type ChatDispatchResult = "accepted" | "busy" | "empty";
+export interface ChatAskDetail {
+  prompt?: string;
+  displayText?: string;
+  hidden?: boolean;
+  ground?: boolean;
+  onDispatch?: (result: ChatDispatchResult) => void;
+}
 
-export function Chat({ params = {} }: ChatProps) {
-  const subject = typeof params.subject === "string" ? params.subject : "me";  // LOCAL chat-cache key only — never sent upstream; scope is server-derived from the authed user (P20)
+type ChatProps = Partial<TabProps> & { hideHeader?: boolean };
+
+export function Chat({ params = {}, hideHeader = false }: ChatProps) {
+  const layout = useService(LayoutServiceId);
+  const { activeSession } = useStore(layout.store);
+  const subject = typeof params.subject === "string" ? params.subject : "";
+  const previousSubject = useRef(subject);
+  useEffect(() => {
+    if (previousSubject.current !== subject) {
+      const prefix = `${previousSubject.current}\u0000`;
+      for (const [key, state] of chatSessions) if (key.startsWith(prefix)) state.abort?.abort();
+      previousSubject.current = subject;
+    }
+  }, [subject]);
+  const session = typeof params.session === "string" && params.session.trim() ? params.session : activeSession;
+  if (!subject) return <div role="status">Sohbet için hesabınız yükleniyor…</div>;
+  return <ChatSession key={chatStateKey(subject, session)} params={params} subject={subject} session={session} hideHeader={hideHeader} />;
+}
+
+function ChatSession({ params, subject, session, hideHeader }: { params: Record<string, unknown>; subject: string; session: string; hideHeader: boolean }) {
   const commands = useService(CommandServiceId);
   const layout = useService(LayoutServiceId);
-  const { activeTab, activeSession, activeList } = useStore(layout.store);
-  // the rail follows the store's active session (switched from the rail header or Sessions list); params override if ever passed.
-  const session = typeof params.session === "string" && params.session.trim() ? params.session : activeSession;
+  const { activeTab: selectedTab, activeList } = useStore(layout.store);
+  const meetingId = typeof params.meetingId === "string" ? params.meetingId : undefined;
+  const activeTab = meetingId ? { kind: "meeting", params: { ...selectedTab?.params, meetingId } } : selectedTab;
   const chatKey = chatStateKey(subject, session);
   const chatState = useSyncExternalStore(
     (cb) => subscribeChatState(chatKey, cb),
     () => getChatState(chatKey),
     () => getChatState(chatKey),
   );
-  const { turns, busy, loading } = chatState;
+  const { turns, busy, loading, historyError } = chatState;
+  const [historyAttempt, setHistoryAttempt] = useState(0);
   const activeRef = activeReference(activeTab);
   // the user can clear focus with the chip's ×; a newly-focused tab re-shows it.
   const [focusCleared, setFocusCleared] = useState(false);
@@ -572,22 +602,25 @@ export function Chat({ params = {} }: ChatProps) {
   // ambient schedule digest (context bundle): surface-gated, with a per-session explicit toggle
   const ambientEligible = scheduleEligible(activeList, activeTab);
   const [includeSchedule, setIncludeSchedule] = useState<boolean | null>(null);
-  useEffect(() => { setIncludeSchedule(readIncludeSchedule(session)); }, [session]);
-  const setAmbient = (v: boolean | null) => { setIncludeSchedule(v); writeIncludeSchedule(session, v); };
+  useEffect(() => { setIncludeSchedule(readIncludeSchedule(chatKey)); }, [chatKey]);
+  const setAmbient = (v: boolean | null) => { setIncludeSchedule(v); writeIncludeSchedule(chatKey, v); };
   const ambientOn = includeSchedule !== null ? includeSchedule : ambientEligible;
   // the bundle focus payload — meeting/file mirror the legacy `active`; workspace/today are new kinds
   const bundleFocus: FocusPayload | null = focusCleared ? null : focusTarget(activeTab);
   const focusRef = focusCleared ? null : activeRef;
   const meetings = useLiveMeetings();
   const activeMeeting = activeRef?.kind === "meeting"
-    ? meetings.find((m) => m.id === activeRef.value || m.native_id === activeRef.value)
+    ? meetings.find((m) => m.id === activeRef.value) ?? (meetingId ? undefined : meetings.find((m) => m.native_id === activeRef.value))
     : undefined;
   const contextRef: ActiveReference | null = focusRef?.kind === "meeting"
     ? { kind: "meeting", value: activeMeeting?.native_id ?? activeMeeting?.id ?? focusRef.value, raw: `@meeting:${activeMeeting?.native_id ?? activeMeeting?.id ?? focusRef.value}` }
     : focusRef;
   const [uploading, setUploading] = useState(false);
-  const [value, setValue] = useState("");
-  const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
+  const value = chatState.draft;
+  const setValue = (draft: string) => updateChatState(chatKey, (s) => ({ ...s, draft }));
+  const attachments = chatState.attachments;
+  const setAttachments = (change: (current: ComposerAttachment[]) => ComposerAttachment[]) =>
+    updateChatState(chatKey, (s) => ({ ...s, attachments: change(s.attachments) }));
   const [uploadError, setUploadError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   // Follow the stream ONLY while the user is pinned to the bottom. Scrolling up to read
@@ -603,8 +636,8 @@ export function Chat({ params = {} }: ChatProps) {
   }, []);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const attachmentSeqRef = useRef(0);
-  const attachmentsRef = useRef<ComposerAttachment[]>([]);
+  const mountedRef = useRef(true);
+  const uploadAbortRef = useRef<AbortController | null>(null);
   // ── mic dictation — STREAMING, meeting-pipeline style (sliding window + LocalAgreement
   //    via ui-kit/micDictation): confirmed + pending text land in the composer LIVE while
   //    speaking; stop flushes the final window. STT is proxied via /api/stt.
@@ -613,7 +646,10 @@ export function Chat({ params = {} }: ChatProps) {
   const micRef = useRef<StreamingDictation | null>(null);
   const micBaseRef = useRef("");     // composer text at record start — dictation appends after it
   const micStartRef = useRef(0);
-  useEffect(() => () => { micRef.current?.cancel(); }, []);  // release the mic on unmount
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; micRef.current?.cancel(); uploadAbortRef.current?.abort(); };
+  }, []);
   const micCompose = (base: string, confirmed: string, pending: string) => {
     const dictated = pending ? (confirmed ? `${confirmed} ${pending}` : pending) : confirmed;
     return base ? (dictated ? `${base} ${dictated}` : base) : dictated;
@@ -622,27 +658,29 @@ export function Chat({ params = {} }: ChatProps) {
     if (mic === "stt") return;
     if (mic === "rec") {
       const d = micRef.current;
-      micRef.current = null;
       if (!d) { setMic("idle"); return; }
       if (Date.now() - micStartRef.current < 300) { d.cancel(); setMic("idle"); return; }  // accidental tap
       setMic("stt");
       try {
         const final = await d.stop();
+        if (!mountedRef.current) return;
         setValue(micCompose(micBaseRef.current, final, ""));
         window.setTimeout(() => inputRef.current?.focus(), 0);
       } catch (e) {
         setMicError(e instanceof Error ? e.message : "Transkripsiyon tamamlanamadı.");
-      } finally { setMic("idle"); }
+      } finally { micRef.current = null; setMic("idle"); }
       return;
     }
     try {
       setMicError(null);
       micBaseRef.current = value.trim();
       micStartRef.current = Date.now();
-      micRef.current = await startStreamingDictation({
-        onUpdate: (confirmed, pending) => setValue(micCompose(micBaseRef.current, confirmed, pending)),
+      const recording = await startStreamingDictation({
+        onUpdate: (confirmed, pending) => { if (mountedRef.current) setValue(micCompose(micBaseRef.current, confirmed, pending)); },
         onError: () => { /* transient mid-stream faults retry on the next window — stay quiet */ },
       });
+      if (!mountedRef.current) { recording.cancel(); return; }
+      micRef.current = recording;
       setMic("rec");
     } catch { setMicError("Mikrofona erişilemedi — tarayıcı izinlerini kontrol edin."); }
   };
@@ -654,12 +692,6 @@ export function Chat({ params = {} }: ChatProps) {
   }, []);
 
   useEffect(() => { if (inputRef.current) resizeComposerTextarea(inputRef.current); }, [value]);
-  useEffect(() => { attachmentsRef.current = attachments; }, [attachments]);
-  useEffect(() => () => {
-    for (const a of attachmentsRef.current) {
-      if (a.previewUrl) URL.revokeObjectURL(a.previewUrl);
-    }
-  }, []);
 
   // Load history into an idle, empty session snapshot. Live turns stay in the per-session store so switching
   // sessions never redirects or clears an in-flight stream.
@@ -667,7 +699,7 @@ export function Chat({ params = {} }: ChatProps) {
     const key = chatKey;
     const state = getChatState(key);
     if (state.loaded || state.loading || state.busy) return;
-    updateChatState(key, (s) => ({ ...s, loading: true }));
+    updateChatState(key, (s) => ({ ...s, loading: true, historyError: null }));
     // The result is committed to the per-session `key`, so it is safe to apply even if this effect run
     // was cancelled (deps changed / StrictMode remount): a real session switch targets a different key,
     // and an identical-key remount wants exactly this data. Crucially `loading` is ALWAYS released here —
@@ -675,8 +707,7 @@ export function Chat({ params = {} }: ChatProps) {
     // hanging the pane forever on "Sohbet yükleniyor…".
     (async () => {
       try {
-        const r = await fetch(`/api/sessions/${encodeURIComponent(session)}/history`);
-        const data: { turns?: HistoryTurn[] } = await r.json();
+        const data = await sessionHistory(session) as { turns: HistoryTurn[] };
         const loaded: Turn[] = (data.turns ?? [])
           // Drop a PURE onboarding kickoff (legacy: marker with no user reply). A grounding-wrapped reply
           // (marker + grounding + reply) is KEPT and compacted to just the reply by compactStoredUserText.
@@ -691,10 +722,10 @@ export function Chat({ params = {} }: ChatProps) {
         });
       } catch {
         // A failed fetch must always clear `loading` (never hang) and leave `loaded` false so it retries.
-        updateChatState(key, (s) => (s.loaded ? s : { ...s, loading: false }));
+        updateChatState(key, (s) => (s.loaded ? s : { ...s, loading: false, historyError: "Sohbet yüklenemedi. Lütfen yeniden deneyin." }));
       }
     })();
-  }, [chatKey, session, subject]);
+  }, [chatKey, session, subject, historyAttempt]);
 
   const addFiles = (files: File[]) => {
     if (files.length === 0) return;
@@ -704,7 +735,7 @@ export function Chat({ params = {} }: ChatProps) {
       ...files.map((file) => {
         const isImage = file.type.startsWith("image/");
         return {
-          id: `att-${attachmentSeqRef.current++}`,
+          id: `att-${globalThis.crypto?.randomUUID?.() ?? ++attachmentSequence}`,
           file,
           isImage,
           previewUrl: isImage ? URL.createObjectURL(file) : undefined,
@@ -733,7 +764,9 @@ export function Chat({ params = {} }: ChatProps) {
   const uploadAttachments = async (): Promise<UploadedWorkspaceFile[]> => {
     const form = new FormData();
     for (const a of attachments) form.append("files", a.file, a.file.name || "upload");
-    const r = await fetch("/api/workspace/upload", { method: "POST", body: form });
+    const ctrl = new AbortController();
+    uploadAbortRef.current = ctrl;
+    const r = await fetch("/api/workspace/upload", { method: "POST", body: form, signal: ctrl.signal });
     if (!r.ok) {
       let detail = `Dosya yüklenemedi (${r.status})`;
       try {
@@ -748,7 +781,7 @@ export function Chat({ params = {} }: ChatProps) {
     return data.files ?? [];
   };
 
-  const send = async (text: string, prompt = text, referenceSource = text, opts: { hidden?: boolean; ground?: boolean } = {}) => {
+  const send = async (text: string, prompt = text, referenceSource = text, opts: { hidden?: boolean; ground?: boolean; onDispatch?: (result: ChatDispatchResult) => void } = {}) => {
     // hidden → no visible user bubble (system kickoffs); ground:false → don't append the active
     // meeting/file context (onboarding must not inherit whatever meeting happens to be focused).
     const { hidden = false, ground = true } = opts;
@@ -757,7 +790,8 @@ export function Chat({ params = {} }: ChatProps) {
     const key = chatKey;
     const sessionForSend = session;
     const state = getChatState(key);
-    if (!v || !basePrompt || state.busy) return;
+    if (!v || !basePrompt) { opts.onDispatch?.("empty"); return; }
+    if (state.busy) { opts.onDispatch?.("busy"); return; }
     const n = state.nextId;
     const agentId = `a-${n}`;
     const displayText = appendReferenceToken(v, contextRef);
@@ -774,6 +808,7 @@ export function Chat({ params = {} }: ChatProps) {
       nextId: Math.max(s.nextId, n + 1),
       abort: ctrl,
     }));
+    opts.onDispatch?.("accepted");
     // Cold-start / mid-turn-drop robustness lives in streamChatTurn: a chat turn spawns a FRESH
     // per-dispatch worker (docker backend) that takes seconds to boot, and the turn is NEVER lost even
     // if the SSE closes early (durable, resumable output Stream). So instead of "No chat output arrived"
@@ -798,7 +833,7 @@ export function Chat({ params = {} }: ChatProps) {
       ? undefined
       : contextRef.kind === "meeting"
         ? {
-            kind: "meeting", native_id: contextRef.value, meeting_id: activeMeeting?.id,
+            kind: "meeting", native_id: contextRef.value, meeting_id: meetingId ?? activeMeeting?.id,
             platform: meetingPlatformSlug(activeMeeting),
             status: activeMeeting?.live_status,
             title: activeMeeting ? meetingLabel(activeMeeting) : undefined,
@@ -826,8 +861,8 @@ export function Chat({ params = {} }: ChatProps) {
           onDelta: (text) => patchAgentTurn(key, agentId, (t) => ({ ...t, status: null, text: (t.text ?? "") + text })),
           onTool: (tool) => patchAgentTurn(key, agentId, (t) => ({ ...t, status: null, ops: [...t.ops, toolOp(tool)] })),
           onCommit: (sha) => patchAgentTurn(key, agentId, (t) => ({ ...t, commit: sha })),
-          onRejected: () => patchAgentTurn(key, agentId, (t) => ({ ...t, status: null, rejected: "workspace.v1 ihlali — değişiklikler geri alındı" })),
-          onModelFailure: (reply) => patchAgentTurn(key, agentId, (t) => ({ ...t, status: null, text: (t.text ?? "") + (t.text ? "\n\n" : "") + `Model yanıt üretemedi${reply ? `: ${reply}` : "."}` })),
+          onRejected: () => patchAgentTurn(key, agentId, (t) => ({ ...t, status: null, rejected: "Bu değişikliklere izin verilmedi; kaydedilmedi." })),
+          onModelFailure: (reply) => patchAgentTurn(key, agentId, (t) => ({ ...t, status: null, text: (t.text ?? "") + (t.text ? "\n\n" : "") + `Asistan yanıt üretemedi${reply ? `: ${reply}` : "."}` })),
           onError: (msg) => patchAgentTurn(key, agentId, (t) => ({ ...t, status: null, text: (t.text ?? "") + (t.text ? "\n\n" : "") + msg })),
           onProgress: () => { if (stickToBottomRef.current) scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight }); },
         },
@@ -865,11 +900,16 @@ export function Chat({ params = {} }: ChatProps) {
   sendRef.current = send;
   useEffect(() => {
     const onAsk = (e: Event) => {
-      const detail = (e as CustomEvent<{ prompt?: string; hidden?: boolean; ground?: boolean }>).detail;
+      const detail = (e as CustomEvent<ChatAskDetail>).detail;
       const prompt = detail?.prompt;
-      if (!prompt) return;
+      if (!prompt) { detail?.onDispatch?.("empty"); return; }
       if (layout.store.getState().rightCollapsed) layout.toggleRight();
-      void sendRef.current(prompt, prompt, prompt, { hidden: detail?.hidden, ground: detail?.ground });
+      const displayText = detail.displayText ?? prompt;
+      // The stored prompt keeps targeting instructions above the existing history-display boundary.
+      const groundedPrompt = detail.displayText == null ? prompt : `${prompt}\n\n${CONTEXT_SENTINEL}${displayText}`;
+      void sendRef.current(displayText, groundedPrompt, displayText, {
+        hidden: detail.hidden, ground: detail.ground, onDispatch: detail.onDispatch,
+      });
     };
     window.addEventListener(ASK_CHAT_EVENT, onAsk);
     return () => window.removeEventListener(ASK_CHAT_EVENT, onAsk);
@@ -914,6 +954,7 @@ export function Chat({ params = {} }: ChatProps) {
       let uploaded: UploadedWorkspaceFile[];
       try {
         uploaded = await uploadAttachments();
+        if (!mountedRef.current) return;
       } catch (e) {
         setUploadError((e as Error)?.message || "Dosya yüklenemedi.");
         setUploading(false);
@@ -1044,7 +1085,7 @@ export function Chat({ params = {} }: ChatProps) {
             }}
             placeholder={contextRef?.kind === "meeting" && activeMeeting
               ? MODE_PLACEHOLDER[meetingPhase(activeMeeting)]
-              : "Beceriler için / yazın ya da asistana sorun…"}
+              : "Asistana sorun…"}
             disabled={uploading}
             rows={1}
             style={{ flex: 1, background: "none", border: "none", outline: "none", color: "var(--t1)", fontSize: 14, lineHeight: "20px", minWidth: 0, minHeight: 28, maxHeight: MAX_TEXTAREA_HEIGHT, resize: "none", overflowY: "hidden", padding: "4px 0", margin: 0, fontFamily: "inherit" }}
@@ -1078,8 +1119,14 @@ export function Chat({ params = {} }: ChatProps) {
   );
 
   return (
-    <AgentWindow top={<ChatHeader subject={subject} session={session} onSelectSession={selectSession} onNewChat={newChat} onClose={() => layout.toggleRight()} />} scrollRef={scrollRef} composer={composer}>
-      <ChatConversation turns={turns} busy={busy || loading} empty={<div style={{ color: "var(--t3)", fontSize: 13, textAlign: "center", marginTop: 40 }}>{loading ? "Sohbet yükleniyor…" : "Asistandan not tutmasını, araştırma yapmasını veya bilgileri yeniden düzenlemesini isteyin — sonucu git çalışma alanınıza yazar ve commit eder."}</div>} />
+    <AgentWindow top={hideHeader ? undefined : meetingId ? (
+      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "16px 18px", borderBottom: "1px solid var(--line)" }}>
+        <Icon name="msg" size={18} /><strong style={{ flex: 1 }}>Toplantı asistanı</strong>
+        <button aria-label="Sohbeti kapat" onClick={() => layout.toggleRight()} style={{ border: 0, background: "none", color: "var(--t2)", cursor: "pointer" }}><Icon name="x" size={18} /></button>
+      </div>
+    ) : <ChatHeader subject={subject} session={session} onSelectSession={selectSession} onNewChat={newChat} onClose={() => layout.toggleRight()} />} scrollRef={scrollRef} composer={composer}>
+      {historyError && <div role="alert" style={{ color: "var(--danger)", padding: 12 }}>{historyError} <button onClick={() => setHistoryAttempt((n) => n + 1)}>Yeniden dene</button></div>}
+      <ChatConversation turns={turns} busy={busy || loading} empty={<div style={{ color: "var(--t3)", fontSize: 13, textAlign: "center", marginTop: 40 }}>{loading ? "Sohbet yükleniyor…" : "Asistandan not tutmasını, araştırma yapmasını veya bilgilerinizi düzenlemesini isteyin."}</div>} />
     </AgentWindow>
   );
 }

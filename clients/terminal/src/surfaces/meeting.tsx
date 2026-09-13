@@ -14,7 +14,7 @@ import { type MeetingMock } from "./meetingModel";
 import { ApiError, presentError, readApiFailure } from "./apiClient";
 import { resolveJoinError, serviceDenialFromError, type ServiceDenialPresentation } from "./serviceDenial";
 import { ServiceDenialPanel } from "./ServiceDenialPanel";
-import { useLiveMeetings, useLiveMeetingsConnection, useLiveMeetingsLoaded, liveMeetingsNow, refreshMeetings } from "./liveMeetings";
+import { useLiveMeetings, useLiveMeetingsConnection, useLiveMeetingsLoaded, useLiveMeetingsError, liveMeetingsNow, refreshMeetings } from "./liveMeetings";
 import { usePreviewPinTab } from "./previewPinTab";
 import { defaultBotName } from "./defaultBotName";
 import { parseMeetingInput } from "./meetingId";
@@ -22,6 +22,7 @@ import { getJitsiHosts } from "./jitsiHosts";
 import { mintTranscriptShare, mintInvite, listSharedMemberships, type Membership } from "./workspaceApi";
 import { deletePlannedMeeting, MAX_CALENDARS, listCalendars, createCalendar, updateCalendar, syncCalendar, getCalendarSyncStatus, type CalendarConnection, type CalendarSyncStamp } from "./plannedApi";
 import { prepTabDescriptor, prepDraftTabDescriptor } from "./meetingPrep";
+import { updatePlannedMeeting } from "./plannedApi";
 import { UploadRecordingButton } from "./uploadRecording";
 
 // ── "Oturumu paylaş" — mint a link to this meeting's LIVE FEED (independent transcript share) and,
@@ -402,7 +403,7 @@ function StatusBadge({ raw }: { raw?: string }) {
 
 /** Status badge (only when meaningful) + a small ▾ menu of action→transition items for one meeting row.
  *  The ▾ is revealed on row hover (or while its menu is open) to keep the list quiet at rest. */
-function RowActions({ m, showBadge, reveal, onActionStart, onActionFailure }: { m: MeetingMock; showBadge: boolean; reveal: boolean; onActionStart?: () => void; onActionFailure?: MeetingActionFailureHandler }) {
+export function RowActions({ m, showBadge, reveal, onActionStart, onActionFailure }: { m: MeetingMock; showBadge: boolean; reveal: boolean; onActionStart?: () => void; onActionFailure?: MeetingActionFailureHandler }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const acts = actionsFor(m);
@@ -776,7 +777,7 @@ function MeetingsList() {
         </div>
       </div>
       {/* The day itself renders in the center (Today) — the sidebar only links there. */}
-      <button onClick={() => layout.openTab({ id: "today", title: "Bugün", kind: "today", params: {} })}
+      <button onClick={() => layout.openTab({ id: "today", title: "Toplantılar", kind: "today", params: {} })}
         style={{ display: "block", width: "100%", textAlign: "left", background: "transparent", border: "none", padding: "10px 9px", fontSize: 11.5, color: "var(--t3)", lineHeight: 1.5, cursor: "pointer" }}
         onMouseEnter={(e) => (e.currentTarget.style.color = "var(--t2)")} onMouseLeave={(e) => (e.currentTarget.style.color = "var(--t3)")}>
         {all.length === 0 ? "Henüz toplantı yok — yukarıya bir bağlantı yapıştırın veya Bugün sayfasını açın →" : "Toplantılarınız Bugün sayfasında →"}
@@ -806,29 +807,48 @@ function useModelInfo(): ModelInfo | null {
   return models;
 }
 
-function ModelChips() {
-  const models = useModelInfo();
-  const streaming = models?.streaming_model || models?.meeting_model || "varsayılan";
-  const chat = models?.chat_model || models?.agent_model || "varsayılan";
-  const chip = (label: string, value: string) => (
-    <span title={`${label} modeli: ${value}`} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "3px 8px", border: "1px solid var(--line)", borderRadius: 7, color: "var(--t2)", background: "var(--panel)", fontSize: 11.5, whiteSpace: "nowrap", minWidth: 0 }}>
-      <span style={{ color: "var(--t3)", fontFamily: "var(--mono)", flex: "none" }}>{label}</span>
-      <span style={{ color: "var(--t1)", maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{value}</span>
-    </span>
-  );
-  return (
-    <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center", justifyContent: "flex-end", minWidth: 0 }}>
-      {chip("akış", streaming)}
-      {chip("sohbet", chat)}
-    </div>
-  );
+export /** The meeting's display title, editable in place. A meeting the bot named after its link
+ *  ("teams · 354453369042446") is exactly the one people want to rename after the fact; the server
+ *  accepts a title-only PATCH in any status, so this works for planned, live and completed rows alike. */
+function MeetingTitle({ m }: { m: MeetingMock | undefined }) {
+  const shown = m ? (m.title_custom ?? (m.native_id ?? m.title).replace(/^Google Meet · /, "")) : "Toplantı";
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(shown);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => { if (editing) inputRef.current?.select(); }, [editing]);
+  const begin = () => { if (!m) return; setDraft(shown); setErr(null); setEditing(true); };
+  const save = async () => {
+    if (!m) return;
+    const title = draft.trim();
+    if (!title || title === shown) { setEditing(false); return; }
+    setBusy(true); setErr(null);
+    try {
+      await updatePlannedMeeting(m.id, { title });
+      refreshMeetings();
+      setEditing(false);
+    } catch (e) {
+      setErr(presentError(e).headline || "Ad kaydedilemedi.");
+    } finally { setBusy(false); }
+  };
+  if (editing) {
+    return <span style={{ display: "inline-flex", alignItems: "center", gap: 6, minWidth: 0, flex: 1 }}>
+      <input ref={inputRef} aria-label="Toplantı adı" value={draft} disabled={busy} maxLength={512}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => { if (e.key === "Enter") void save(); if (e.key === "Escape") setEditing(false); }}
+        onBlur={() => void save()}
+        style={{ fontSize: 19, fontWeight: 650, color: "var(--t1)", background: "var(--panel)", border: "1px solid var(--accent)", borderRadius: 6, padding: "2px 8px", minWidth: 0, flex: 1 }} />
+      {err && <span role="alert" style={{ fontSize: 11.5, color: "var(--danger)", flex: "none" }}>{err}</span>}
+    </span>;
+  }
+  return <span style={{ display: "inline-flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+    <span style={{ color: "var(--t1)", fontWeight: 650, fontSize: 21, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{shown}</span>
+    {m && <button type="button" className="icon-button" onClick={begin} aria-label="Toplantı adını düzenle" title="Toplantı adını düzenle" style={{ flex: "none", opacity: .7 }}><Icon name="edit" size={14} /></button>}
+  </span>;
 }
 
-/** Bot lifecycle controls on the meeting page header (owner ask 2026-07-09): Stop while the bot
- *  is in the call, Re-send once it stopped/completed/failed. Reuses the row-action map verbatim
- *  (same endpoints, same status vocabulary) — only bot actions surface here; row management
- *  (schedule/cancel/delete) stays in the sidebar menu. */
-export function BotControls({ m, connected = true }: { m: MeetingMock; connected?: boolean }) {
+function BotControls({ m, connected = true }: { m: MeetingMock; connected?: boolean }) {
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const acts = actionsFor(m).filter((a) => a.id === "stop" || a.id === "resend" || a.id === "send");
@@ -900,7 +920,7 @@ export function MeetingNotFound({ meetingId, onOpenToday }: { meetingId: string;
         {onOpenToday && (
           <button onClick={onOpenToday}
             style={{ marginTop: 16, fontSize: 12.5, padding: "5px 12px", background: "transparent", border: "1px solid var(--line2)", color: "var(--t2)", borderRadius: 7, cursor: "pointer" }}>
-            Bugün&rsquo;ü aç
+            Toplantıları aç
           </button>
         )}
       </div>
@@ -912,31 +932,35 @@ function MeetingTab({ params }: TabProps) {
   const layout = useService(LayoutServiceId);
   const liveList = useLiveMeetings();
   const listLoaded = useLiveMeetingsLoaded();
+  const listError = useLiveMeetingsError();
   const connected = useLiveMeetingsConnection();
   const requestedMeetingId = params.meetingId as string;
   // ONE resolver, shared with the canvas body (useMeeting.resolveMeeting): the real meetings list is the
   // only source of truth — a mock never shadows a real id, and a real id never falls back to a mock. While
   // the async list is still loading the row is simply not-yet-resolved; we render the canvas bound to the
   // id with a neutral header (never a wrong/mock meeting), so the header can't disagree with the body.
-  const m = liveList.find((x) => x.id === requestedMeetingId || x.native_id === requestedMeetingId);
+  const m = liveList.find((x) => x.id === requestedMeetingId) ?? liveList.find((x) => x.native_id === requestedMeetingId);
   const header = meetingHeaderState(m, connected);
 
   // An unknown id — a stale/foreign/mistyped meeting URL — is a clean dead end, never a crash and never
   // an endless "Connecting…". Only once the list has actually answered (P0: an offline list keeps
   // resolving, so a network blip can't make a live meeting look deleted).
+  if (listError) {
+    return <div className="empty-state" role="alert"><h2>Toplantı şu anda yüklenemiyor.</h2><p>Bağlantınızı kontrol edip yeniden deneyin.</p><button className="secondary-button" onClick={() => void refreshMeetings()}>Yeniden dene</button></div>;
+  }
   if (meetingResolution(m, listLoaded) === "not-found") {
     return (
       <MeetingNotFound
         meetingId={requestedMeetingId}
-        onOpenToday={() => layout.openTab({ id: "today", title: "Bugün", kind: "today", params: {} })}
+        onOpenToday={() => layout.openTab({ id: "today", title: "Toplantılar", kind: "today", params: {} })}
       />
     );
   }
 
   return (
-    <div style={{ width: "100%", height: "100%", minHeight: 0, display: "flex", flexDirection: "column", padding: "16px 0 24px", boxSizing: "border-box" }}>
+    <div className="meeting-detail-page" style={{ width: "100%", height: "100%", minHeight: 0, display: "flex", flexDirection: "column", padding: "22px 0 24px", boxSizing: "border-box" }}>
       <header style={{ flex: "none", marginBottom: 16, padding: `0 ${MEETING_CANVAS_CONTENT_INSET}px`, boxSizing: "border-box" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12, fontSize: 13, minWidth: 0 }}>
+        <div className="meeting-detail-heading" style={{ display: "flex", alignItems: "center", gap: 12, fontSize: 13, minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 9, minWidth: 0 }}>
             {header === "live"
               ? <span style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "var(--green)", fontWeight: 600, letterSpacing: ".04em", fontSize: 11, textTransform: "uppercase", flex: "none" }}><span style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--green)", boxShadow: "0 0 0 3px var(--greenbg)" }} />Canlı</span>
@@ -946,18 +970,17 @@ function MeetingTab({ params }: TabProps) {
                   ? <span style={{ display: "inline-flex", alignItems: "center", color: "var(--violet)", background: "var(--violetbg)", fontWeight: 600, letterSpacing: ".06em", fontSize: 10.5, textTransform: "uppercase", borderRadius: 999, padding: "2px 9px", flex: "none" }}>Toplantı özeti</span>
                   : <span style={{ fontSize: 11, color: "var(--t3)", fontWeight: 600, letterSpacing: ".04em", textTransform: "uppercase", flex: "none" }}>Bağlanıyor…</span>}
             <span style={{ width: 3, height: 3, borderRadius: "50%", background: "var(--t3)", flex: "none" }} />
-            <span style={{ color: "var(--t1)", fontWeight: 550, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m ? (m.title_custom ?? (m.native_id ?? m.title).replace(/^Google Meet · /, "")) : "Toplantı"}</span>
+            <MeetingTitle m={m} />
             {m && <span style={{ color: "var(--t3)", flex: "none", fontSize: 12 }}>{m.platform}</span>}
             {m && <span style={{ color: "var(--t3)", flex: "none" }}>{m.participants.length} katılımcı</span>}
           </div>
           <div style={{ flex: 1 }} />
           {m && <BotControls m={m} connected={connected} />}
           {m?.native_id && <ShareSessionButton platform={platformSlug(m.platform)} native={m.native_id} />}
-          <ModelChips />
         </div>
       </header>
       <div style={{ flex: 1, minHeight: 0 }}>
-        <MeetingCanvasView key={requestedMeetingId} meetingId={requestedMeetingId} />
+        <MeetingCanvasView key={m?.id ?? requestedMeetingId} meetingId={m?.id ?? requestedMeetingId} initialSection={params.initialSection === "transcript" ? "transcript" : "summary"} />
       </div>
     </div>
   );
@@ -965,6 +988,6 @@ function MeetingTab({ params }: TabProps) {
 
 registerList({ id: "meetings", label: "Toplantılar", icon: "cal", order: 20, component: MeetingsList,
   // clicking Meetings opens the user's DAY in the center (design-spec meeting-lifecycle-v2, W2)
-  centerTab: { id: "today", title: "Bugün", kind: "today", params: {} } });
+  centerTab: { id: "today", title: "Toplantılar", kind: "today", params: {} } });
 registerTab("meeting", MeetingTab);
 registerCommand({ id: "meeting.openLive", title: "Canlı toplantıyı aç", run: ({ container }) => { const m = liveMeetingsNow()[0]; if (m) container.get(LayoutServiceId).openTab(meetingTab(m)); } });

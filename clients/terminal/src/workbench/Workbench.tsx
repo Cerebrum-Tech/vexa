@@ -1,480 +1,190 @@
 "use client";
-/** term-workbench (v2) — the structured 3-pane shell.
- *  LEFT (resizable/collapsible): segmented list switcher + the active list.
- *  CENTER: dockview TABS — a "tab" host resolves each panel by params.kind via the tab registry.
- *  RIGHT (resizable/collapsible): the persistent workspace chat, grounded by the active center tab.
- *  Reuses the Phase-C ⌘K palette + keybindings; the kernel's services do the rest. */
-import { useEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from "react";
-import { Allotment } from "allotment";
-import "allotment/dist/style.css";
-import { DockviewReact, type DockviewApi, type DockviewReadyEvent, type IDockviewPanelProps, type IDockviewPanelHeaderProps, themeAbyss } from "dockview-react";
-import "dockview/dist/styles/dockview.css";
-
-const PANES_KEY = "vexa.terminal.panes.v2";
-const savedSizes = (): number[] | undefined => { try { const s = localStorage.getItem(PANES_KEY); const a = s ? JSON.parse(s) : null; return Array.isArray(a) && a.length === 3 ? a : undefined; } catch { return undefined; } };
-const persistSizes = (s: number[]) => { try { localStorage.setItem(PANES_KEY, JSON.stringify(s)); } catch { /* noop */ } };
+/** Page-oriented workspace shell. Contributions own content; the shell owns navigation and context. */
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { ArrowLeft, Menu, X, ChevronRight } from "lucide-react";
 import { useService, useStore, KeybindingServiceId } from "../platform";
-import { LayoutServiceId } from "./layout";
+import { LayoutServiceId, type TabDescriptor } from "./layout";
 import { CommandPalette } from "./CommandPalette";
-import { OpsNotice } from "./OpsNotice";
 import { registry } from "../contributions";
 import { Icon } from "../ui-kit";
-import { updatesBadge, markUpdatesSeen, updatesSeenTs } from "../surfaces/updatesBadge";
-import { readActiveSet, readWorkspaceGit } from "../surfaces/workspaceApi";
-import { ContextMenu, copyText } from "../ui-kit/ContextMenu";
+import { readActiveSet } from "../surfaces/workspaceApi";
 import { Chat } from "../surfaces/chat";
+import { ReportNotifications } from "../canvas/ReportNotifications";
+import { MeetingStatusNotices } from "../canvas/MeetingStatusNotices";
+import { meetingConversationSession } from "../surfaces/sessionsApi";
 import { resolveDocRef } from "../ui-kit/docLinks";
-import { liveMeetingsNow } from "../surfaces/liveMeetings";
-import { firstViewPlan } from "./firstView";
+import { useLiveMeetings } from "../surfaces/liveMeetings";
 import { isOwnedPath, meetingIdFromPath, meetingPath } from "../app/meetingRoute";
-import { OPEN_ENTITY_EVENT } from "../canvas/actions";
+import { ASK_CHAT_EVENT, OPEN_ENTITY_EVENT } from "../canvas/actions";
 import { useTheme } from "../app/theme";
 import { meetingsOnly } from "../app/mode";
+import "../surfaces/directories";
 
-// ── theme toggle: dark ⇄ day mode, icon button in the profile row ──
-function ThemeToggle() {
-  const [theme, toggle] = useTheme();
-  const day = theme === "light";
-  return (
-    <button onClick={toggle} title={day ? "Koyu moda geç" : "Gündüz moduna geç"}
-      style={{ flex: "none", display: "flex", alignItems: "center", padding: 4, borderRadius: 6, background: "none", border: "none", color: "var(--t3)", cursor: "pointer" }}>
-      <Icon name={day ? "moon" : "sun"} size={15} />
-    </button>
-  );
-}
+const library: TabDescriptor = { id: "today", title: "Toplantılar", kind: "today", params: {} };
+const navigation = [
+  { id: "meetings", title: "Toplantılar", icon: "cal", page: library },
+  { id: "people", title: "Kişiler", icon: "user", page: { id: "people", title: "Kişiler", kind: "directory", params: { directory: "person" } } },
+  { id: "companies", title: "Şirketler", icon: "building", page: { id: "companies", title: "Şirketler", kind: "directory", params: { directory: "company" } } },
+  { id: "partners", title: "İş Ortağı Notları", icon: "file", page: { id: "partners", title: "İş Ortağı Notları", kind: "directory", params: { directory: "partner" } } },
+];
 
-// ── the dockview panel host: render a tab by its kind, tracking active state ─────
-function TabHost(props: IDockviewPanelProps) {
-  const layout = useService(LayoutServiceId);
-  // dockview reuses ONE panel for the shared preview slot and swaps its params via updateParameters
-  // WITHOUT re-rendering the React content — subscribe to the param-change event so single-clicking a
-  // different meeting/file in the preview slot actually re-binds the content to the new params.
-  const [params, setParams] = useState(props.params as { kind?: string; p?: Record<string, unknown> });
-  useEffect(() => {
-    const d = props.api.onDidParametersChange((next) => { if (next && Object.keys(next).length) setParams(next as { kind?: string; p?: Record<string, unknown> }); });
-    return () => d.dispose();
-  }, [props.api]);
-  const kind = params.kind ?? "";
-  const Comp = registry.tabComponent(kind);
-  const [active, setActive] = useState<boolean>(props.api.isActive);
-  useEffect(() => {
-    const d = props.api.onDidActiveChange((e: { isActive: boolean }) => setActive(e.isActive));
-    return () => d.dispose();
-  }, [props.api]);
-  useEffect(() => { if (active) layout.setActiveTab(kind ? { kind, params: params.p ?? {} } : null); }, [active, kind, layout, params.p]);
-  if (!Comp) return <div style={{ padding: 24, color: "var(--t3)", fontSize: 13 }}>Bilinmeyen sekme türü: {kind}</div>;
-  return <Comp id={props.api.id} params={params.p ?? {}} active={active} />;
-}
-const dvComponents = { tab: TabHost };
-
-// ── custom tab header: VS Code-style — PREVIEW tabs render their title in italic ──
-function TabHeader(props: IDockviewPanelHeaderProps) {
-  const layout = useService(LayoutServiceId);
-  // params change in place (preview swaps, in-pane navigation, pin/unpin) — subscribe like TabHost does
-  const [params, setParams] = useState(props.params as { kind?: string; p?: { path?: unknown; meetingId?: unknown }; preview?: boolean; pinned?: boolean });
-  useEffect(() => {
-    const d = props.api.onDidParametersChange((next) => { if (next && Object.keys(next).length) setParams(next as typeof params); });
-    return () => d.dispose();
-  }, [props.api]);
-  const preview = Boolean(params.preview);
-  const pinned = Boolean(params.pinned);
-  const [title, setTitle] = useState<string>(props.api.title ?? "");
-  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
-  useEffect(() => {
-    const d = props.api.onDidTitleChange((e: { title: string }) => setTitle(e.title));
-    return () => d.dispose();
-  }, [props.api]);
-  const path = typeof params.p?.path === "string" ? params.p.path : null;
-  const meetingId = typeof params.p?.meetingId === "string" ? params.p.meetingId : null;
-  const pinItem = pinned
-    ? { id: "unpin-tab", label: "Sabitlemeyi kaldır", onSelect: () => layout.unpinTab(props.api.id) }
-    : { id: "pin-tab", label: "Sekmeyi sabitle", detail: "sabitleme kaldırılana kadar açık kalır", onSelect: () => layout.pinTab(props.api.id) };
-  const copyItems = params.kind === "doc" && path
-    ? [
-      { id: "copy-reference", label: "Referansı kopyala", detail: `@file:${path}`, onSelect: () => copyText(`@file:${path}`) },
-      { id: "copy-path", label: "Yolu kopyala", detail: path, onSelect: () => copyText(path) },
-    ]
-    : params.kind === "meeting" && meetingId
-      ? [{ id: "copy-reference", label: "Referansı kopyala", detail: `@meeting:${meetingId}`, onSelect: () => copyText(`@meeting:${meetingId}`) }]
-      : [];
-  return (
-    <div
-      className="dv-default-tab"
-      onMouseDown={(e) => {
-        if (e.button !== 1) return;
-        e.preventDefault();
-        e.stopPropagation();
-        if (!pinned) props.api.close();
-      }}
-      onAuxClick={(e) => {
-        if (e.button !== 1) return;
-        e.preventDefault();
-        e.stopPropagation();
-      }}
-      onContextMenu={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        setMenu({ x: e.clientX, y: e.clientY });
-      }}
-      style={{ display: "flex", alignItems: "center", height: "100%" }}
-    >
-      {/* left-click pin toggle: always visible so pinning is one click (pinned = solid accent) */}
-      <span role="button" aria-label={pinned ? "Sabitlemeyi kaldır" : "Sekmeyi sabitle"}
-        title={pinned ? "Sabitlendi — kaldırmak için tıklayın" : "Sekmeyi sabitle (sabitleme kaldırılana kadar açık kalır)"}
-        onPointerDown={(e) => e.preventDefault()}
-        onClick={(e) => { e.stopPropagation(); if (pinned) layout.unpinTab(props.api.id); else layout.pinTab(props.api.id); }}
-        onMouseEnter={(e) => { e.currentTarget.style.opacity = "1"; }}
-        onMouseLeave={(e) => { e.currentTarget.style.opacity = pinned ? "1" : "0.45"; }}
-        style={{ display: "flex", alignItems: "center", marginRight: 5, cursor: "pointer",
-          color: pinned ? "var(--blue)" : "var(--t3)", opacity: pinned ? 1 : 0.45 }}>
-        <Icon name="pin" size={11} />
-      </span>
-      <span className="dv-default-tab-content" style={{ fontStyle: preview ? "italic" : "normal" }}>{title}</span>
-      {/* Chrome semantics: a pinned tab has no close affordance until unpinned */}
-      {!pinned && (
-        <span
-          className="dv-default-tab-action"
-          role="button"
-          aria-label="Sekmeyi kapat"
-          onPointerDown={(e) => e.preventDefault()}
-          onClick={(e) => { e.stopPropagation(); props.api.close(); }}
-        >×</span>
-      )}
-      {menu && <ContextMenu x={menu.x} y={menu.y} onClose={() => setMenu(null)} items={[pinItem, ...copyItems]} />}
-    </div>
-  );
-}
-const dvTabComponents = { default: TabHeader };
-
-// ── LEFT pane: brand + segmented list switcher + active list ─────────────────────
-function LeftPane() {
-  const layout = useService(LayoutServiceId);
-  const { activeList } = useStore(layout.store);
-  // re-render on LATE registrations (e.g. the admin surface appears after its async gate check)
-  useSyncExternalStore(registry.subscribe, registry.version, registry.version);
-  const lists = registry.lists();
-  const active = registry.list(activeList) ?? lists[0];
-  const Comp = active?.component;
-  // "new updates" badge on the Knowledge nav — OTHER members' commits across the caller's active
-  // workspaces since Knowledge was last opened. Polled here (always mounted) so it updates even when the
-  // user is on Meetings/Sessions; opening Knowledge clears it.
-  const badge = useSyncExternalStore(updatesBadge.subscribe, updatesBadge.count, () => 0);
-  const newestRef = useRef(0);
-  useEffect(() => {
-    const poll = async () => {
-      if (document.hidden) return;
-      try {
-        const mounts = (await readActiveSet()).active;
-        const gits = await Promise.all(mounts.map((m) => readWorkspaceGit(m.primary ? undefined : { slug: m.slug }).catch(() => null)));
-        const member = gits.flatMap((g) => (g ? g.commits : [])).filter((c) => c.kind === "member" && (c.ts ?? 0) > 0);
-        newestRef.current = member.reduce((mx, c) => Math.max(mx, c.ts ?? 0), 0);
-        updatesBadge.set(member.filter((c) => (c.ts ?? 0) > updatesSeenTs()).length);
-      } catch { /* additive — a poll failure just leaves the badge as-is */ }
-    };
-    void poll();
-    const iv = setInterval(() => void poll(), 6000);
-    const onFocus = () => void poll();
-    window.addEventListener("focus", onFocus);
-    return () => { clearInterval(iv); window.removeEventListener("focus", onFocus); };
-  }, []);
-  useEffect(() => { if (activeList === "files") markUpdatesSeen(newestRef.current || Math.floor(Date.now() / 1000)); }, [activeList]);
-  const seg = (on: boolean): CSSProperties => ({ display: "flex", alignItems: "center", gap: 6, padding: "5px 9px", borderRadius: 7, fontSize: 12.5, cursor: "pointer", border: "none", color: on ? "var(--t1)" : "var(--t2)", background: on ? "var(--panel2)" : "transparent", flex: "none", whiteSpace: "nowrap" });
-  return (
-    <div style={{ height: "100%", display: "flex", flexDirection: "column", background: "var(--sidebar)", borderRight: "1px solid var(--line)", minHeight: 0 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 9, padding: "12px 14px 8px", flex: "none" }}>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/innova-logo.svg" alt="Innova" width={104} height={20} style={{ display: "block", flex: "none" }} />
-        <span style={{ fontSize: 12, fontWeight: 400, color: "var(--t3)" }}>Toplantı Asistanı</span>
-      </div>
-      {/* stacked vertically — every list is visible at any sidebar width (no horizontal
-          overflow/scroll), matching the file-tree rows below */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 2, padding: "2px 8px 8px", borderBottom: "1px solid var(--line)", flex: "none" }}>
-        {lists.map((l) => (
-          <button key={l.id} style={seg(l.id === active?.id)}
-            onClick={() => { layout.setActiveList(l.id); if (l.centerTab) layout.openTab(l.centerTab); }} title={l.label}>
-            <Icon name={l.icon} size={13} />{l.label}
-            {l.id === "files" && badge > 0 && (
-              <span title={`Diğer üyelerden ${badge} yeni güncelleme`}
-                style={{ marginLeft: "auto", background: "var(--accent)", color: "var(--bg)", fontSize: 10, fontWeight: 700, borderRadius: 9, minWidth: 16, textAlign: "center", padding: "0 5px", lineHeight: "16px", flex: "none" }}>
-                {badge}
-              </span>
-            )}
-          </button>
-        ))}
-      </div>
-      <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>{Comp && <Comp />}</div>
-      <UserProfile />
-    </div>
-  );
-}
-
-// ── LEFT pane footer: the signed-in user's profile (replaces the old "Self-hosted · air-gapped" label).
-//    Identity comes from /api/auth/me (the vexa-user-info cookie). The avatar shows initials; the sign-out
-//    control stays here so logout is always reachable. Wiping client state on logout keeps the next user
-//    from inheriting this one's tabs/docs/focus.
-function UserProfile() {
-  const layout = useService(LayoutServiceId);
-  const [user, setUser] = useState<{ email?: string | null; name?: string | null } | null>(null);
-  useEffect(() => {
-    let active = true;
-    fetch("/api/auth/me", { cache: "no-store" })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => active && setUser((d?.user as { email?: string; name?: string } | undefined) ?? null))
-      .catch(() => undefined);
-    return () => { active = false; };
-  }, []);
-
-  const email = user?.email ?? "";
-  const name = (user?.name || (email ? email.split("@")[0] : "") || "Hesap").trim();
-  const initials = (name.match(/\b[a-z0-9]/gi) || []).slice(0, 2).join("").toUpperCase() || "?";
-
-  const signOut = () => {
-    void fetch("/api/auth/logout", { method: "POST" }).finally(() => {
-      try { localStorage.clear(); sessionStorage.clear(); } catch { /* storage unavailable */ }
-      window.location.reload();
-    });
-  };
-
-  return (
-    <div style={{ padding: "8px 12px", borderTop: "1px solid var(--line)", display: "flex", alignItems: "center", gap: 9, flex: "none" }}>
-      <div style={{ width: 26, height: 26, borderRadius: "50%", background: "var(--panel2)", color: "var(--t1)", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 600, fontSize: 11, flex: "none" }}>{initials}</div>
-      <div style={{ minWidth: 0, flex: 1, lineHeight: 1.25 }}>
-        <div style={{ fontSize: 12.5, fontWeight: 500, color: "var(--t1)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</div>
-        {email && <div style={{ fontSize: 11, color: "var(--t3)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{email}</div>}
-      </div>
-      <button type="button" title="Ayarlar"
-        onClick={() => layout.openTab({ id: "settings", title: "Ayarlar", kind: "settings", params: {} })}
-        style={{ flex: "none", background: "transparent", border: "none", color: "var(--t3)", cursor: "pointer", display: "flex", padding: 4, borderRadius: 6 }}>
-        <Icon name="gear" size={15} />
-      </button>
-      <ThemeToggle />
-      <button type="button" title="Çıkış yap" onClick={signOut}
-        style={{ flex: "none", background: "transparent", border: "none", color: "var(--t3)", cursor: "pointer", display: "flex", padding: 4, borderRadius: 6 }}>
-        <Icon name="logout" size={15} />
-      </button>
-    </div>
-  );
-}
-
-// ── RIGHT pane: persistent chat singleton ────────────────────────────────────────
-function RightPane() {
-  return (
-    <div style={{ height: "100%", display: "flex", flexDirection: "column", background: "var(--rail)", borderLeft: "1px solid var(--line)", minHeight: 0 }}>
-      <div style={{ flex: 1, minHeight: 0 }}>
-        <Chat />
-      </div>
-    </div>
-  );
-}
-
-// ── the shell ───────────────────────────────────────────────────────────────────
 export function Workbench() {
   const layout = useService(LayoutServiceId);
   const keybindings = useService(KeybindingServiceId);
-  const { leftCollapsed, rightCollapsed, activeList, activeTab } = useStore(layout.store);
-  // ── responsive tiers — derived from window width, never mutating the user's saved
-  //    collapse state (widening the window restores exactly what was there).
-  //    full ≥900: three panes · narrow <900: left sidebar hides · single <560 (≈¼ screen):
-  //    ONE pane — the center when something is open there (meeting/doc), otherwise chat.
-  const [winW, setWinW] = useState(() => (typeof window === "undefined" ? 1440 : window.innerWidth));
-  useEffect(() => {
-    const on = () => setWinW(window.innerWidth);
-    window.addEventListener("resize", on);
-    return () => window.removeEventListener("resize", on);
-  }, []);
-  const tier = winW < 560 ? "single" : winW < 900 ? "narrow" : "full";
-  // Meetings-only mode: no agent chat rail at all — 2-pane shell.
-  // NOTE: `chatOnly` is now INERT — the Sessions list was retired (createLayoutService migrates any
-  // persisted "sessions" → the default), so `activeList` is never "sessions" and the chat-only branch
-  // never renders. Kept (rather than ripping out its render sites) to avoid a risky pane refactor the
-  // owner didn't ask for; the `=== "sessions"` guards below are dead but harmless.
+  const { page, activeList, activeSession, rightCollapsed } = useStore(layout.store);
+  const [theme, toggleTheme] = useTheme();
+  const [mobileNav, setMobileNav] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+  const sidebarRef = useRef<HTMLElement>(null);
+  const menuRef = useRef<HTMLButtonElement>(null);
+  const restoreMenuFocus = useRef(false);
+  const [user, setUser] = useState<{ name?: string; email?: string } | null>(null);
+  const [subject, setSubject] = useState<string | null>(null);
+  const [identityError, setIdentityError] = useState(false);
   const meetOnly = meetingsOnly();
-  const chatOnly = !meetOnly && activeList === "sessions";
+  useSyncExternalStore(registry.subscribe, registry.version, registry.version);
+  const meetings = useLiveMeetings();
+  const canonicalMeeting = page?.kind === "meeting"
+    ? meetings.find((m) => m.id === String(page.params?.meetingId)) ?? meetings.find((m) => m.native_id === String(page.params?.meetingId)) : undefined;
+  const routeMeeting = useRef(typeof window === "undefined" ? null : meetingIdFromPath(window.location.pathname));
+  const initialized = useRef(false);
+
   useEffect(() => { const d = keybindings.attach(window); return () => d.dispose(); }, [keybindings]);
-
-  // A pending SHARED landing — an accepted invite (`vexa.openWorkspace`) or a shared meeting
-  // (`vexa.openMeeting`), stashed by InviteGate before the reload — must place a tab in the DOCKVIEW. But
-  // the default Sessions view is CHAT-ONLY: the dockview isn't mounted, so its onReady (→ resolveFirstView)
-  // would never fire and the share would silently land on the session chat instead. Flip OFF chat-only
-  // EARLY here (peek only — resolveFirstView consumes the stash) so the grid mounts and the resolver runs.
   useEffect(() => {
-    if (meetOnly || layout.store.getState().activeList !== "sessions") return;
-    try {
-      if (localStorage.getItem("vexa.openWorkspace")) layout.setActiveList("files");
-      else if (localStorage.getItem("vexa.openMeeting")) layout.setActiveList("meetings");
-    } catch { /* noop — a locked-down localStorage just means no early reveal */ }
-    // once, on mount (a fresh page load after the redeem reload) — deps intentionally empty
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const media = window.matchMedia("(max-width: 960px)");
+    const update = () => { setIsMobile(media.matches); if (!media.matches) setMobileNav(false); };
+    update(); media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
   }, []);
-
-  // Clicking an entity link in chat or a doc opens its doc tab. Reveal the center (leave chat-only →
-  // Knowledge view), resolve [[wikilinks]]/relative paths via the shared resolver (slug-aware: the
-  // source doc's workspace first, then home, then the rest of the mounted set).
   useEffect(() => {
-    const onOpenEntity = async (e: Event) => {
-      const detail = (e as CustomEvent<{ path?: string; wikilink?: string; slug?: string; docPath?: string; beside?: boolean }>).detail || {};
-      const r = await resolveDocRef(detail, { path: detail.docPath, slug: detail.slug });
-      if (!r) return;
-      if (layout.store.getState().activeList === "sessions") layout.setActiveList("files");  // reveal the center
-      const d = { id: r.slug ? `doc:${r.slug}:${r.path}` : `doc:${r.path}`, title: r.path.split("/").pop() ?? r.path, kind: "doc", params: { path: r.path, slug: r.slug } };
-      // beside = clicked inside a doc → split, keep the source visible; otherwise plain tab.
-      if (detail.beside) layout.openTabBeside(d); else layout.openTab(d);
+    if (!mobileNav && restoreMenuFocus.current) { restoreMenuFocus.current = false; menuRef.current?.focus(); }
+    if (!mobileNav || !isMobile) return;
+    const focusable = () => Array.from(sidebarRef.current?.querySelectorAll<HTMLElement>('button, a[href], summary, [tabindex="0"]') ?? [])
+      .filter((element) => element.getClientRects().length > 0 && !element.hasAttribute("disabled"));
+    focusable()[0]?.focus();
+    const trap = (event: KeyboardEvent) => {
+      if (event.key === "Escape") { event.preventDefault(); event.stopImmediatePropagation(); restoreMenuFocus.current = true; setMobileNav(false); }
+      if (event.key !== "Tab") return;
+      const items = focusable(); const first = items[0]; const last = items.at(-1);
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
     };
-    window.addEventListener(OPEN_ENTITY_EVENT, onOpenEntity);
-    return () => window.removeEventListener(OPEN_ENTITY_EVENT, onOpenEntity);
+    window.addEventListener("keydown", trap, true);
+    return () => window.removeEventListener("keydown", trap, true);
+  }, [mobileNav, isMobile]);
+  useEffect(() => {
+    layout.usePages();
+    if (initialized.current) return;
+    initialized.current = true;
+    let sharedMeeting: string | null = null;
+    let sharedWorkspace: string | null = null;
+    try {
+      sharedMeeting = localStorage.getItem("vexa.openMeeting");
+      sharedWorkspace = localStorage.getItem("vexa.openWorkspace");
+      localStorage.removeItem("vexa.openMeeting"); localStorage.removeItem("vexa.openWorkspace");
+    } catch { /* navigation still works without browser storage */ }
+    const id = sharedMeeting || routeMeeting.current;
+    if (sharedWorkspace && !meetOnly) {
+      layout.openTab({ id: `doc:${sharedWorkspace}:README.md`, title: "Paylaşılan çalışma alanı", kind: "doc", params: { path: "README.md", slug: sharedWorkspace } });
+    }
+    if (id) layout.openTab({ id: `meeting:${id}`, title: "Toplantı", kind: "meeting", params: { meetingId: id } });
+  }, [layout, meetOnly]);
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/auth/me", { cache: "no-store" }).then((r) => r.ok ? r.json() : null)
+      .then((r) => { if (alive) setUser(r?.user ?? null); }).catch(() => {});
+    if (!meetOnly) readActiveSet().then((r) => { if (alive) { setSubject(r.subject); setIdentityError(false); } })
+      .catch(() => { if (alive) setIdentityError(true); });
+    return () => { alive = false; };
+  }, [meetOnly]);
+  useEffect(() => {
+    if (!page || !isOwnedPath(window.location.pathname)) return;
+    const next = page.kind === "meeting" ? meetingPath(String(page.params?.meetingId ?? "")) : "/";
+    if (next !== window.location.pathname) window.history.replaceState(window.history.state, "", next + window.location.search + window.location.hash);
+  }, [page]);
+  useEffect(() => {
+    const onEntity = async (event: Event) => {
+      const detail = (event as CustomEvent<{ path?: string; wikilink?: string; slug?: string; docPath?: string }>).detail ?? {};
+      const r = await resolveDocRef(detail, { path: detail.docPath, slug: detail.slug });
+      if (r) layout.openTab({ id: `doc:${r.slug ?? ""}:${r.path}`, title: "Bilgi notu", kind: "doc", params: { path: r.path, slug: r.slug } });
+    };
+    const onAsk = () => layout.showRight();
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setMobileNav(false); };
+    window.addEventListener(OPEN_ENTITY_EVENT, onEntity);
+    window.addEventListener(ASK_CHAT_EVENT, onAsk);
+    window.addEventListener("keydown", onKey);
+    return () => { window.removeEventListener(OPEN_ENTITY_EVENT, onEntity); window.removeEventListener(ASK_CHAT_EVENT, onAsk); window.removeEventListener("keydown", onKey); };
   }, [layout]);
 
-  // detach the dockview api on unmount (navigation/HMR dispose it) so the layout
-  // service never operates on a disposed grid.
-  const apiRef = useRef<DockviewApi | null>(null);
-  useEffect(() => () => { if (apiRef.current) layout.detach(apiRef.current); }, [layout]);
+  const navigate = (id: string, next: TabDescriptor) => { layout.openTab(next); layout.setActiveList(id, false); setMobileNav(false); };
+  const name = user?.name || user?.email?.split("@")[0] || "Hesabım";
+  const initials = name.split(/\s+/).slice(0, 2).map((s) => s[0]).join("").toLocaleUpperCase("tr");
+  const title = page?.kind === "meeting" ? "Toplantı ayrıntıları" : page?.title ?? "Toplantılar";
+  const Content = page?.kind === "list" ? registry.list(String(page.params?.list))?.component : registry.tabComponent(page?.kind ?? "today");
+  const session = canonicalMeeting && subject ? meetingConversationSession(subject, canonicalMeeting.id) : activeSession;
+  const extraLists = registry.lists().filter((l) => !["meetings", "sessions", "people", "companies", "partners"].includes(l.id));
+  const logout = () => void fetch("/api/auth/logout", { method: "POST" }).finally(() => {
+    try { localStorage.clear(); sessionStorage.clear(); } catch { /* storage unavailable */ }
+    window.location.reload();
+  });
 
-  // ── FIRST-VIEW RESOLVER — on landing, pick ONE arrangement by what's SHARED with the user, replacing
-  // the scattered self-firing auto-opens (the old tshare effect + the empty-dock live-open + the shared-
-  // README pin that only fired once Knowledge was opened). Priority (the product spec):
-  //   shared meeting + shared workspace → pin the workspace README, open the meeting (its live badge shows)
-  //   shared meeting only               → open the meeting
-  //   shared workspace only             → pin the shared workspace README
-  //   nothing shared (fresh dock)       → the user's own README-onboarding (or a known live meeting)
-  // `fresh` = the dock restored no tabs (a genuine first landing). A returning user with a saved layout
-  // gets ONLY the explicit shared-meeting arm (they clicked a share link) — never a surprise re-pin.
-  const firstViewDone = useRef(false);
-  // The meeting id carried by the URL (`/meetings/<id>`), captured at FIRST RENDER — before any effect
-  // (including the URL-sync effect below) can rewrite the address bar. This is the durable reference:
-  // a hard reload, a pasted link, or a brand-new session all arrive here.
-  const routeMeetingId = useRef<string | null>(
-    typeof window === "undefined" ? null : meetingIdFromPath(window.location.pathname),
-  );
-
-  // ── URL SYNC — the open meeting is reflected in the address bar, so what's on screen is always
-  // referenceable. `replaceState` (not push): in-app navigation keeps its own history (Escape /
-  // Alt+Left via layout.goBack), and we never want a stack of dockview states in the browser's.
-  // Only the two shapes we own (`/`, `/meetings/<id>`) are ever rewritten; query + hash are preserved
-  // so an in-flight ?invite= / ?tshare= round-trip is untouched.
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const mid = activeTab?.kind === "meeting" ? String((activeTab.params as { meetingId?: unknown })?.meetingId ?? "") : "";
-    const cur = window.location.pathname;
-    if (!isOwnedPath(cur)) return;
-    const next = mid ? meetingPath(mid) : "/";
-    if (next === cur) return;
-    try { window.history.replaceState(window.history.state, "", next + window.location.search + window.location.hash); }
-    catch { /* history unavailable (sandboxed frame) — the in-app path still works */ }
-  }, [activeTab]);
-
-  const resolveFirstView = async (fresh: boolean) => {
-    // an explicit shared meeting from a ?tshare= link (InviteRedeemer stashed it before the reload)
-    let sharedMeetingId: string | null = null;
-    try { sharedMeetingId = localStorage.getItem("vexa.openMeeting"); if (sharedMeetingId) localStorage.removeItem("vexa.openMeeting"); } catch { /* noop */ }
-    // a workspace whose invite the user just accepted (InviteRedeemer stashed its id before the reload) —
-    // pin its README regardless of a saved dock, so an accepted share always lands on the shared workspace.
-    let acceptedSlug: string | null = null;
-    try { acceptedSlug = localStorage.getItem("vexa.openWorkspace"); if (acceptedSlug) localStorage.removeItem("vexa.openWorkspace"); } catch { /* noop */ }
-    // a shared workspace connected to this user (a non-primary 'shared' mount in the active set)
-    let sharedSlug: string | null = null;
-    try {
-      const set = await readActiveSet();
-      sharedSlug = set.active.find((m) => !m.primary && m.role === "shared")?.slug ?? null;
-    } catch { /* active-set read failed — treat as no shared workspace */ }
-    if (!apiRef.current) return;  // grid torn down while we awaited — nothing to arrange
-
-    const revealCenter = () => { if (!meetOnly && layout.store.getState().activeList === "sessions") layout.setActiveList("files"); };
-    // plain fresh landing → the Meetings day: the Meetings list + the Today tab (its onboarding cards
-    // are the first-run hand-off). Replaces the old own-README chat-only onboarding.
-    const showDay = () => {
-      layout.setActiveList("meetings");
-      layout.openTab({ id: "today", title: "Bugün", kind: "today", params: {} });
-    };
-    const openMeeting = (mid: string, reveal: boolean) => {
-      if (reveal && !meetOnly) layout.setActiveList("meetings");
-      // A meeting reached by URL is just "Meeting" until the row resolves; one reached by a share link
-      // is labelled as such. Either way the tab id is the same, so it de-dupes with a restored tab.
-      const title = mid === routeMeetingId.current && !sharedMeetingId ? "Toplantı" : "Paylaşılan toplantı";
-      layout.openTab({ id: `meeting:${mid}`, title, kind: "meeting", params: { meetingId: mid } });
-    };
-    // `forceKnowledge` = land ON the Knowledge section unconditionally (an accepted invite is explicit —
-    // the shared workspace's tree must show, even for a returning user whose saved rail was Meetings/etc).
-    // Otherwise just reveal the center out of chat-only (sessions → files).
-    const pinReadme = (slug?: string, forceKnowledge = false) => {
-      if (forceKnowledge && !meetOnly) layout.setActiveList("files"); else revealCenter();
-      // coordinate with MountSection's once-per-session pin (workspace.tsx) so it doesn't double-pin later
-      if (slug) { try { sessionStorage.setItem(`vexa.readme.pinned.${slug}`, "1"); } catch { /* noop */ } }
-      layout.openTab({ id: slug ? `doc:${slug}:README.md` : "doc:README.md", title: "README.md", kind: "doc", params: { path: "README.md", slug } });
-    };
-
-    const plan = firstViewPlan({ sharedMeetingId, routeMeetingId: routeMeetingId.current, acceptedSlug, sharedSlug, liveMeetingId: liveMeetingsNow()[0]?.id ?? null, fresh });
-    switch (plan.kind) {
-      case "meeting-and-workspace": openMeeting(plan.meetingId, false); pinReadme(plan.slug, !!acceptedSlug); break;  // README pinned last → focused
-      case "meeting":               openMeeting(plan.meetingId, true); break;
-      case "workspace-readme":      pinReadme(plan.slug, !!acceptedSlug); break;  // accepted invite → force Knowledge open
-      case "live-meeting":          openMeeting(plan.meetingId, true); break;
-      case "own-day":               showDay(); break;
-      case "noop":                  break;
-    }
-  };
-
-  const onReady = (e: DockviewReadyEvent) => {
-    apiRef.current = e.api;
-    layout.attach(e.api);
-    if (firstViewDone.current) return;             // once per app load (guards remounts / HMR)
-    firstViewDone.current = true;
-    void resolveFirstView(e.api.panels.length === 0);
-  };
-
-  return (
-    <div style={{ height: "100vh", display: "flex", flexDirection: "column", background: "var(--bg)", color: "var(--t1)" }}>
-      <div style={{ height: 38, display: "flex", alignItems: "center", gap: 12, padding: "0 12px", borderBottom: "1px solid var(--line)", background: "var(--sidebar)", flex: "none" }}>
-        <button aria-label="Sol paneli aç/kapat" onClick={() => layout.toggleLeft()} style={{ background: "none", border: "none", color: "var(--t3)", cursor: "pointer", display: "flex" }}><Icon name="panel" size={16} /></button>
-        <div style={{ flex: 1, display: "flex", justifyContent: "center", minWidth: 0 }}><OpsNotice /></div>
-        <button aria-label="Sağ paneli aç/kapat" onClick={() => layout.toggleRight()} style={{ background: "none", border: "none", color: "var(--t3)", cursor: "pointer", display: "flex", transform: "scaleX(-1)" }}><Icon name="panel" size={16} /></button>
+  return <div className={`workspace-shell${mobileNav ? " nav-open" : ""}`}>
+    <a className="skip-link" href="#workspace-content">İçeriğe geç</a>
+    {mobileNav && <button className="nav-scrim" aria-label="Menüyü kapat" onClick={() => setMobileNav(false)} />}
+    <aside ref={sidebarRef} className="workspace-sidebar" aria-label="Ana menü" inert={isMobile && !mobileNav}>
+      <a className="workspace-brand" href="/" onClick={(e) => { e.preventDefault(); navigate("meetings", library); }}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/innova-logo.svg" alt="Innova" width={116} height={38} />
+        <span>Toplantı Asistanı</span>
+      </a>
+      <div className="nav-heading">ÇALIŞMA ALANIM</div>
+      <nav className="workspace-nav">
+        {navigation.filter((n) => !meetOnly || n.id === "meetings").map((n) => <button key={n.id}
+          aria-current={activeList === n.id && !["settings", "list"].includes(page?.kind ?? "") ? "page" : undefined}
+          onClick={() => navigate(n.id, n.page)}><Icon name={n.icon} size={19} /><span>{n.title}</span>
+          {n.id === "meetings" && meetings.some((m) => m.status === "live") && <span className="nav-live-dot" aria-label="Canlı toplantı var" />}
+        </button>)}
+      </nav>
+      {!meetOnly && <div className="sidebar-assistant">
+        <div className="assistant-symbol"><Icon name="spark" size={23} /></div>
+        <strong>Birlikte düşünelim.</strong>
+        <p>Toplantılarınız ve notlarınız hakkında asistanınıza danışın.</p>
+        <button onClick={() => { navigate("assistant", { id: "assistant", title: "Asistan", kind: "assistant", params: {} }); layout.showRight(); }}>Asistana sor <ChevronRight size={15} /></button>
+      </div>}
+      <div className="sidebar-bottom">
+        {extraLists.length > 0 && <details className="workspace-tools"><summary>Diğer araçlar</summary>{extraLists.map((l) => <button key={l.id} onClick={() => navigate(l.id, l.centerTab ?? { id: `list:${l.id}`, title: l.label, kind: "list", params: { list: l.id } })}><Icon name={l.icon} size={16} />{l.id === "files" ? "Çalışma alanları" : l.label}</button>)}</details>}
+        <button className="settings-link" onClick={() => navigate("settings", { id: "settings", title: "Ayarlar", kind: "settings", params: {} })}><Icon name="gear" size={18} />Ayarlar</button>
+        <div className="workspace-profile"><span className="avatar">{initials}</span><div><strong>{name}</strong><small>{user?.email ?? ""}</small></div>
+          <button className="icon-button" onClick={logout} aria-label="Çıkış yap" title="Çıkış yap"><Icon name="logout" size={17} /></button></div>
       </div>
-
-      <div style={{ flex: 1, minHeight: 0 }}>
-        {/* chat-only (Sessions) gets its own sizes — the freed center space goes to the CHAT (right), with a
-            narrow left sidebar; full mode keeps the user's saved 3-pane sizes. The `key` re-lays-out on switch. */}
-        {(() => {
-          // single-pane resolution: center wins when it has content, else chat.
-          const centerHasContent = !chatOnly && activeTab != null;
-          const showLeft = !leftCollapsed && tier === "full";
-          const showCenter = !chatOnly && (tier !== "single" || centerHasContent || meetOnly);
-          const showRight = !meetOnly && (tier === "single"
-            ? !(showCenter)                                   // ¼-width: exactly one pane
-            : (chatOnly || !rightCollapsed));
-          return (
-            <Allotment
-              key={`${chatOnly ? "chat-only" : "full"}-${tier}`}
-              onChange={(s) => { if (!chatOnly && tier === "full") persistSizes(s); }}
-              defaultSizes={chatOnly ? [20, 80] : (savedSizes() ?? [15, 55, 30])}
-            >
-              <Allotment.Pane visible={showLeft} minSize={180} preferredSize={chatOnly ? "20%" : "15%"}>
-                <LeftPane />
-              </Allotment.Pane>
-              {!chatOnly && (
-                <Allotment.Pane visible={showCenter} minSize={tier === "full" ? 360 : 200} preferredSize="55%">
-                  <div style={{ height: "100%", position: "relative" }}>
-                    <div style={{ position: "absolute", inset: 0 }}>
-                      <DockviewReact onReady={onReady} components={dvComponents} tabComponents={dvTabComponents} defaultTabComponent={TabHeader} theme={themeAbyss} />
-                    </div>
-                  </div>
-                </Allotment.Pane>
-              )}
-              {/* meetings-only: the chat rail never MOUNTS (not merely hidden) — no agent fetches fire */}
-              {!meetOnly && (
-                <Allotment.Pane visible={showRight} minSize={tier === "full" ? 300 : 200} preferredSize={chatOnly ? "80%" : "30%"}>
-                  <RightPane />
-                </Allotment.Pane>
-              )}
-            </Allotment>
-          );
-        })()}
+    </aside>
+    <div className="workspace-main" inert={isMobile && mobileNav}>
+      <header className="workspace-topbar">
+        <button ref={menuRef} className="icon-button mobile-menu" aria-label="Menüyü aç" aria-expanded={mobileNav} onClick={() => setMobileNav(!mobileNav)}><Menu size={21} /></button>
+        <div className="workspace-breadcrumb"><span>Çalışma alanım</span><ChevronRight size={14} /><strong>{title}</strong></div>
+        <div className="topbar-actions">
+          <button className="icon-button" onClick={toggleTheme} aria-label={theme === "light" ? "Koyu tema" : "Açık tema"}><Icon name={theme === "light" ? "moon" : "sun"} size={19} /></button>
+          {!meetOnly && <ReportNotifications subject={subject} onOpen={(meetingId) => navigate("meetings", { id: `meeting:${meetingId}`, title: "Toplantı", kind: "meeting", params: { meetingId } })} />}
+          {!meetOnly && <MeetingStatusNotices onOpen={(meetingId) => navigate("meetings", { id: `meeting:${meetingId}`, title: "Toplantı", kind: "meeting", params: { meetingId } })} />}
+          <span className="avatar avatar-small" aria-hidden="true">{initials}</span>
+        </div>
+      </header>
+      <div className="workspace-body">
+        <main id="workspace-content" className={`workspace-page${page?.kind === "assistant" ? " assistant-home" : ""}`} tabIndex={-1}>
+          {page?.kind !== "today" && <div className="page-context-bar"><button className="text-button" onClick={() => { if (!layout.goBack()) navigate("meetings", library); }}><ArrowLeft size={16} />Geri</button>
+            {page?.kind === "meeting" && !meetOnly && <button className="secondary-button" onClick={() => layout.showRight()}><Icon name="spark" size={17} />Toplantı asistanı</button>}
+          </div>}
+          {page?.kind === "assistant" ? <div className="assistant-welcome"><Icon name="spark" size={36} /><h1>Bir soruyla başlayın.</h1><p>Toplantılarınızdan fikirlerinize, ihtiyacınız olan bilgi birlikte daha yakın.</p></div>
+            : Content ? <Content key={page?.id} id={page?.id ?? "today"} params={page?.params ?? {}} active />
+              : <div className="empty-state"><h2>Bu bölüm şu anda açılamıyor.</h2><button className="secondary-button" onClick={() => navigate("meetings", library)}>Toplantılara dön</button></div>}
+        </main>
+        {!meetOnly && <aside className={`workspace-chat${rightCollapsed ? " is-hidden" : ""}`} aria-label="Asistan" aria-hidden={rightCollapsed}>
+          <div className="chat-panel-heading"><span><Icon name="spark" size={18} />{canonicalMeeting ? "Toplantı asistanı" : "Asistan"}</span><button className="icon-button" aria-label="Asistanı kapat" onClick={() => layout.toggleRight()}><X size={19} /></button></div>
+          {subject && (page?.kind !== "meeting" || canonicalMeeting) ? <Chat hideHeader={!!canonicalMeeting} params={{ subject, session, ...(canonicalMeeting ? { meetingId: canonicalMeeting.id } : {}) }} />
+            : <div className="empty-state" role="status">{identityError ? <>Asistan bağlantısı kurulamadı.<button className="text-button" onClick={() => { setIdentityError(false); void readActiveSet().then((r) => setSubject(r.subject)).catch(() => setIdentityError(true)); }}>Yeniden dene</button></> : "Asistan hazırlanıyor…"}</div>}
+        </aside>}
       </div>
-
-      <footer style={{ height: 24, flex: "none", background: "var(--sidebar)", borderTop: "1px solid var(--line)", display: "flex", alignItems: "center", fontSize: 11.5, color: "var(--t2)" }}>
-        <div style={{ flex: 1 }} />
-        <button onClick={() => layout.resetLayout()} style={{ padding: "0 10px", height: "100%", background: "none", border: "none", color: "var(--t3)", cursor: "pointer" }} title="Düzeni sıfırla">düzeni sıfırla</button>
-      </footer>
-
-      <CommandPalette />
     </div>
-  );
+    <CommandPalette />
+  </div>;
 }

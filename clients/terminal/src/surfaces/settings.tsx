@@ -15,7 +15,7 @@ import { getModelPrefs, setModelPrefs, getTranscriptionPrefs, setTranscriptionPr
 type SectionId = "calendar" | "models" | "tokens" | "github" | "account";
 const SECTIONS: Array<{ id: SectionId; label: string; icon: string }> = [
   { id: "calendar", label: "Takvim", icon: "cal" },
-  { id: "models", label: "Modeller", icon: "spark" },
+  { id: "models", label: "Teknik ayarlar", icon: "spark" },
   { id: "tokens", label: "API anahtarları", icon: "key" },
   { id: "github", label: "GitHub", icon: "github" },
   { id: "account", label: "Hesap", icon: "user" },
@@ -212,13 +212,20 @@ function AccountSection() {
     <div style={{ fontSize: 12.5, color: "var(--t2)", lineHeight: 1.9 }}>
       <div><span style={{ color: "var(--t3)" }}>Giriş yapılan hesap</span> <span style={{ color: "var(--t1)" }}>{user?.name || user?.email || "…"}</span></div>
       {user?.email && <div><span style={{ color: "var(--t3)" }}>E-posta</span> <span style={{ fontFamily: "var(--mono)" }}>{user.email}</span></div>}
-      <div style={{ color: "var(--t3)", marginTop: 6 }}>Tema ve çıkış yap seçenekleri alt çubukta, adınızın yanında yer alır.</div>
+      <div style={{ color: "var(--t3)", marginTop: 6 }}>Temayı üst menüden değiştirebilir, sol menüdeki hesabınızdan çıkış yapabilirsiniz.</div>
     </div>
   );
 }
 
 function SettingsView() {
   const [section, setSection] = useState<SectionId>("calendar");
+  const [admin, setAdmin] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/admin/me", { cache: "no-store" }).then((r) => { if (alive) setAdmin(r.ok); }).catch(() => {});
+    return () => { alive = false; };
+  }, []);
+  const sections = SECTIONS.filter((s) => admin || s.id === "calendar" || s.id === "account");
   const bodies: Record<SectionId, ReactNode> = {
     calendar: <CalendarConnectionsPanel />,
     models: <ModelsSection />,
@@ -227,10 +234,10 @@ function SettingsView() {
     account: <AccountSection />,
   };
   return (
-    <div style={{ height: "100%", display: "flex", minHeight: 0 }}>
+    <div className="workspace-settings" style={{ height: "100%", display: "flex", minHeight: 0 }}>
       <div style={{ width: 160, flex: "none", borderRight: "1px solid var(--line)", padding: "14px 8px", background: "var(--sidebar)" }}>
         <div style={{ fontSize: 15, fontWeight: 700, color: "var(--t1)", padding: "0 8px 10px" }}>Ayarlar</div>
-        {SECTIONS.map((s) => (
+        {sections.map((s) => (
           <button key={s.id} onClick={() => setSection(s.id)}
             style={{ display: "flex", alignItems: "center", gap: 7, width: "100%", textAlign: "left", fontSize: 12.5,
               padding: "6px 9px", borderRadius: 7, border: "none", cursor: "pointer",

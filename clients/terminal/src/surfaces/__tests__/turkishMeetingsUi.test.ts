@@ -7,7 +7,7 @@ const source = (path: string) => readFileSync(resolve(process.cwd(), path), "utf
 describe("Turkish meetings UI", () => {
   it("marks the document Turkish and brands the application as Innova", () => {
     const layout = source("src/app/layout.tsx");
-    expect(layout).toContain('<html lang="tr">');
+    expect(layout).toMatch(/<html\s+lang="tr"[\s>]/);
     expect(layout).toContain('title: "Innova Toplantı Asistanı"');
   });
 

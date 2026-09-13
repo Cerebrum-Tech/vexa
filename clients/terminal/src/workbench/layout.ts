@@ -2,6 +2,7 @@
  *  Left = which LIST is active. Center = dockview TABS. Right = persistent chat, grounded by activeTab. */
 import { createServiceId, createStore, type ObservableStore } from "../platform";
 import type { DockviewApi } from "dockview-react";
+import { registry } from "../contributions";
 
 const LS_DOCK = "vexa.terminal.dock.v3";
 const LS_LIST = "vexa.terminal.activeList.v1";
@@ -20,6 +21,7 @@ export interface TabDescriptor {
 }
 
 export interface LayoutState {
+  page?: TabDescriptor | null;
   activeList: string;
   leftCollapsed: boolean;
   rightCollapsed: boolean;
@@ -31,6 +33,7 @@ export interface LayoutState {
 
 export interface LayoutService {
   store: ObservableStore<LayoutState>;
+  usePages(): void;
   attach(api: DockviewApi): void;
   detach(api: DockviewApi): void;
   openTab(d: TabDescriptor): void;
@@ -57,7 +60,8 @@ export interface LayoutService {
   setActiveTab(tab: ActiveTab | null): void;
   /** switch which chat session the right rail shows (Sessions list / New chat) */
   setActiveSession(id: string): void;
-  setActiveList(id: string): void;
+  /** Activate a section; pass openPage=false when its exact page is already open. */
+  setActiveList(id: string, openPage?: boolean): void;
   toggleLeft(): void;
   toggleRight(): void;
   showRight(): void;
@@ -83,6 +87,17 @@ export function createLayoutService(defaultList: string): LayoutService {
     activeSession: readLS(LS_SESSION) || "main",
   });
   let api: DockviewApi | null = null;
+  let pages = false;
+  const pageHistory: { page: TabDescriptor | null; activeList: string }[] = [];
+  const library: TabDescriptor = { id: "today", title: "Toplantılar", kind: "today", params: {} };
+  const showPage = (page: TabDescriptor, remember = true) => {
+    const state = store.getState();
+    if (remember && state.page?.id !== page.id) {
+      pageHistory.push({ page: state.page ?? null, activeList: state.activeList });
+      if (pageHistory.length > 50) pageHistory.shift();
+    }
+    store.set((s) => ({ ...s, page, activeTab: { kind: page.kind, params: page.params ?? {} }, context: page.context ?? null }));
+  };
   // the single shared preview slot. We keep one dockview panel (fixed id) and swap its
   // params/title in place so a single-click reuses ONE tab. `previewLogicalId` records
   // which descriptor currently lives in the slot (so pinning that same thing promotes it).
@@ -131,6 +146,12 @@ export function createLayoutService(defaultList: string): LayoutService {
 
   return {
     store,
+    usePages() {
+      if (pages) return;
+      pages = true;
+      store.set((s) => ({ ...s, activeList: defaultList, rightCollapsed: true }));
+      showPage(library, false);
+    },
     attach(dvApi) {
       api = dvApi;
       try { const s = readLS(LS_DOCK); if (s) api.fromJSON(JSON.parse(s)); } catch { /* stale layout — start empty */ }
@@ -149,6 +170,13 @@ export function createLayoutService(defaultList: string): LayoutService {
     setActiveTab(tab) { store.set((st) => ({ ...st, activeTab: tab })); },
     setActiveSession(id) { store.set((st) => ({ ...st, activeSession: id })); writeLS(LS_SESSION, id); },
     goBack() {
+      if (pages) {
+        const previous = pageHistory.pop();
+        if (!previous) return false;
+        showPage(previous.page ?? library, false);
+        store.set((s) => ({ ...s, activeList: previous.activeList }));
+        return true;
+      }
       const snap = hist.pop();
       if (!snap || !api) return false;
       restoring = true;
@@ -165,6 +193,7 @@ export function createLayoutService(defaultList: string): LayoutService {
       return true;
     },
     openTab(d) {
+      if (pages) { showPage(d); return; }
       if (!api) return;
       histPush();
       // pinning the thing currently in preview → promote it: drop the preview slot so the
@@ -180,6 +209,7 @@ export function createLayoutService(defaultList: string): LayoutService {
       });
     },
     openTabBeside(d) {
+      if (pages) { showPage(d); return; }
       if (!api) return;
       histPush();
       // already open anywhere (including as the preview's current content)? just activate.
@@ -203,6 +233,7 @@ export function createLayoutService(defaultList: string): LayoutService {
       });
     },
     retargetTab(panelId, d) {
+      if (pages) { if (store.getState().page?.id === panelId) showPage(d); return; }
       const panel = api?.getPanel(panelId);
       if (!panel) return;
       histPush();  // Escape / Alt+Left also undoes in-pane navigation
@@ -229,6 +260,7 @@ export function createLayoutService(defaultList: string): LayoutService {
       if (panel) panel.api.updateParameters({ ...(panel.params ?? {}), pinned: false });
     },
     openPreview(d) {
+      if (pages) { showPage(d); return; }
       if (!api) return;
       histPush();
       // already pinned as a real tab? just activate it — don't spawn a preview duplicate.
@@ -252,12 +284,17 @@ export function createLayoutService(defaultList: string): LayoutService {
       previewLogicalId = d.id;
     },
     closeTab(id) {
+      if (pages) { if (store.getState().page?.id === id) showPage(library); return; }
       const panel = api?.getPanel(id);
       if (!panel || (panel.params as { pinned?: boolean } | undefined)?.pinned) return;  // pinned tabs stay until unpinned
       histPush();
       panel.api.close();
     },
-    setActiveList(id) {
+    setActiveList(id, openPage = true) {
+      if (pages && openPage) {
+        const list = registry.list(id);
+        if (list) showPage(list.centerTab ?? { id: `list:${id}`, title: list.label, kind: "list", params: { list: id } });
+      }
       if (store.getState().activeList !== id) histPush();
       store.set((s) => ({ ...s, activeList: id })); writeLS(LS_LIST, id);
     },
@@ -266,6 +303,7 @@ export function createLayoutService(defaultList: string): LayoutService {
     showRight() { store.set((s) => ({ ...s, rightCollapsed: false })); },
     showLeft() { store.set((s) => ({ ...s, leftCollapsed: false })); },
     resetLayout() {
+      if (pages) { pageHistory.length = 0; showPage(library, false); return; }
       histPush();
       try { localStorage.removeItem(LS_DOCK); } catch { /* noop */ }
       forgetPreview();

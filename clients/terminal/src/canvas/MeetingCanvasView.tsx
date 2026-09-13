@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CanvasActionsProvider, useActions, OPEN_ENTITY_EVENT } from "./actions";
 import { MeetingHealthBanner } from "./MeetingHealthBanner";
 import { LiveTranscriptEngine, entityKindLabel, signalLabel, type EngineActions, type EngineEntity, type EngineSignal } from "./LiveTranscriptEngine";
@@ -7,6 +7,8 @@ import { useMeetingNotes } from "./notes";
 import { deriveProcessingView } from "./processingView";
 import { MeetingScopeProvider, MeetingSourceProvider, useEntities, useMeeting, useMeetingDocs, useSignals } from "./useMeeting";
 import { AutomaticMeetingRecap } from "./AutomaticMeetingRecap";
+import { useLiveMeetings } from "../surfaces/liveMeetings";
+import "./meetingCanvas.css";
 
 export const MEETING_CANVAS_CONTENT_INSET = 18;
 
@@ -60,7 +62,7 @@ function ProcessedTranscript() {
   return (
     <LiveTranscriptEngine
       segments={segments}
-      emptyLabel="Transkript işleniyor…"
+      emptyLabel="Düzeltilmiş transkript henüz hazır değil. Ham metni görüntüleyebilirsiniz."
       entities={entities}
       signals={signals}
       actions={engineActions}
@@ -68,9 +70,14 @@ function ProcessedTranscript() {
   );
 }
 
-function MeetingCanvasBody({ meetingId }: { meetingId?: string }) {
+function MeetingCanvasBody({ meetingId, initialSection = "summary" }: { meetingId?: string; initialSection?: "summary" | "transcript" }) {
   const { meeting, transcript } = useMeeting();
   const docs = useMeetingDocs();
+  const actions = useActions();
+  const rows = useLiveMeetings();
+  const row = rows.find((m) => m.id === meetingId);
+  const owned = !!row && !row.shared;
+  const [section, setSection] = useState<"summary" | "transcript" | "notes">(initialSection);
   const live = meeting.live === true;
   const hasNotes = (transcript.notes?.length ?? 0) > 0;
   // Durable truth wins over a stale list `live` flag ([N8] — the row can stay stuck on a live
@@ -85,33 +92,59 @@ function MeetingCanvasBody({ meetingId }: { meetingId?: string }) {
   const nativeId = meeting.nativeId;
 
   // null = untouched → follow the default (which can flip once the durable notes hydrate).
-  const [override, setOverride] = useState<boolean | null>(null);
+  const preferenceKey = `vexa.meeting-correction:${meetingId ?? ""}`;
+  const [override, setOverride] = useState<boolean | null>(() => {
+    try { const saved = sessionStorage.getItem(preferenceKey); return saved === "0" ? false : saved === "1" ? true : null; }
+    catch { return null; }
+  });
+  const [pending, setPending] = useState(false);
+  const [processingError, setProcessingError] = useState<string | null>(null);
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const processing = deriveProcessingView({ override, live, hasNotes, durableTerminal });
 
   // LIVE: the toggle ALSO controls backend processing — ON enables the copilot (full-history backfill
   // the first time, else resume); OFF disables it. COMPLETED: pure view switch — there is nothing to
   // arm any more, so we must NOT hit the process endpoint (a stale-live row counts as completed).
-  const toggleProcessing = () => {
+  const toggleProcessing = async () => {
     const next = !processing;
-    setOverride(next);
-    if (meetingId && effectiveLive) {
-      void fetch("/api/meeting/process", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        // meeting_id = the ROW id (the copilot keys on it); native_id = the display native (kg doc name).
-        body: JSON.stringify({ meeting_id: meetingId, native_id: nativeId ?? meetingId, on: next }),
-      }).catch(() => { /* best-effort — the view still reflects the toggle */ });
+    setProcessingError(null);
+    if (meetingId && effectiveLive && owned) {
+      setPending(true);
+      try {
+        const response = await fetch("/api/meeting/process", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ meeting_id: meetingId, native_id: nativeId ?? meetingId, on: next }),
+        });
+        if (!response.ok) throw new Error("processing preference rejected");
+      } catch {
+        if (mounted.current) {
+          setPending(false);
+          setProcessingError("Metin iyileştirme tercihi değiştirilemedi. Lütfen yeniden deneyin.");
+        }
+        return;
+      }
     }
+    if (!mounted.current) return;
+    setPending(false);
+    setOverride(next);
+    try { sessionStorage.setItem(preferenceKey, next ? "1" : "0"); } catch { /* preference remains for this view */ }
   };
 
   // Completed meetings get view names (nothing is "processing" any more); live keeps the arm/disarm wording.
-  const label = effectiveLive ? `İşleme ${processing ? "açık" : "kapalı"}` : (processing ? "İşlenmiş" : "Ham");
+  const label = processing ? "Düzeltilmiş" : "Ham";
 
   return (
-    <div style={{ height: "100%", display: "flex", flexDirection: "column", minHeight: 0, background: "var(--bg)" }}>
+    <div className="meeting-canvas">
+      <div role="tablist" aria-label="Toplantı içeriği" className="meeting-canvas-tabs">
+        {([ ["summary", "Özet"], ["transcript", "Transkript"], ["notes", "Notlar"] ] as const).map(([id, text]) => <button key={id} type="button" role="tab" aria-selected={section === id} onClick={() => setSection(id)}>{text}</button>)}
+      </div>
+      {section === "transcript" && <>
       <div style={{ flex: "none", display: "flex", alignItems: "center", gap: 10, padding: `8px ${MEETING_CANVAS_CONTENT_INSET}px 0` }}>
         <button
           type="button"
-          onClick={toggleProcessing}
+          onClick={() => void toggleProcessing()}
+          disabled={pending}
           aria-pressed={processing}
           title={processing ? "Temizlenmiş asistan görünümü gösteriliyor" : (effectiveLive ? "Ham transkript gösteriliyor — işlemek için açın" : "Ham transkript gösteriliyor")}
           style={{
@@ -125,25 +158,36 @@ function MeetingCanvasBody({ meetingId }: { meetingId?: string }) {
           <span style={{ width: 7, height: 7, borderRadius: "50%", background: processing ? "var(--on-accent)" : "var(--t3)", flex: "none" }} />
           {label}
         </button>
-        <span style={{ fontSize: 11.5, color: "var(--t3)" }}>{processing ? "temizlenmiş + asistan" : "Ham transkript"}</span>
+        <span style={{ fontSize: 11.5, color: "var(--t3)" }}>{pending ? "Tercih kaydediliyor…" : processing ? "Düzeltilmiş transkript" : "Ham transkript"}</span>
       </div>
+      {processingError && <p role="alert" style={{ padding: "8px 18px", color: "var(--danger)", fontSize: 13 }}>{processingError}</p>}
       <MeetingHealthBanner />
+      </>}
       <main style={{ flex: 1, minHeight: 0, overflow: "auto" }}>
         <div style={{ padding: MEETING_CANVAS_CONTENT_INSET }}>
-          <AutomaticMeetingRecap status={meeting.status} reportPath={docs.report.path} />
-          {processing ? <ProcessedTranscript /> : <RawTranscript />}
+          {section === "summary" && <>
+            <AutomaticMeetingRecap status={meeting.status} reportPath={docs.report.path} meetingId={meeting.id} workspace={docs.report.workspace} canEdit={owned} />
+            {!durableTerminal && <div className="meeting-canvas-empty"><h2>Görüşme devam ediyor</h2><p>Toplantı özeti görüşme tamamlandığında burada görünür. Konuşmaları Transkript bölümünden takip edebilirsiniz.</p></div>}
+          </>}
+          {section === "transcript" && (processing ? <ProcessedTranscript /> : <RawTranscript />)}
+          {section === "notes" && <section className="meeting-canvas-notes">
+            <h2>Hazırlık notları</h2>
+            <p>Toplantının gündemini ve hazırlık notlarını buradan açabilir, asistanla birlikte geliştirebilirsiniz.</p>
+            {docs.brief.present && <button type="button" onClick={() => actions.openDoc(docs.brief.path, docs.brief.workspace)}>Hazırlık notunu aç</button>}
+            <button type="button" onClick={() => actions.ask("Bu toplantının gündemini ve hazırlık notlarını birlikte gözden geçirelim. Mevcut notları oku; değişiklik yapmadan önce önerilerini paylaş.")}>Asistana sor</button>
+          </section>}
         </div>
       </main>
     </div>
   );
 }
 
-export function MeetingCanvasView({ meetingId }: { meetingId?: string }) {
+export function MeetingCanvasView({ meetingId, initialSection }: { meetingId?: string; initialSection?: "summary" | "transcript" }) {
   return (
     <MeetingScopeProvider meetingId={meetingId}>
       <MeetingSourceProvider meetingId={meetingId}>
         <CanvasActionsProvider>
-          <MeetingCanvasBody meetingId={meetingId} />
+          <MeetingCanvasBody key={meetingId} meetingId={meetingId} initialSection={initialSection} />
         </CanvasActionsProvider>
       </MeetingSourceProvider>
     </MeetingScopeProvider>

@@ -1,13 +1,6 @@
 "use client";
-/** Meeting-prep tab (center) — a PLANNED meeting's home while it hasn't happened yet.
- *
- *  Opens when a row in an intent status (`idle`/`scheduled`) is clicked. Everything here edits the
- *  SAME meetings row the bot will later claim: title / time / link (PATCH by row id), the auto-join
- *  toggle, and the WORKSPACE BIND — the sharing mechanism (members of the bound workspace see this
- *  meeting, its live feed, and later its transcript). "Share" mints a workspace invite link; the
- *  prep JTBD is: bind (or create) a prep workspace → research into it with the agent → share it
- *  with the people you're meeting → the bot auto-joins at start → notes land on the same row.
- *  Once the row leaves the intent statuses the row click routes to the live meeting tab instead. */
+/** Meeting preparation keeps all parameters local until an explicit Planla or Katıl submission.
+ * Existing plans are updated by canonical row ID; draft rows are created only at submission. */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { registerTab, type TabProps } from "../contributions";
 import { useService } from "../platform";
@@ -21,7 +14,7 @@ import type { MeetingMock } from "./meetingModel";
 import { presentError, readApiFailure } from "./apiClient";
 import { resolveJoinError, type ServiceDenialPresentation } from "./serviceDenial";
 import { ServiceDenialPanel } from "./ServiceDenialPanel";
-import { createPlannedMeeting, updatePlannedMeeting, deletePlannedMeeting } from "./plannedApi";
+import { createPlannedMeeting, updatePlannedMeeting, deletePlannedMeeting, type PlannedMeetingRow } from "./plannedApi";
 import { createSharedWorkspace, listSharedMemberships, listWorkspaceTree, mintInvite, readWorkspaceFile, type Membership } from "./workspaceApi";
 import { findBriefNote, isExampleNote } from "./briefNote";
 import { manageTabDescriptor } from "./workspaceManage";
@@ -165,13 +158,17 @@ function OwnBrief({ note, onSteer }: { note: { path: string; text: string }; onS
 }
 
 // A synthetic empty PLANNED meeting for a DRAFT tab — no backend row yet. Idle intent so the prep
-// form renders; every field empty. Replaced by the real row the moment lazy-create fires.
+// form renders without a backend row until explicit submission.
 const DRAFT_M: MeetingMock = {
   id: "", title: "", when: "", status: "past", live_status: "idle", platform: "Google Meet",
   participants: [], mentioned: [], actions: [], transcript: [], insights: [],
 };
 
-function MeetingPrepTab({ params }: TabProps) {
+function MeetingPrepTab(props: TabProps) {
+  return <MeetingPrepForm key={String(props.params.meetingId ?? "") || PREP_DRAFT_TAB_ID} {...props} />;
+}
+
+function MeetingPrepForm({ params }: TabProps) {
   const layout = useService(LayoutServiceId);
   const all = useLiveMeetings();
   const meetingId = String(params.meetingId ?? "");
@@ -185,30 +182,18 @@ function MeetingPrepTab({ params }: TabProps) {
 
   const [title, setTitle] = useState("");
   const [link, setLink] = useState("");
-  // lazy row creation: a draft creates its backend row on the FIRST real input, passing whatever the
-  // user has typed, then hands the tab off to prep:<id>. `creating` guards against a double-create
-  // from two near-simultaneous inputs; `mounted` guards setState after the handoff unmounts us.
-  const creating = useRef(false);
+  const [scheduledAt, setScheduledAt] = useState<string | undefined>(() => isDraft ? new Date().toISOString() : undefined);
+  const [autoJoin, setAutoJoin] = useState(true);
+  const [workspaceId, setWorkspaceId] = useState<string | null>(null);
+  const [savedRow, setSavedRow] = useState<PlannedMeetingRow | null>(null);
+  const savedId = useRef(meetingId);
+  const submitting = useRef(false);
+  const attemptedJoin = useRef<string | null>(null);
+  const reconcileJoin = useRef(false);
   const mounted = useRef(true);
-  useEffect(() => () => { mounted.current = false; }, []);
-  const ensureRow = async (): Promise<string | null> => {
-    if (meetingId) return meetingId;               // already a real row
-    if (creating.current) return null;             // a create is already in flight
-    creating.current = true;
-    const row = await createPlannedMeeting({
-      title: title.trim() || undefined,
-      meeting_url: link.trim() || undefined,
-    });
-    const id = String(row.id);
-    refreshMeetings();
-    // hand off: the canonical prep tab owns the created meeting; the draft tab closes.
-    layout.openTab(prepTabDescriptor({ id, title: title.trim() || "Yeni toplantı" }));
-    layout.closeTab(PREP_DRAFT_TAB_ID);
-    return id;
-  };
-  // seed marker is the MEETING ID, not a boolean: the shared preview panel swaps params to a
-  // DIFFERENT meeting without remounting — a boolean kept the previous meeting's title/link on
-  // screen, and a blur would PATCH them onto the wrong row (observed live 2026-07-08).
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  const hasSavedRow = !!meetingId || !!savedRow;
+  // Seed once per canonical form; feed refreshes preserve the local draft.
   const [seededFor, setSeededFor] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -226,8 +211,11 @@ function MeetingPrepTab({ params }: TabProps) {
     if (!m || seededFor === m.id) return;
     setTitle(m.title_custom ?? "");
     setLink(m.meeting_url ?? "");
+    if (!isDraft) setScheduledAt(m.scheduled_at);
+    setAutoJoin(m.auto_join !== false);
+    setWorkspaceId(m.workspace_id ?? null);
     setSeededFor(m.id);
-  }, [m, seededFor]);
+  }, [m, seededFor, isDraft]);
 
   useEffect(() => {
     void listSharedMemberships()
@@ -235,42 +223,88 @@ function MeetingPrepTab({ params }: TabProps) {
       .catch(() => {});
   }, []);
 
-  const patch = async (body: Parameters<typeof updatePlannedMeeting>[1]) => {
-    if (!m || readOnly) return;
-    setBusy(true); setErr(null);
-    try {
-      const id = await ensureRow();               // draft → create the row first (with title/link)
-      if (!id) return;
-      await updatePlannedMeeting(id, body); refreshMeetings();
-    }
-    catch (e) { if (mounted.current) setErr(presentError(e).headline); }
-    finally { if (mounted.current) setBusy(false); }
-  };
-
-  const sendNow = async () => {
-    if (!m?.native_id) return;
+  const submit = async (joinNow: boolean) => {
+    if (!m || readOnly || submitting.current) return;
+    if (joinNow && !link.trim()) { setErr("Katılmak için toplantı bağlantısını girin."); return; }
+    if (!title.trim() && !link.trim()) { setErr("Toplantı başlığını veya bağlantısını girin."); return; }
+    submitting.current = true;
     setBusy(true); setErr(null); setDenial(null);
     try {
-      const platformSlug = m.platform === "Google Meet" ? "google_meet" : m.platform.toLowerCase().replace(/\s+/g, "_");
-      const r = await fetch("/api/bots", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ platform: platformSlug, native_meeting_id: m.native_id, ...(m.meeting_url ? { meeting_url: m.meeting_url } : {}), bot_name: defaultBotName() }),
-      });
-      // The body used to be read as raw TEXT and rethrown as a bare Error, so a denial payload
-      // reached the presenter JSON-shaped and came out as "Something went wrong". Read it as the
-      // typed ApiError instead, so 403 service_not_allowed can be told from a permissions fault.
-      if (!r.ok) throw await readApiFailure(r, "/api/bots");
+      if (reconcileJoin.current && savedId.current) {
+        const response = await fetch(`/api/meetings/${encodeURIComponent(savedId.current)}`, { cache: "no-store" });
+        if (!response.ok) throw await readApiFailure(response, "/api/meetings");
+        const current = await response.json() as PlannedMeetingRow & { shared?: boolean };
+        if (!mounted.current) return;
+        if (String(current.id) !== savedId.current || current.shared !== false) {
+          throw new Error("Bu toplantıyı değiştirme yetkiniz doğrulanamadı.");
+        }
+        if (["requested", "joining", "awaiting_admission", "active", "needs_help", "needs_human_help", "stopping", "completed"].includes(current.status)) {
+          refreshMeetings();
+          layout.openTab({ id: `meeting:${current.id}`, title: title.trim() || "Toplantı", kind: "meeting", params: { meetingId: String(current.id) } });
+          if (isDraft) layout.closeTab(PREP_DRAFT_TAB_ID);
+          return;
+        }
+        if (current.status === "failed" && attemptedJoin.current === savedId.current) {
+          // This explicit retry starts a new run; the failed run remains in history.
+          savedId.current = "";
+          setSavedRow(null);
+        } else if (!["idle", "scheduled"].includes(current.status)) {
+          throw new Error("Bu toplantı yeniden başlatılamıyor. Toplantılar listesinden durumunu kontrol edin.");
+        }
+        reconcileJoin.current = false;
+      }
+      const body = {
+        title: title.trim() || null,
+        meeting_url: link.trim() || null,
+        scheduled_at: scheduledAt ?? null,
+        workspace_id: workspaceId,
+        // A manual Join cannot race an automatically armed schedule.
+        auto_join: joinNow ? false : autoJoin,
+      };
+      const row = savedId.current
+        ? await updatePlannedMeeting(savedId.current, body)
+        : await createPlannedMeeting(body);
+      savedId.current = String(row.id);
+      if (!mounted.current) return;
+      setSavedRow(row);
+      if (joinNow) {
+        if (!row.native_meeting_id) throw new Error("Toplantı bağlantısı doğrulanamadı.");
+        attemptedJoin.current = String(row.id);
+        const response = await fetch("/api/bots", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            meeting_id: Number(row.id), platform: row.platform, native_meeting_id: row.native_meeting_id,
+            meeting_url: row.constructed_meeting_url || link.trim(), bot_name: defaultBotName(),
+          }),
+        });
+        if (!response.ok) throw await readApiFailure(response, "/api/bots");
+        const joined = await response.json() as { id?: number | string };
+        if (String(joined.id) !== String(row.id)) throw new Error("Katılım yanıtı kaydedilen toplantıyla eşleşmiyor.");
+      }
+      if (!mounted.current) return;
       refreshMeetings();
+      const id = String(row.id);
+      layout.openTab(joinNow
+        ? { id: `meeting:${id}`, title: title.trim() || "Toplantı", kind: "meeting", params: { meetingId: id } }
+        : prepTabDescriptor({ id, title: title.trim() || "Yeni toplantı" }));
+      if (isDraft) layout.closeTab(PREP_DRAFT_TAB_ID);
     } catch (e) {
-      const state = resolveJoinError(e);
-      if (state.kind === "denial") setDenial(state.presentation);
-      else setErr(state.headline);
+      if (!mounted.current) return;
+      if (attemptedJoin.current === savedId.current) reconcileJoin.current = true;
+      if (joinNow) {
+        const state = resolveJoinError(e);
+        if (state.kind === "denial") setDenial(state.presentation);
+        else setErr(state.headline);
+      } else setErr(presentError(e).headline);
+    } finally {
+      submitting.current = false;
+      if (mounted.current) setBusy(false);
     }
-    finally { setBusy(false); }
   };
+  const sendNow = () => submit(true);
 
   const share = async () => {
-    if (!m?.workspace_id) return;
+    if (!m?.workspace_id || workspaceId !== m.workspace_id) return;
     setBusy(true); setErr(null);
     try {
       const inv = await mintInvite({ workspace_id: m.workspace_id, role: "contributor", mode: "open", expires_in_sec: 7 * 86400, max_uses: 50 });
@@ -280,15 +314,13 @@ function MeetingPrepTab({ params }: TabProps) {
   };
 
   const createAndBind = async () => {
-    if (!m) return;
+    if (!m || !hasSavedRow) return;
     setBusy(true); setErr(null);
     try {
-      const id = await ensureRow();               // draft → create the row first
-      if (!id) return;
       const name = (m.title_custom || title || "toplanti-hazirlik").slice(0, 60);
       const ws = await createSharedWorkspace(name);
-      await updatePlannedMeeting(id, { workspace_id: ws.workspace_id });
-      refreshMeetings();
+      setWorkspaceId(ws.workspace_id);
+      setShares((items) => [...items, { workspace_id: ws.workspace_id, role: "owner" } as Membership]);
       // Creating the shared workspace IS a scaffolding run (prep-v3 ruling, owner 2026-07-09):
       // the agent must know the workspace is brand-new and exists to collaborate with the other
       // participants around this meeting — its README is the team brief. Any brief already built
@@ -303,19 +335,16 @@ function MeetingPrepTab({ params }: TabProps) {
     finally { if (mounted.current) setBusy(false); }
   };
 
-  // Frame 6 (first-run-onboarding): brief WITHOUT sharing — the agent interviews the user in
-  // chat (the prep tab's meeting grounding rides the turn) and writes the brief into their OWN
-  // workspace, so it follows the series without creating a shared space. Starting the brief is a real
-  // commitment → create the draft's row first (so the note keys to a real meeting and reuses across it).
+  // Preparation actions require an explicitly saved canonical meeting.
   const startBriefChat = async () => {
+    if (!hasSavedRow) return;
     setBusy(true); setErr(null);
     try {
-      const id = await ensureRow();
-      if (!id) return;
+      const id = savedId.current;
       // re-read the row so the note filename can key to its native id if a link was set
       const row = all.find((x) => x.id === id);
       const name = row?.title_custom || title || "bu toplantı";
-      const nid = row?.native_id;
+      const nid = row?.native_id ?? savedRow?.native_meeting_id;
       const key = nid ? ` Not dosyasının adını ${nid} toplantı kimliğini içerecek şekilde ver (kg/entities/meeting/…${nid}….md) — toplantı sayfası notu bu kimlikle bulup gösteriyor.` : "";
       setBriefChatStarted(true);
       window.dispatchEvent(new CustomEvent(ASK_CHAT_EVENT, {
@@ -327,15 +356,14 @@ function MeetingPrepTab({ params }: TabProps) {
 
   const remove = async () => {
     if (!m) return;
-    if (isDraft) { layout.closeTab(PREP_DRAFT_TAB_ID); return; }   // nothing persisted — just discard the draft
+    if (!savedId.current) { layout.closeTab(PREP_DRAFT_TAB_ID); return; }   // nothing persisted — just discard the draft
     if (typeof window !== "undefined" && !window.confirm("Bu planlanan toplantı silinsin mi?")) return;
     setBusy(true);
-    try { await deletePlannedMeeting(m.id); refreshMeetings(); layout.closeTab(`prep:${m.id}`); }
+    try { await deletePlannedMeeting(savedId.current); refreshMeetings(); layout.closeTab(isDraft ? PREP_DRAFT_TAB_ID : `prep:${savedId.current}`); }
     catch (e) { setErr(presentError(e).headline); }
     finally { setBusy(false); }
   };
 
-  const autoJoin = m?.auto_join !== false;   // absent = ON
   const headline = useMemo(() => m?.title_custom || m?.title || "Planlanan toplantı", [m]);
   // own-workspace brief (frame 6): only hunted while the meeting is unbound — a bound workspace's
   // README is the brief and wins.
@@ -357,7 +385,7 @@ function MeetingPrepTab({ params }: TabProps) {
   if (!m) {
     return <div style={{ padding: 32, fontSize: 13, color: "var(--t3)" }}>Toplantı yükleniyor…</div>;
   }
-  if (!isIntent) {
+  if (!isIntent && !attemptedJoin.current) {
     return (
       <div style={{ padding: 32, fontSize: 13, color: "var(--t2)", lineHeight: 1.6 }}>
         Bu toplantı başladı — canlı görünüm için Toplantılar listesinden açın.
@@ -375,8 +403,6 @@ function MeetingPrepTab({ params }: TabProps) {
         ) : (
           <input value={title} disabled={busy} placeholder="Bu toplantı ne hakkında?"
             onChange={(e) => setTitle(e.target.value)}
-            onBlur={() => { if ((m.title_custom ?? "") !== title.trim()) void patch({ title: title.trim() || null }); }}
-            onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
             style={{ display: "block", width: "100%", boxSizing: "border-box", margin: "0 0 18px", padding: "2px 0 6px",
               fontSize: 19, fontWeight: 650, color: "var(--t1)", background: "transparent", border: "none",
               borderBottom: "1px dashed var(--line2)", outline: "none" }} />
@@ -391,11 +417,11 @@ function MeetingPrepTab({ params }: TabProps) {
         {/* ── meta line (prep-v3 carve): when · Join · auto-join — the raw URL lives behind ⋯ ── */}
         <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 6 }}>
           <DateTimePicker
-            value={m.scheduled_at}
+            value={scheduledAt}
             disabled={readOnly || busy}
             placeholder="Tarih ve saat seçin"
-            onChange={(iso) => void patch({ scheduled_at: iso })}
-            onClear={() => void patch({ scheduled_at: null })}
+            onChange={setScheduledAt}
+            onClear={() => setScheduledAt(undefined)}
           />
           {m.meeting_url && (
             /* "Open meeting" not "Join" — the human opens the URL; the notetaker is a separate verb
@@ -408,8 +434,8 @@ function MeetingPrepTab({ params }: TabProps) {
           {!readOnly && (
             <label style={{ display: "inline-flex", alignItems: "center", gap: 7, fontSize: 12, color: "var(--t2)", cursor: "pointer", userSelect: "none" }}>
               <input type="checkbox" checked={autoJoin} disabled={busy}
-                onChange={(e) => void patch({ auto_join: e.target.checked })} />
-              Otomatik katılım{!m.native_id && <span style={{ color: "var(--t3)", fontSize: 11 }}>(bağlantı gerekiyor)</span>}
+                onChange={(e) => setAutoJoin(e.target.checked)} />
+              Otomatik katılım{!link.trim() && <span style={{ color: "var(--t3)", fontSize: 11 }}>(bağlantı gerekiyor)</span>}
             </label>
           )}
         </div>
@@ -419,10 +445,16 @@ function MeetingPrepTab({ params }: TabProps) {
             <span style={label}>Toplantı bağlantısı</span>
             <input value={link} disabled={busy} placeholder="https://meet.google.com/…"
               onChange={(e) => setLink(e.target.value)}
-              onBlur={() => { if ((m.meeting_url ?? "") !== link.trim()) void patch({ meeting_url: link.trim() || null }); }}
               style={field} />
           </div>
         )}
+
+        {!readOnly && <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", margin: "16px 0" }}>
+          <button className="primary-button" disabled={busy} onClick={() => void submit(false)}>Planla</button>
+          <button className="secondary-button" disabled={busy || !link.trim()} onClick={() => void sendNow()}>Katıl</button>
+          <span style={{ fontSize: 12, color: "var(--t3)" }}>Değişiklikler bu düğmelerden birine bastığınızda kaydedilir.</span>
+          {!hasSavedRow && <span style={{ fontSize: 12, color: "var(--t3)" }}>Önce Planla veya Katıl düğmesine basın; ardından hazırlık ve paylaşım yapabilirsiniz.</span>}
+        </div>}
 
         {/* ── attendees (calendar ATTENDEE lines → data.attendees, prep-v3 slice b) ── */}
         {(m.attendees?.length ?? 0) > 0 && (
@@ -459,13 +491,13 @@ function MeetingPrepTab({ params }: TabProps) {
             Moved to the TOP (owner ruling): the actions sit above the brief so a long brief never
             buries them. The popouts (rebind select, ⋯ block, invite link) render right here. */}
         <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap", marginBottom: 12, paddingBottom: 12, borderBottom: "1px solid var(--line)", fontSize: 12, color: "var(--t3)" }}>
-          {m.workspace_id && (
+          {workspaceId && (
             <span style={{ display: "inline-flex", gap: 6, alignItems: "baseline" }}>
               çalışma alanı{" "}
-              <button onClick={() => layout.openTab(manageTabDescriptor(m.workspace_id!, { shared: true }))}
-                title={m.workspace_id}
+              <button onClick={() => layout.openTab(manageTabDescriptor(workspaceId!, { shared: true }))}
+                title={workspaceId}
                 style={{ background: "none", border: "none", color: "var(--t2)", fontWeight: 600, fontSize: 12, cursor: "pointer", padding: 0 }}>
-                {m.workspace_id.replace(/-[0-9a-f]{4,}$/i, "")}
+                {workspaceId.replace(/-[0-9a-f]{4,}$/i, "")}
               </button>
               {!readOnly && (
                 <button onClick={() => setRebindOpen((v) => !v)}
@@ -478,8 +510,8 @@ function MeetingPrepTab({ params }: TabProps) {
           {/* an own brief (or one in flight) must NOT hide the sharing path — the no-brief
               placeholder's share button vanished exactly when there was something worth sharing
               (owner ruling 2026-07-09) */}
-          {!readOnly && !m.workspace_id && (ownBrief || briefChatStarted) && (
-            <button disabled={busy} onClick={() => void createAndBind()}
+          {!readOnly && !workspaceId && (ownBrief || briefChatStarted) && (
+            <button disabled={busy || !hasSavedRow} onClick={() => void createAndBind()}
               title="Davet ettiğiniz herkes katıldığı anda hazırlık notunu ve canlı transkripti görür"
               style={{ background: "none", border: "none", color: "var(--t2)", fontSize: 12, cursor: "pointer", padding: 0, borderBottom: "1px dotted var(--t3)" }}>
               + Paylaşmak için çalışma alanı oluştur
@@ -487,17 +519,10 @@ function MeetingPrepTab({ params }: TabProps) {
           )}
           {readOnly && <span style={{ fontSize: 11.5 }}>sizinle paylaşıldı</span>}
           <span style={{ flex: 1 }} />
-          {!readOnly && m.workspace_id && (
-            <button disabled={busy} onClick={() => void share()}
+          {!readOnly && workspaceId && (
+            <button disabled={busy || workspaceId !== m.workspace_id} onClick={() => void share()}
               style={{ background: "none", border: "none", color: "var(--t2)", fontSize: 12, cursor: "pointer", padding: 0, borderBottom: "1px dotted var(--t3)" }}>
               Katılımcılarla paylaş{(m.attendees?.length ?? 0) > 0 ? ` (${m.attendees!.length})` : ""}
-            </button>
-          )}
-          {!readOnly && (
-            <button disabled={busy || !m.native_id} onClick={() => void sendNow()}
-              title={m.native_id ? "Beklemeden botu şimdi gönder" : "Önce bir toplantı bağlantısı ekleyin"}
-              style={{ background: "none", border: "none", color: m.native_id ? "var(--accent)" : "var(--t3)", fontSize: 12, fontWeight: 600, cursor: m.native_id ? "pointer" : "default", padding: 0, borderBottom: `1px dotted ${m.native_id ? "var(--accent)" : "var(--t3)"}` }}>
-              Botu şimdi gönder
             </button>
           )}
           {!readOnly && (
@@ -510,7 +535,7 @@ function MeetingPrepTab({ params }: TabProps) {
         {rebindOpen && !readOnly && shares.length > 0 && (
           <div style={{ marginBottom: 8 }}>
             <select defaultValue="" disabled={busy}
-              onChange={(e) => { if (e.target.value) { void patch({ workspace_id: e.target.value }); setRebindOpen(false); } }}
+              onChange={(e) => { if (e.target.value) { setWorkspaceId(e.target.value); setRebindOpen(false); } }}
               style={{ ...field, minWidth: 200 }}>
               <option value="" disabled>Farklı bir çalışma alanı bağlayın…</option>
               {shares.map((s) => <option key={s.workspace_id} value={s.workspace_id}>{s.workspace_id}</option>)}
@@ -519,8 +544,8 @@ function MeetingPrepTab({ params }: TabProps) {
         )}
         {moreOpen && !readOnly && (
           <div style={{ display: "flex", gap: 8, marginBottom: 10, alignItems: "center", flexWrap: "wrap" }}>
-            {m.workspace_id && (
-              <button disabled={busy} onClick={() => { void patch({ workspace_id: null }); setMoreOpen(false); }}
+            {workspaceId && (
+              <button disabled={busy} onClick={() => { setWorkspaceId(null); setMoreOpen(false); }}
                 style={{ background: "transparent", border: "1px solid var(--line2)", color: "var(--t3)", borderRadius: 7, padding: "4px 10px", fontSize: 12, cursor: "pointer" }}>
                 Çalışma alanı bağını kaldır
               </button>
@@ -539,8 +564,8 @@ function MeetingPrepTab({ params }: TabProps) {
         )}
 
         {/* ── the brief = the stage (prep-v3 carve) ───────────────── */}
-        {m.workspace_id ? (
-          <Brief slug={m.workspace_id} title={headline} />
+        {workspaceId ? (
+          <Brief slug={workspaceId} title={headline} />
         ) : readOnly ? (
           <div style={{ margin: "18px 0 0", fontSize: 12.5, color: "var(--t3)" }}>Bağlı çalışma alanı yok.</div>
         ) : ownBrief ? (
@@ -563,16 +588,16 @@ function MeetingPrepTab({ params }: TabProps) {
               beklediğiniz, nelere kulak vermesi gerektiği.
             </div>
             <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-              <button disabled={busy} onClick={() => startBriefChat()}
+              <button disabled={busy || !hasSavedRow} onClick={() => startBriefChat()}
                 style={{ background: "var(--accent)", color: "var(--on-accent)", border: "none", borderRadius: 7, padding: "6px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
                 Hazırlık sohbetini başlat
               </button>
-              <button disabled={busy} onClick={() => void createAndBind()}
+              <button disabled={busy || !hasSavedRow} onClick={() => void createAndBind()}
                 style={{ background: "transparent", color: "var(--accent)", border: "1px dashed var(--line2)", borderRadius: 7, padding: "5px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
                 + Paylaşmak için çalışma alanı oluştur
               </button>
               {shares.length > 0 && (
-                <select defaultValue="" disabled={busy} onChange={(e) => { if (e.target.value) void patch({ workspace_id: e.target.value }); }}
+                <select defaultValue="" disabled={busy} onChange={(e) => { if (e.target.value) setWorkspaceId(e.target.value); }}
                   style={{ ...field, minWidth: 180, color: "var(--t3)" }}>
                   <option value="" disabled>veya mevcut birini bağlayın…</option>
                   {shares.map((s) => <option key={s.workspace_id} value={s.workspace_id}>{s.workspace_id}</option>)}
@@ -598,10 +623,7 @@ function MeetingPrepTab({ params }: TabProps) {
 export const prepTabDescriptor = (m: { id: string; title: string }) =>
   ({ id: `prep:${m.id}`, title: m.title, kind: "meetingPrep", params: { meetingId: m.id } });
 
-// A DRAFT "+ Plan a meeting" tab — no backend row yet. The row is created lazily on the first real
-// input (title/link/date, or Start brief chat / Create workspace / bind), then the tab hands off to
-// the canonical prep:<id> tab. Abandoning a draft leaves NO empty meeting behind. Stable id so
-// repeated "+ Plan a meeting" clicks reuse the one open draft rather than stacking blank tabs.
+// One local draft page. Abandoning it before submission creates no backend meeting.
 export const PREP_DRAFT_TAB_ID = "prep:draft";
 export const prepDraftTabDescriptor = () =>
   ({ id: PREP_DRAFT_TAB_ID, title: "Yeni toplantı", kind: "meetingPrep", params: { meetingId: "", draft: true } });

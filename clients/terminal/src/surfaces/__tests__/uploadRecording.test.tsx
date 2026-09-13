@@ -94,6 +94,15 @@ describe("failureText", () => {
 });
 
 describe("the upload surface", () => {
+  it("opens the accepted recording's canonical meeting without starting another upload", () => {
+    const onOpen = vi.fn();
+    render(<UploadRecordingButton onOpen={onOpen} />);
+    expect(screen.queryByRole("button", { name: "Transkripti aç" })).toBeNull();
+    pickFile();
+    act(() => { FakeXHR.last!.respond(202, { id: 42, status: "requested" }); });
+    fireEvent.click(screen.getByRole("button", { name: "Transkripti aç" }));
+    expect(onOpen).toHaveBeenCalledWith(42);
+  });
   it("offers the picker the extensions the backend accepts", () => {
     render(<UploadRecordingButton />);
     const input = document.querySelector('input[type="file"]') as HTMLInputElement;
@@ -139,7 +148,7 @@ describe("the upload surface", () => {
                            upload: { state: "done", duration_seconds: 60, transcribed_seconds: 60 } }),
     } as unknown as Response);
     await act(async () => { await vi.advanceTimersByTimeAsync(3000); });
-    expect(screen.getByText(/toplantı raporu/)).toBeTruthy();
+    expect(screen.getByText(/Transkript hazır\. Toplantı özeti ayrıca hazırlanır\./)).toBeTruthy();
     const callsAfterDone = fetchMock.mock.calls.length;
     await act(async () => { await vi.advanceTimersByTimeAsync(9000); });
     expect(fetchMock.mock.calls.length).toBe(callsAfterDone);   // the poll really stopped
