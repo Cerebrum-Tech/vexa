@@ -35,9 +35,8 @@ import {
   type TeamsCsrcGmeetPipelineOptions,
   type TeamsCsrcTranscriptSegment,
   type TransportEvent,
-  type TurnSourceObservation,
-} from '@vexa/mixed-pipeline';
-import { TranscriptionClient, type TranscriptionResult } from '@vexa/transcribe-whisper';
+  type TurnSourceObservation, StreamingTurnEngine, type TranscriptEngine } from '@vexa/mixed-pipeline';
+import { TranscriptionClient, type TranscriptionResult, RealtimeTranscriber, realtimeUrlFor, isStreamingSttModel } from '@vexa/transcribe-whisper';
 import { isMixedLanePlatform, type Invocation, type Platform } from './config.js';
 import type { TranscriptSegment } from './contracts.js';
 import type { Pipeline, TranscriptSink } from './ports.js';
@@ -260,6 +259,26 @@ function createGmeetBotPipeline(
 /** Build the Teams-only CSRC virtual-channel lane. The shared GMeet-compatible buffer owns
  * cadence, prompt feedback, LocalAgreement and terminal fallback. This adapter owns only the bot
  * ports: mixed PCM/identity evidence in, transcript.v1 publish/retract out. */
+/** The RMS below which a window is treated as silence and never submitted to STT.
+ *
+ *  Silence is where every STT model invents text — a hallucinated word costs the reader more than a
+ *  dropped half-second costs. Measured on this deployment's own captured signal (a 20-minute Teams
+ *  meeting, 3888 frames): p10 = 0.017, median = 0.072. So 0.0025 (the shared default) skips ~3% of
+ *  frames, 0.02 skips ~11%, and 0.2 would skip 99% — i.e. mute the transcript. `VEXA_STT_SILENCE_RMS`
+ *  is the operator's dial for a noisy room; out-of-range or unparseable values keep the default. */
+export const DEFAULT_SILENCE_RMS = 0.0025;
+
+export function silenceRmsFrom(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = (env.VEXA_STT_SILENCE_RMS ?? '').trim();
+  if (!raw) return DEFAULT_SILENCE_RMS;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < 0 || value >= 1) {
+    console.warn(`[bot] VEXA_STT_SILENCE_RMS=${JSON.stringify(raw)} is not a usable RMS (0 ≤ x < 1) — keeping ${DEFAULT_SILENCE_RMS}`);
+    return DEFAULT_SILENCE_RMS;
+  }
+  return value;
+}
+
 function createTeamsBotPipeline(
   transcribe: Transcribe,
   sink: TranscriptSink,
@@ -267,6 +286,8 @@ function createTeamsBotPipeline(
   createTranscriber: TeamsTranscriberFactory = (options) => new TeamsCsrcGmeetPipeline(options),
   onObservation?: (source: string, obs: Record<string, unknown>, tMs?: number) => void,
   selfName?: string,
+  config?: SpeakerStreamManagerConfig,
+  engine?: TranscriptEngine,
 ): BotPipeline {
   const hintCounters: HintCounters = { received: 0, matched: 0, missed: 0 };
   const reportError = onError ?? ((error: unknown) => console.error(`[bot] pipeline(teams-csrc): ${String(error)}`));
@@ -274,6 +295,15 @@ function createTeamsBotPipeline(
   const transcriber = createTranscriber({
     transcribe: (pcm, prompt) => transcribe(pcm, prompt),
     selfName,
+    // The BOT_SPEAKER_* window knobs reach this lane too: Teams runs the same shared
+    // GMeet-compatible buffer, so its window length is tunable from the deployment rather than
+    // pinned to the module default. The RMS floor stays last — it has its own env var.
+    buffer: { ...config, silenceRmsThreshold: silenceRmsFrom() },
+    engine,
+    onNamerLog: (message) => {
+      console.log(`[teams-track-namer] ${message}`);
+      try { onObservation?.('teams-track-namer', { message }); } catch { /* diagnostics never break the lane */ }
+    },
     onSegment: (segment) => {
       const task = !segment.completed && !segment.text.trim()
         ? sink.retract?.([segment.segmentId])
@@ -407,6 +437,32 @@ function createMixedBotPipeline(
   };
 }
 
+/** The streaming engine for a realtime STT model (`gpt-live-transcribe`): one session per turn,
+ *  words as they are heard, rows cut at the speaker's pauses. Undefined for a batch model — the
+ *  Teams lane then runs the shared GMeet window over `createTranscribe` as before. */
+export function createStreamingEngine(inv: Invocation, onError?: (e: unknown) => void): TranscriptEngine | undefined {
+  if (inv.transcribeEnabled === false || !inv.transcriptionServiceUrl) return undefined;
+  if (!isStreamingSttModel(inv.transcriptionModel)) return undefined;
+  const url = realtimeUrlFor(inv.transcriptionServiceUrl);
+  const language = inv.language ?? undefined;
+  console.log(`[bot] stt: streaming engine (${inv.transcriptionModel}) over ${url}`);
+  return new StreamingTurnEngine({
+    language,
+    onError,
+    logger: (message) => console.log(message),
+    createTranscriber: (_sourceKey, handlers) => new RealtimeTranscriber({
+      url,
+      apiToken: inv.transcriptionServiceToken,
+      model: inv.transcriptionModel!,
+      languages: language ? [language] : undefined,
+      // A meeting bot hears a re-encoded conference feed, never a headset: the far-field profile.
+      noiseReduction: 'far_field',
+      onDelta: handlers.onDelta,
+      onError: handlers.onError,
+    }),
+  });
+}
+
 /** Build the real STT transcribe closure from invocation.v1 — language baked into the call so
  *  the lane never knows about config. transcribeEnabled=false ⇒ a no-op transcribe (the engine
  *  still runs turn gating but emits empty text; recording-only meetings need no STT). */
@@ -434,6 +490,8 @@ export function createBotPipeline(
   opts: {
     transcribe?: Transcribe;
     config?: SpeakerStreamManagerConfig;
+    /** Transcript engine override (tests). Production derives it from the invocation's STT model. */
+    engine?: TranscriptEngine;
     onError?: (e: unknown) => void;
     /** Mixed-lane transcriber seam — the real ChunkedTranscriber unless a test injects
      *  an observer (pins what actually reaches the transcriber: name, kind, tMs). */
@@ -450,6 +508,7 @@ export function createBotPipeline(
   if (inv.platform === 'teams') {
     return createTeamsBotPipeline(
       transcribe, sink, opts.onError, opts.createTeamsTranscriber, opts.onObservation, inv.botName,
+      opts.config, opts.engine ?? createStreamingEngine(inv, opts.onError),
     );
   }
   if (isMixedLanePlatform(inv.platform)) {

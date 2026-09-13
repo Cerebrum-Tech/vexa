@@ -118,8 +118,8 @@ edges:
   meeting-api -req-> service-authority  # optional signed service-authority.v1 admit/continue decision; unset is explicit OSS allow-all, configured failure is closed
   meeting-api -req-> system-webhook  # optional signed terminal webhook.v1 delivery to a boot-frozen operator destination; customer webhook SSRF policy remains separate
   agent-api -read-> segments-stream  # XREADGROUP agent_copilot (proactive watcher)
-  agent-api -req-> runtime  # POST /workloads spawn agent-worker
-  agent-api -read-> out-stream  # SSE relay (/api/chat, /api/meeting/stream)
+  agent-api -req-> runtime  # POST /workloads spawn agent-worker for model turns or owner-submitted deterministic report edits
+  agent-api -read-> out-stream  # SSE relay (/api/chat, /api/meeting/stream); await committed report-edit result before responding to PATCH /api/meeting/{id}/summary
   agent-worker -read-> tc-stream  # copilot tails transcript
   agent-worker -write-> out-stream  # XADD cards/notes/deltas
   agent-worker -write-> proc-stream  # XADD cleaned 1:1 notes

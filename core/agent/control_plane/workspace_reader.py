@@ -6,6 +6,8 @@ internals and guards against path traversal (a read path can never escape the su
 from __future__ import annotations
 
 import json
+import re
+import subprocess
 from pathlib import Path
 from typing import Optional
 
@@ -114,7 +116,20 @@ class WorkspaceReader:
         f = (ws / path).resolve()
         if ws not in f.parents:  # the resolved path must stay inside the workspace
             raise ValueError("invalid path")
-        return f.read_text() if f.exists() and f.is_file() else None
+        if not f.exists() or not f.is_file():
+            return None
+        content = f.read_text()
+        relative = f.relative_to(ws).as_posix()
+        frontmatter = re.match(r"^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)", content)
+        if relative.startswith("kg/entities/meeting/") and frontmatter and re.search(
+            r"^report_status\s*:", frontmatter.group(1), re.MULTILINE
+        ):
+            from shared.gitenv import scrubbed_git_env
+            committed = subprocess.run(["git", "-C", str(ws), "show", f"HEAD:{relative}"],
+                                       capture_output=True, env=scrubbed_git_env())
+            if committed.returncode or committed.stdout != content.encode():
+                return None
+        return content
 
     def _session_id(self, ws: Path, session: str) -> Optional[str]:
         """The claude sessionId for a thread, read from its continuity pointer
@@ -135,7 +150,7 @@ class WorkspaceReader:
     def _continuity_roots(self, subject: str, extra_roots: "list[str | Path] | None" = None) -> list[Path]:
         """Every workspace dir a thread's continuity (pointer + transcript) may live in, in preference
         order: the PRIVATE SYSTEM tier (``<root>/.system/<subject>`` — where the worker anchors chats
-        now), the subject's own workspace (the legacy location), then any caller-supplied mount dirs —
+        now), the subject's own workspace (the legacy location), then caller-authorized mount dirs supplied by the API —
         the turn's cwd FOLLOWS the active set under the flat model, so chats recorded before the
         _system anchoring landed sit under whichever workspace was mounted first (e.g. a shared one).
         Non-existent and out-of-root candidates are silently dropped."""
@@ -174,20 +189,6 @@ class WorkspaceReader:
             sid = self._session_id(ws, session)
             if sid:
                 break
-        if not sid:
-            # LAST RESORT — threads recorded BEFORE continuity anchoring sit under whatever workspace
-            # was the turn's cwd at the time, which may no longer be mounted (deactivated / membership
-            # gone). Two fixed-depth globs over the store root find the pointer; read-only + bounded.
-            for pat in (f"*/.claude/sessions/{session}.session",
-                        f".attached/*/*/.claude/sessions/{session}.session"):
-                for f in self._root.glob(pat):
-                    ws = f.parents[2]
-                    sid = self._session_id(ws, session)
-                    if sid:
-                        roots.append(ws)
-                        break
-                if sid:
-                    break
         if not sid:
             return []
         # The cwd-slug dir is claude's encoding of the workspace path; there is normally one, but match by

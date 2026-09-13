@@ -31,7 +31,7 @@ export interface TeamsChat {
 }
 
 // Candidate selectors, most-specific first. Teams has used several over builds.
-export const CONTAINER_SELECTORS = [
+const CONTAINER_SELECTORS = [
   '[data-tid="chat-pane-list"]',
   '[data-tid="message-pane-list-runway"]',
   '[data-tid="chatPaneMessageList"]',

@@ -99,6 +99,36 @@ class SqlAlchemyUploadStore:
             return self._project(m)
 
 
+#: Same bar as the bot's `isLowConfidenceSegment` (whisper/src/confidence.ts): avg_logprob < −1.3 is junk.
+LOW_CONFIDENCE_LOGPROB = -1.3
+
+
+def stt_response_format(model: str) -> str:
+    """The response shape a model family can produce — the ONE rule shared with the bot's client
+    (``whisper/src/transcription-client.ts``): Whisper answers ``verbose_json`` (timed segments);
+    OpenAI's ``gpt-4o-transcribe`` family refuses it and answers ``json`` (text only), except the
+    ``-diarize`` member, which returns timed segments again under ``diarized_json``."""
+    m = (model or "").lower()
+    if "diariz" in m:
+        return "diarized_json"
+    if "transcribe" in m and "whisper" not in m:
+        return "json"
+    return "verbose_json"
+
+
+def wav_seconds(wav: bytes) -> float:
+    """Duration of a 16-bit mono RIFF window from its own header; 0.0 when it is not one."""
+    try:
+        if wav[:4] != b"RIFF" or wav[8:12] != b"WAVE":
+            return 0.0
+        rate = int.from_bytes(wav[24:28], "little")
+        block = int.from_bytes(wav[32:34], "little") or 2
+        data = len(wav) - 44
+        return max(0.0, data / (rate * block)) if rate else 0.0
+    except Exception:  # noqa: BLE001 — a malformed header is "unknown duration", never a crash
+        return 0.0
+
+
 class WhisperTranscriber:
     """``Transcriber`` over the deployment's OpenAI-compatible STT service.
 
@@ -140,11 +170,15 @@ class WhisperTranscriber:
         import httpx
 
         files = {"file": ("window.wav", wav, "audio/wav")}
+        response_format = stt_response_format(self._model)
         data = {
-            "model": self._model, "response_format": "verbose_json",
-            "timestamp_granularities": "segment", "transcription_tier": "deferred",
-            "temperature": "0",
+            "model": self._model, "response_format": response_format,
+            "transcription_tier": "deferred", "temperature": "0",
         }
+        if response_format == "verbose_json":
+            data["timestamp_granularities"] = "segment"   # Whisper-only; the gpt-4o family rejects it
+        elif response_format == "json":
+            data["include[]"] = "logprobs"                 # the family's only confidence signal
         if language:
             data["language"] = language
         if prompt:
@@ -165,7 +199,26 @@ class WhisperTranscriber:
             else:
                 if resp.status_code == 200:
                     body = resp.json()
-                    return body.get("segments") or []
+                    segments = body.get("segments") or []
+                    if segments:
+                        return segments
+                    # A text-only reply (gpt-4o-transcribe): the window itself is the one segment,
+                    # so `to_segments` can place it on the recording's timeline.
+                    text = (body.get("text") or "").strip()
+                    span = wav_seconds(wav)
+                    if not text or span <= 0:
+                        return []
+                    # Mean token log-probability stands in for Whisper's avg_logprob; the bot's gate
+                    # (whisper/src/confidence.ts) drops a segment below −1.3, and so does this one.
+                    lps = [float(t.get("logprob")) for t in (body.get("logprobs") or [])
+                           if isinstance(t, dict) and isinstance(t.get("logprob"), (int, float))]
+                    avg = sum(lps) / len(lps) if lps else None
+                    if avg is not None and avg < LOW_CONFIDENCE_LOGPROB:
+                        return []
+                    row = {"start": 0.0, "end": span, "text": text}
+                    if avg is not None:
+                        row["avg_logprob"] = avg
+                    return [row]
                 if resp.status_code in (429, 503):
                     # Backpressure, not failure: the service is telling us when to come back.
                     wait = self._retry_after(resp, backoff)

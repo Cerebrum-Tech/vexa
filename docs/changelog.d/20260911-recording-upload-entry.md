@@ -1,0 +1,1 @@
+- **Recording uploads in the meeting library.** “Kayıt yükle” is available beside scheduling on the main meetings page, including empty libraries and mobile screens. Uploads show transfer and transcription progress, with “Transkripti aç” opening the exact uploaded meeting's transcript. The completion message distinguishes a ready transcript from the summary that follows.

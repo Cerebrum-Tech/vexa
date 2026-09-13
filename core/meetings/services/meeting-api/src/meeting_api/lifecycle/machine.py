@@ -227,6 +227,7 @@ class MeetingRecord:
     """
 
     connection_id: str
+    platform_title: Optional[str] = None
     status: Optional[BotStatus] = None
     container_id: Optional[str] = None
     completion_reason: Optional[CompletionReason] = None
@@ -262,6 +263,8 @@ class MeetingRecord:
         recordings/transcript reader sees the same attribution shape it does in prod.
         """
         d: Dict[str, Any] = {"status_transition": list(self.status_transition)}
+        if self.platform_title is not None:
+            d["platform_title"] = self.platform_title
         if self.completion_reason is not None:
             d["completion_reason"] = self.completion_reason.value
         if self.failure_stage is not None:
@@ -472,6 +475,13 @@ class LifecycleSink:
 
         frm = rec.status
 
+        if to is BotStatus.ACTIVE:
+            title = event.get("meeting_title")
+            if isinstance(title, str):
+                title = " ".join(title.split())
+                if 0 < len(title) <= 500:
+                    rec.platform_title = title
+
         if event.get("container_id"):
             rec.container_id = event["container_id"]
         if event.get("reason") is not None:
@@ -540,3 +550,12 @@ class LifecycleSink:
             reason=rec.reason,
             transition_source=transition_source,
         )
+
+
+def merge_lifecycle_data(existing: Dict[str, Any], incoming: Dict[str, Any]) -> Dict[str, Any]:
+    """Merge lifecycle facts under the row lock, preserving the user's display title."""
+    merged = {**existing, **incoming}
+    title = incoming.get("platform_title")
+    if isinstance(title, str) and title.strip() and not existing.get("title"):
+        merged["title"] = title
+    return merged

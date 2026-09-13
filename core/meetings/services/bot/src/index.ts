@@ -35,7 +35,7 @@ import { createBotRecordingSink } from './recording.js';
 import { createCaptureSignalRecorder, startBotLogSidecar, wrapTranscribeWithTap, wrapTranscriptWithSnapshot, type CaptureSignalRecorder } from './telemetry.js';
 import { uploadSignalTapes } from './signal-upload.js';
 import { createSttFaultReporter } from './stt-faults.js';
-import { launchBrowser, startCaptureBridge, startRecording, createSpeakController, createChatController, type BrowserSession, type ChatController, type SpeakController } from './capture-bridge.js';
+import { launchBrowser, startCaptureBridge, startRecording, createSpeakController, type BrowserSession, type SpeakController } from './capture-bridge.js';
 import { createRemoteAudioActivityTap, createSilenceAlonenessSource, resolveAloneSilenceWindowMs } from './aloneness.js';
 import { installSignalHandlers } from './signals.js';
 import type {
@@ -116,18 +116,12 @@ function teeActs(source: ActsSource, voice: (act: Act) => void | Promise<void>):
   };
 }
 
-/** The bot's act handler: route acts.v1 speak / speak_stop to the SpeakController and chat_send to
- *  the ChatController. `chat_send` was declared in acts.v1 and parsed by contracts.ts from the
- *  start, but nothing here handled it — so every chat act was accepted and silently dropped.
- *  (screen/avatar remain out of scope, and are still dropped.) */
-function voiceHandler(speak: SpeakController, chat?: ChatController): (act: Act) => Promise<void> {
+/** The bot's voice-act handler: route acts.v1 speak / speak_stop to the SpeakController. The
+ *  other voice acts (chat/screen/avatar) are out of this increment's scope. */
+function voiceHandler(speak: SpeakController): (act: Act) => Promise<void> {
   return async (act) => {
     if (act.action === 'speak') await speak.speak(act.text, act.voice);
     else if (act.action === 'speak_stop') await speak.stop();
-    else if (act.action === 'chat_send') {
-      if (!chat) { console.error('[bot] chat_send ignored: no chat controller (browser unavailable)'); return; }
-      await chat.send(act.text);
-    }
   };
 }
 
@@ -186,6 +180,7 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<number
     client: transcriptClient,
     meetingId,
     nativeMeetingId: inv.nativeMeetingId,
+    platform: inv.platform,
     // Teams is the current blast radius. Its CSRC lanes need the same complete per-speaker pending
     // snapshot the Dashboard already consumes for GMeet-style live rendering. Leave every sibling
     // platform on the existing wire until this is proven on STAGE and deliberately imported back.
@@ -201,9 +196,6 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<number
   let pipeline: Pipeline;
   let botPipeline: BotPipeline | null = null;
   let acts: ActsSource = liveActs;
-  // Absent when the browser never came up — the greeting and chat_send both degrade to a logged
-  // refusal rather than a crash, because neither is worth a meeting.
-  let chat: ChatController | undefined;
   const recording = inv.recordingEnabled ? createBotRecordingSink({ inv, log: (m) => console.log(`[bot] ${m}`) }) : undefined;
   // O-TEL-1: persist the raw captured-signal.v1 stream for offline replay. Off ⇒ the tap is a
   // single undefined-check and the capture path is byte-for-byte unchanged. VEXA_CAPTURE_SIGNAL=1
@@ -292,8 +284,7 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<number
     });
     // Voice: tee acts so `speak`/`speak_stop` reach the SpeakController (gated on voiceAgentEnabled).
     const speak = createSpeakController(session.page, inv);
-    chat = createChatController(session.page, inv);
-    acts = teeActs(liveActs, voiceHandler(speak, chat));
+    acts = teeActs(liveActs, voiceHandler(speak));
   } catch (e) {
     console.error(`[bot] browser launch/capture wiring failed — falling back to clean terminal failed: ${String(e)}`);
     join = noBrowserJoinDriver(String(e));
@@ -317,14 +308,6 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<number
     recording: recording as RecordingSink | undefined,
     reachability,
     degraded: () => sttFaults.report(),
-    // The join greeting (invocation.v1 `greeting`, from the deployment's VEXA_BOT_GREETING).
-    // Absent config ⇒ no hook at all, so a bot nobody asked to speak stays silent.
-    onAdmitted: inv.greeting && chat
-      ? async () => {
-          const ok = await chat!.send(inv.greeting as string);
-          if (!ok) console.error('[bot] greeting was not posted — see the chat_send result above');
-        }
-      : undefined,
   });
 
   // Disposability (P7): a termination signal ends the active phase gracefully (leave → flush →

@@ -36,6 +36,22 @@ export interface TeamsWordContest {
   medianWordDeltaMs: number;
 }
 
+/** Which of two contested rows is the bleed copy, and why. */
+export interface TeamsContestResolution {
+  loserSegmentId: string;
+  keeperSegmentId: string;
+  reason: 'fragment' | 'unnamed' | 'routing';
+}
+
+export interface TeamsContestResolveOptions {
+  /** Share of a row's tokens the contested phrase must cover for the row to count as a fragment. Default 0.6. */
+  minFragmentCoverage?: number;
+  /** Routed-audio lead one lane needs over the other, inside the contested window, to win a near-identical pair. Default 250 ms. */
+  minRoutedLeadMs?: number;
+  leftNamed?: boolean;
+  rightNamed?: boolean;
+}
+
 export interface TeamsContestConfig {
   minSharedRoutedMs?: number;
   minMatchedTokens?: number;
@@ -106,13 +122,27 @@ const median = (values: number[]): number => {
   return ordered.length % 2 ? ordered[middle] : (ordered[middle - 1] + ordered[middle]) / 2;
 };
 
-const flattenedWords = (segments: TranscriptionSegment[]): Array<{
+/** A segment's words with times. A backend that returns no word times (OpenAI's gpt-4o-transcribe
+ *  family) still gives the segment's own span, so its tokens are spread evenly across it: coarse,
+ *  but the contest test only asks whether two lanes heard the same words at roughly the same time
+ *  (median delta ≤ 1.5 s), and both lanes were fed the same window. */
+export const flattenedWords = (segments: TranscriptionSegment[]): Array<{
   normalized: string;
   start: number;
   end: number;
-}> => segments.flatMap((segment) => (segment.words ?? [])
-  .map((word) => ({ normalized: normalize(word.word), start: Number(word.start), end: Number(word.end) }))
-  .filter((word) => word.normalized && Number.isFinite(word.start) && Number.isFinite(word.end)));
+}> => segments.flatMap((segment) => {
+  if (segment.words?.length) {
+    return segment.words
+      .map((word) => ({ normalized: normalize(word.word), start: Number(word.start), end: Number(word.end) }))
+      .filter((word) => word.normalized && Number.isFinite(word.start) && Number.isFinite(word.end));
+  }
+  const tokens = tokenizeTeamsContestText(segment.text ?? '');
+  const start = Number(segment.start);
+  const end = Number(segment.end);
+  if (!tokens.length || !Number.isFinite(start) || !Number.isFinite(end) || end <= start) return [];
+  const step = (end - start) / tokens.length;
+  return tokens.map((token, index) => ({ normalized: token.normalized, start: start + index * step, end: start + (index + 1) * step }));
+});
 
 function consensusWordTrace(row: TeamsContestRow, submissions: TeamsContestSubmission[]): WordTrace | null {
   const rowTokens = tokenizeTeamsContestText(row.text);
@@ -277,4 +307,55 @@ export function markTeamsWordContests(row: TeamsContestRow, contests: TeamsWordC
     lastStart = range.start;
   }
   return text;
+}
+
+function routedMsFor(spans: TeamsRoutedSpan[], csrc: number, floor: number, ceiling: number): number {
+  let total = 0;
+  for (const interval of mergedIntervals(spans, csrc)) {
+    total += Math.max(0, Math.min(interval.end, ceiling) - Math.max(interval.start, floor));
+  }
+  return total;
+}
+
+/** Decide the bleed copy of a detected contest.
+ *
+ *  Both lanes were handed the same mixed frame, so both transcribed the phrase; only one owner spoke
+ *  it. Three kinds of evidence separate them, in order of strength:
+ *  1. A row that is (almost) nothing but the contested phrase is the bleed — the speaker's own lane
+ *     carries the phrase inside a longer, fluent utterance. (`fragment`)
+ *  2. Between two near-identical rows, a lane the track namer could not attribute is the bleed: an
+ *     unnamed lane is by construction a participant whose voice indicator never lit for it. (`unnamed`)
+ *  3. Otherwise the lane that was routed audio for less of the contested window loses. (`routing`)
+ *  A pair that none of these separates stays verbatim on both sides — abstaining costs one duplicate
+ *  line; guessing costs a real sentence under the wrong name. */
+export function resolveTeamsWordContest(
+  left: TeamsContestRow,
+  right: TeamsContestRow,
+  contest: TeamsWordContest,
+  spans: TeamsRoutedSpan[],
+  options: TeamsContestResolveOptions = {},
+): TeamsContestResolution | null {
+  const minCoverage = options.minFragmentCoverage ?? 0.6;
+  const minLeadMs = options.minRoutedLeadMs ?? 250;
+  const leftTokens = tokenizeTeamsContestText(left.text).length;
+  const rightTokens = tokenizeTeamsContestText(right.text).length;
+  if (!leftTokens || !rightTokens || !contest.tokenLength) return null;
+  const leftFragment = contest.tokenLength / leftTokens >= minCoverage;
+  const rightFragment = contest.tokenLength / rightTokens >= minCoverage;
+  const decide = (loser: TeamsContestRow, keeper: TeamsContestRow, reason: TeamsContestResolution['reason']) =>
+    ({ loserSegmentId: loser.segmentId, keeperSegmentId: keeper.segmentId, reason });
+
+  if (leftFragment !== rightFragment) return leftFragment ? decide(left, right, 'fragment') : decide(right, left, 'fragment');
+  if (!leftFragment) return null; // both rows carry substantial own speech around the phrase — partial overlap, abstain
+
+  const leftNamed = options.leftNamed ?? true;
+  const rightNamed = options.rightNamed ?? true;
+  if (leftNamed !== rightNamed) return leftNamed ? decide(right, left, 'unnamed') : decide(left, right, 'unnamed');
+
+  const floor = Math.max(left.startMs, right.startMs);
+  const ceiling = Math.min(left.endMs, right.endMs);
+  const leftRouted = routedMsFor(spans, left.csrc, floor, ceiling);
+  const rightRouted = routedMsFor(spans, right.csrc, floor, ceiling);
+  if (Math.abs(leftRouted - rightRouted) < minLeadMs) return null;
+  return leftRouted < rightRouted ? decide(left, right, 'routing') : decide(right, left, 'routing');
 }

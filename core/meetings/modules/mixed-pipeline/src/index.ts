@@ -49,6 +49,9 @@ export type {
   TeamsCsrcVirtualFrame,
 } from './teams-csrc-channelizer.js';
 export { spanFitsCsrcOwnership, TeamsCsrcGmeetPipeline } from './teams-csrc-gmeet-pipeline.js';
+export { StreamingTurnEngine } from './streaming-turn-engine.js';
+export type { StreamingTranscriber, StreamingTranscriberHandlers, StreamingTurnEngineOptions } from './streaming-turn-engine.js';
+export type { TranscriptEngine, EngineConfirmed, EnginePending } from './transcript-engine.js';
 export { detectTeamsWordContest, markTeamsWordContests } from './teams-contested-word-marker.js';
 export type {
   TeamsContestConfig,

@@ -160,6 +160,26 @@ def live_beats_enabled(config_enabled: bool) -> bool:
     return config_enabled and raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def current_processing_enabled(config_enabled: bool, read_preference: Callable[[], str | None]) -> bool:
+    """Read the canonical run's current preference before each LLM beat; workspace policy still gates it.
+
+    NO stored preference means OFF. The raw transcript is what the meeting actually contained, and
+    the corrected view is a model's rewrite of it — so the rewrite is something a reader asks for,
+    never something that happens to them. This is the same default the terminal renders
+    (``defaultProcessingView``), and the two have to agree: a UI that says "Ham" over a backend
+    quietly running correction beats is spending inference nobody asked for on text nobody reads.
+    The post-meeting report is NOT gated here (see the doc turn in ``serve_meeting``) — every
+    meeting still gets one."""
+    if not config_enabled:
+        return False
+    try:
+        preference = read_preference()
+    except Exception:  # an unreadable opt-out cannot authorize inference
+        log.warning("meeting processing preference could not be read", exc_info=True)
+        return False
+    return preference is not None and str(preference).strip().lower() in {"1", "true", "yes", "on"}
+
+
 # ── the turn's output language ───────────────────────────────────────────────────────────────────
 
 DEFAULT_TURN_LANGUAGE = "en"
@@ -384,7 +404,7 @@ def _extra_mount_paths(work: Path) -> list[Path]:
 def run_turn_over_workspace(
     work: Path, prompt: str, *, model: str | None = None, allowed_tools: list[str] | None = None,
     commit: bool = True, session_continuity: bool = True, session: str = DEFAULT_CHAT_SESSION,
-    language: str | None = None,
+    language: str | None = None, before_commit: Callable[[], None] | None = None,
 ) -> Iterator[dict]:
     """One governed agent turn over the mounted workspace SET: resume from the session file, DECLARE the
     active mounts to the model, drive ``run_harness_turn`` (which commits EACH changed mount, authored by
@@ -419,13 +439,13 @@ def run_turn_over_workspace(
     lang = language if language is not None else turn_language(work)
     turn_prompt = kg_links_preamble(lang) + mounts_preamble(mounts, lang) + prompt
     gen = run_harness_turn(work, turn_prompt, harness, allowed_tools=allowed, session=resume, model=model,
-                           commit=commit, author=author, extra_mounts=extras)
+                           commit=commit, author=author, extra_mounts=extras, before_commit=before_commit)
     first = next(gen, None)
     if resume and first is not None and first.get("type") == "done" and not first.get("ok", True):
         if sess_file.exists():
             sess_file.unlink()
         gen = run_harness_turn(work, turn_prompt, harness, allowed_tools=allowed, session=None, model=model,
-                               commit=commit, author=author, extra_mounts=extras)
+                               commit=commit, author=author, extra_mounts=extras, before_commit=before_commit)
         first = next(gen, None)
     captured: str | None = None
     for ev in (gen if first is None else itertools.chain([first], gen)):
@@ -520,14 +540,22 @@ def main() -> None:  # pragma: no cover — the container entrypoint (wired in t
 
     work = Path(os.environ.get("VEXA_WORKSPACE_PATH", "/workspace"))
     model = os.environ.get("VEXA_AGENT_MODEL") or None
+    client = redis.from_url(os.environ["REDIS_URL"], decode_responses=True)
+    out_topic = os.environ["VEXA_UNIT_OUT_TOPIC"]
+    if os.environ.get("VEXA_RUNNER") == "report-edit":
+        from worker.report_edit import run_report_edit
+        run_report_edit(
+            client, start=json.loads(os.environ["VEXA_START"]), out_topic=out_topic,
+            mounts=active_mounts(), grants=json.loads(os.environ.get("VEXA_WORKSPACES", "[]")),
+            author=_principal_author(),
+        )
+        return
     # Boot preflight (WS1b): if a credential prefix and its base-url host obviously disagree, log a
     # loud warning NOW — before the first call — so a misconfigured provider pair is visible at
     # container start, not only as a runtime 401. Judges the completion pair, then the harness pair.
     _warn = preflight_provider_guard()
     if _warn:
         log.warning("agent-api worker: %s", _warn)
-    client = redis.from_url(os.environ["REDIS_URL"], decode_responses=True)
-    out_topic = os.environ["VEXA_UNIT_OUT_TOPIC"]
     idle_ms = int(os.environ.get("VEXA_IDLE_TIMEOUT_SEC", "120")) * 1000
 
     transcript_stream = os.environ.get("VEXA_TRANSCRIPT_STREAM")
@@ -548,7 +576,7 @@ def main() -> None:  # pragma: no cover — the container entrypoint (wired in t
         platform = os.environ.get("VEXA_MEETING_PLATFORM") or "google_meet"
         import datetime as _dt
         date = _dt.date.today().isoformat()
-        title = f"Meeting {native}"
+        title = os.environ.get("VEXA_MEETING_TITLE") or f"Meeting {native}"
         # Auth-B/#3a: mirror each cleaned proc note into the per-meeting workspace file, incrementally,
         # so a chat agent focused on the meeting can `Read kg/entities/meeting/<native>.md` mid-meeting.
         meeting_file = work / "kg" / "entities" / "meeting" / f"{native}.md"
@@ -571,9 +599,10 @@ def main() -> None:  # pragma: no cover — the container entrypoint (wired in t
         doc_turn = None
         if cfg.write_meeting_doc:
             doc_turn = lambda cards, notes=None: meeting_doc_turn(  # noqa: E731
-                work, cards, native=native, meeting_id=native, session_uid=session_uid,
+                work, cards, native=native, meeting_id=row_id, session_uid=session_uid,
                 platform=platform, date=date, title=title, model=cfg.model,
                 report_language=cfg.report_language, notes=notes,
+                workspace=next((m.get("slug") for m in active_mounts() if Path(m["path"]).resolve() == work.resolve()), None),
             )
         serve_meeting(
             client, transcript_stream=transcript_stream, out_topic=out_topic,
@@ -585,7 +614,8 @@ def main() -> None:  # pragma: no cover — the container entrypoint (wired in t
             # Two INDEPENDENT gates: the doc turn above (write_meeting_doc) authors the report for
             # every meeting, while `enabled` gates only the live card beats — the per-meeting LLM
             # spend, composed from the dispatch's desired state and the workspace's standing knob.
-            doc_turn=doc_turn, enabled=live_beats_enabled(cfg.enabled),
+            doc_turn=doc_turn,
+            enabled=lambda: current_processing_enabled(cfg.enabled, lambda: client.get(f"proc:meeting:{row_id}:on")),
             start_id=os.environ.get("VEXA_TRANSCRIPT_START_ID", "0"),
             # P0 (cross-tenant leak fix): BOTH the processed-notes stream AND its cursor key on the
             # meetings-domain ROW id (VEXA_MEETING_NUMERIC_ID) — unique per meeting run, so neither a

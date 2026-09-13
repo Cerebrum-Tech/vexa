@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from ..lifecycle.machine import dominant_completion_reason
+from ..lifecycle.machine import dominant_completion_reason, merge_lifecycle_data
 from .ports import (
     DuplicateMeeting,
     MaxBotsExceeded,
@@ -108,7 +108,7 @@ class InMemoryMeetingRepo:
 
     async def create_meeting_guarded(
         self, *, user_id, platform, native_meeting_id, data, max_concurrent=None,
-        exclude_meeting_id=None,
+        exclude_meeting_id=None, meeting_id=None,
     ) -> dict:
         """ATOMIC dedup + cap + insert (ROB1/ROB2). The check and the insert run with NO ``await``
         between them, so even ``SlowRepo`` (which adds ``await asyncio.sleep(0)`` inside the SEPARATE
@@ -149,7 +149,10 @@ class InMemoryMeetingRepo:
             and m["platform"] == platform
             and m["native_meeting_id"] == native_meeting_id
             and m["status"] in ("idle", "scheduled")
+            and (meeting_id is None or m["id"] == meeting_id)
         ]
+        if meeting_id is not None and not planned_rows:
+            raise DuplicateMeeting("Selected meeting is not available to join")
         if planned_rows:
             row = max(planned_rows, key=lambda m: m["id"])  # newest, like the real adapter
             row["status"] = "requested"
@@ -322,8 +325,7 @@ class InMemoryMeetingRepo:
             row["data"]["completion_reason"] = completion_reason
         if failure_stage is not None:
             row["data"]["failure_stage"] = failure_stage
-        for k, v in (data or {}).items():
-            row["data"][k] = v
+        row["data"] = merge_lifecycle_data(row["data"], data or {})
         return dict(row)
 
     async def count_active_bots(self, *, user_id, exclude_meeting_id=None) -> int:

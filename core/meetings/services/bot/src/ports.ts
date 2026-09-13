@@ -27,6 +27,7 @@ export type JoinOutcome = 'admitted' | 'rejected' | 'timeout' | 'blocked' | 'aut
  *  a bare outcome to pass the real cause all the way to the lifecycle row. */
 export interface JoinResult {
   outcome: JoinOutcome;
+  meetingTitle?: string;
   /** The human cause text (e.g. the AdmissionError message). Rides onto lifecycle.v1 `reason`. */
   reason?: string;
 }

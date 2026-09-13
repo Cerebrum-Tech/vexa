@@ -2,6 +2,7 @@ import type { TranscriptionSegment } from '@vexa/transcribe-whisper';
 import {
   detectTeamsWordContest,
   markTeamsWordContests,
+  resolveTeamsWordContest,
   type TeamsContestRow,
   type TeamsContestSubmission,
   type TeamsRoutedSpan,
@@ -72,5 +73,64 @@ const distantSubmissions = submissions.concat({ sourceKey: right.sourceKey, segm
 check('same text far apart in Whisper word time is not a contest',
   detectTeamsWordContest(left, distantRight, distantSubmissions, spans) === null);
 
+// ── no word times (gpt-4o-transcribe): the segment span still carries the contest ──
+{
+  const timeless = (text: string, start: number, end: number): TranscriptionSegment[] => [{ text, start, end } as TranscriptionSegment];
+  const contestNoWords = detectTeamsWordContest(left, right, [
+    { sourceKey: left.sourceKey, segments: timeless(left.text, 0, 2.4) },
+    { sourceKey: right.sourceKey, segments: timeless(right.text, 0, 2.4) },
+  ], spans);
+  check('a backend without word times still yields the contest from evenly spread segment tokens',
+    contestNoWords?.contestedText === 'amazing amazing like really good', JSON.stringify(contestNoWords));
+}
+
+// ── settling a contest: which row is the bleed copy ────────────────────────────────────────────
+if (contest) {
+  check('near-identical rows with equal routing and both named stay unresolved (abstain)',
+    resolveTeamsWordContest(left, right, contest, spans) === null);
+  check('between near-identical rows the lane the namer could not attribute loses',
+    resolveTeamsWordContest(left, right, contest, spans, { leftNamed: true, rightNamed: false })?.loserSegmentId === 'right'
+      && resolveTeamsWordContest(left, right, contest, spans, { leftNamed: false, rightNamed: true })?.reason === 'unnamed');
+  check('between near-identical named rows the lane routed audio for less of the window loses',
+    resolveTeamsWordContest(left, right, contest, [spans[0], { csrc: 840, startMs: 1400, endMs: 2400 }])?.loserSegmentId === 'right'
+      && resolveTeamsWordContest(left, right, contest, [spans[0], { csrc: 840, startMs: 1400, endMs: 2400 }])?.reason === 'routing');
+}
+
+// The measured production shape (meeting 83): one lane carries the sentence, the other a bare fragment of it.
+const owner: TeamsContestRow = {
+  csrc: 201, sourceKey: 'csrc-201:5', segmentId: 'owner', completed: true, startMs: 1000, endMs: 6000,
+  text: 'Diye bir cümle söyledim. Bakalım burada üç tane adım var değil mi?',
+};
+const fragment: TeamsContestRow = {
+  csrc: 414, sourceKey: 'csrc-414:4', segmentId: 'fragment', completed: true, startMs: 1000, endMs: 3000,
+  text: 'diye bir cümle söyledim.',
+};
+const fragmentSubmissions: TeamsContestSubmission[] = [
+  { sourceKey: owner.sourceKey, segments: words(owner.text) },
+  { sourceKey: fragment.sourceKey, segments: words(fragment.text) },
+];
+const fragmentSpans: TeamsRoutedSpan[] = [
+  { csrc: 201, startMs: 1000, endMs: 6000 },
+  { csrc: 414, startMs: 1000, endMs: 3000 },
+];
+const fragmentContest = detectTeamsWordContest(owner, fragment, fragmentSubmissions, fragmentSpans);
+check('a bare fragment of a rival lane\'s sentence is a contest',
+  fragmentContest?.contestedText === 'Diye bir cümle söyledim', JSON.stringify(fragmentContest));
+if (fragmentContest) {
+  const resolution = resolveTeamsWordContest(owner, fragment, fragmentContest, fragmentSpans);
+  check('the fragment loses regardless of argument order or routing',
+    resolution?.loserSegmentId === 'fragment' && resolution.reason === 'fragment'
+      && resolveTeamsWordContest(fragment, owner, fragmentContest, fragmentSpans)?.loserSegmentId === 'fragment');
+}
+const partialLeft: TeamsContestRow = { ...owner, segmentId: 'pl', text: 'Aynen tamam sizden dönüş bekliyoruz onun dışında bir şey var mı' };
+const partialRight: TeamsContestRow = { ...fragment, segmentId: 'pr', text: 'bana döndü aynen tamam sizden dönüş bekliyoruz onu da yazalım şimdi' };
+const partialContest = detectTeamsWordContest(partialLeft, partialRight, [
+  { sourceKey: partialLeft.sourceKey, segments: words(partialLeft.text) },
+  { sourceKey: partialRight.sourceKey, segments: words(partialRight.text) },
+], fragmentSpans);
+check('two rows that each carry their own speech around a shared phrase are left verbatim',
+  partialContest !== null && resolveTeamsWordContest(partialLeft, partialRight, partialContest, fragmentSpans) === null,
+  JSON.stringify(partialContest));
+
 if (failed > 0) process.exit(1);
-console.log('\n✅ Teams contested-word evaluation diagnostics stay exact, symmetric, and unresolved.');
+console.log('\n✅ Teams contested-word diagnostics stay exact; a decidable bleed side is named, an undecidable pair is left alone.');

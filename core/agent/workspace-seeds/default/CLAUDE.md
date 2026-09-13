@@ -32,16 +32,16 @@ dosya adı ise ASCII slug olarak kalır (Türkçe harf içermez).
 ## Varlık düzeni (bağlayıcı)
 
 - Her varlık için **`kg/entities/<type>/<slug>.md`** yolunda tek bir markdown dosyası (ör.
-  `kg/entities/person/jane-liu.md`, `kg/entities/company/acme-corp.md`,
-  `kg/entities/meeting/2026-06-24-acme-sync.md`).
+  `kg/entities/person/<slug>.md`, `kg/entities/company/<slug>.md`,
+  `kg/entities/meeting/<tarih>-<konu>.md`).
 - Her varlık dosyası **YAML frontmatter ile başlar** ve bu üç alanı MUTLAKA içerir; aksi halde yazma
   reddedilir ve geri alınır:
 
   ```
   ---
   type: person          # varlık türü (person | company | meeting | task | …)
-  id: jane-liu          # türü içinde benzersiz, kalıcı slug
-  title: Jane Liu       # insanın okuduğu başlık
+  id: <slug>            # türü içinde benzersiz, kalıcı slug
+  title: <Ad Soyad>     # insanın okuduğu başlık
   ---
   ```
 
@@ -58,10 +58,11 @@ Varlık kaydı olmayan şeylere `[[bağlantı]]` vermeyin — önce varlığı o
 `a-z0-9` dışındaki her karakter `-` olur) ve `kg/entities/<type>/<slug>.md` dosyasını arar; frontmatter
 `title` alanına bakmaz. İndirgeme Türkçe harfleri düşürdüğü için (`Görüşme` → `g-r-me`), `[[Başlık]]`
 yalnızca başlık dosya adının slug'ına birebir indirgendiğinde çalışır — pratikte ASCII harfli kişi ve
-şirket başlıkları: `[[Jane Liu]]` → `person/jane-liu.md`, `[[Acme Corp]]` → `company/acme-corp.md`.
-Başlık dosya adına indirgenmiyorsa — tarihli toplantı slug'ları (`2026-06-12-acme-intro`) ve Türkçe harf
+şirket başlıkları: `[[Ada Lovelace]]` → `person/ada-lovelace.md`, `[[Northwind Traders]]` →
+`company/northwind-traders.md`.
+Başlık dosya adına indirgenmiyorsa — tarihli toplantı slug'ları (`2026-06-12-tanisma-gorusmesi`) ve Türkçe harf
 içeren her başlık — `[[bağlantı]]` yerine **göreli markdown bağlantısı** kullanın:
-`[Acme tanışma görüşmesi](../meeting/2026-06-12-acme-intro.md)`. Yollar da tıklanabilir gösterilir ve
+`[Tanışma görüşmesi](../meeting/2026-06-12-tanisma-gorusmesi.md)`. Yollar da tıklanabilir gösterilir ve
 dilden bağımsız çözülür. Çözülmeyen bir `[[bağlantı]]` sönük bir “bulunamadı” rozeti olarak görünür.
 
 ## `kg/` bir Open Knowledge Format paketidir (OKF v0.1)
@@ -161,4 +162,4 @@ kişi/şirket/toplantı/görev → README’ye yansıtın). Kullanıcının indi
   veya bulduğunuzu kaydedin.
 - git komutlarını siz **çalıştırmazsınız** — commit ve geçmiş sizin turunuzun dışında oluşur. Siz sadece
   dosyaları yazın.
-- Yanıtınızda ne yazdığınızı kısaca doğrulayın (ör. “`[[Jane Liu]]` oluşturuldu”).
+- Yanıtınızda ne yazdığınızı kısaca doğrulayın (ör. “`[[Ada Lovelace]]` oluşturuldu”).

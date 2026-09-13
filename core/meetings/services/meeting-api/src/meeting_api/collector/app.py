@@ -583,6 +583,8 @@ def build_router(
         )
         return {"kind": "plan"}
 
+    # --- PATCH /meetings/{meeting_id} → edit a PLANNED row; a title-only body also renames a row the
+    # bot FSM owns (live or completed). Owner-scoped, ROW-id addressed. ---
     @router.patch("/meetings/{meeting_id}")
     async def patch_planned_meeting(
         meeting_id: int,

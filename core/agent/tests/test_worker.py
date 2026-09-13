@@ -231,7 +231,7 @@ def test_session_end_runs_write_turn_with_deduped_cards():
         yield {"type": "card", "card": {"kind": "person", "title": "Priya", "body": "lead"}}
         yield {"type": "card", "card": {"kind": "action", "title": "Send quote", "body": "by Fri"}}
 
-    def doc_turn(cards):
+    def doc_turn(cards, notes):
         captured["cards"] = cards
         yield {"type": "done", "ok": True, "reply": "wrote kg/entities/meeting/abc.md"}
 
@@ -786,13 +786,16 @@ def test_turkish_meeting_doc_prompt_is_evidence_grounded(tmp_path):
         ))
 
     prompt = seen_prompt["prompt"]
-    assert "Read the existing file first" in prompt
+    assert "Do NOT read any other file" in prompt
     assert "## Özet" in prompt
     assert "## Alınan Kararlar" in prompt
     assert "## Aksiyon Maddeleri" in prompt
     assert "Sorumlu belirtilmedi" in prompt
     assert "do not infer" in prompt.lower()
-    assert "preserve the exact YAML frontmatter" in prompt
+    assert "identity fields in YAML frontmatter" in prompt
+    assert "meeting_id: teams-test" in prompt
+    assert "session_uid: session-1" in prompt
+    assert "entity_mentions:" in prompt
 
 
 def test_english_meeting_doc_prompt_remains_default():
@@ -1116,6 +1119,8 @@ def test_worker_main_passes_report_language_to_doc_turn(tmp_path, monkeypatch):
     engine.main()
 
     assert captured["report_language"] == "tr"
+    assert captured["meeting_id"] == "1"
+    assert captured["workspace"] == tmp_path.name
 
 
 def test_serve_meeting_cadence_segments_gates_beats():
@@ -1144,7 +1149,7 @@ def test_serve_meeting_disabled_runs_no_beats_but_still_writes_doc():
         beats.append(segs)
         return iter(())
 
-    def doc_turn(cards):
+    def doc_turn(cards, notes):
         doc_ran.append(cards)
         yield {"type": "done", "ok": True}
 
@@ -1166,7 +1171,7 @@ def test_serve_meeting_skips_doc_when_no_notes_exist():
 
     serve_meeting(
         s, transcript_stream="tc:m1", out_topic="o", card_turn=_card_turn,
-        idle_ms=10, doc_turn=lambda cards: doc_ran.append(cards) or iter(()),
+        idle_ms=10, doc_turn=lambda cards, notes: doc_ran.append(cards) or iter(()),
     )
 
     assert doc_ran == []
@@ -1315,7 +1320,7 @@ def test_beats_off_still_accumulates_notes_so_the_doc_turn_has_evidence():
     ])
     serve_meeting(
         s, transcript_stream="tc:m1", out_topic="o", card_turn=_notes_card_turn, idle_ms=10,
-        enabled=False, doc_turn=lambda cards: doc_ran.append(cards) or iter(()),
+        enabled=False, doc_turn=lambda cards, notes: doc_ran.append(cards) or iter(()),
         proc_stream="proc:meeting:m1", cursor_key="proc:meeting:m1:cursor",
         on_proc_note=mirrored.append, on_envelope=envelopes.append,
     )
@@ -1365,3 +1370,37 @@ def test_turkish_preambles_state_the_output_language_and_protect_the_identifiers
     m = mounts_preamble(mounts, "tr")
     assert "/w/_global" in m and "`_system`" in m              # mount identifiers verbatim
     assert "quote them EXACTLY as written" in m
+
+
+def test_running_meeting_observes_off_before_next_beat_and_final_flush():
+    enabled = True
+    calls = []
+    def turn(segments):
+        nonlocal enabled
+        calls.append([s["text"] for s in segments])
+        enabled = False
+        return iter(())
+    stream = StepMeetingStream([
+        _transcript("1-0", _seg("A", "first")),
+        _transcript("2-0", _seg("B", "second")),
+        ("3-0", {"payload": json.dumps({"type": "session_end"})}),
+    ])
+    serve_meeting(stream, transcript_stream="tc:meeting:123", out_topic="out", card_turn=turn,
+                  idle_ms=10, enabled=lambda: enabled, beat_segments=1)
+    assert calls == [["first"]]
+
+
+def test_current_processing_preference_defaults_off_and_honors_workspace_policy():
+    from worker.engine import current_processing_enabled
+    # No stored preference is OFF: the raw transcript is the default view, and a UI showing "Ham"
+    # over a backend running correction beats would be inference nobody asked for.
+    assert current_processing_enabled(True, lambda: None) is False
+    assert current_processing_enabled(True, lambda: "") is False
+    assert current_processing_enabled(True, lambda: "0") is False
+    assert current_processing_enabled(True, lambda: "1") is True
+    assert current_processing_enabled(True, lambda: "on") is True
+    # The workspace policy still vetoes an explicit opt-in.
+    assert current_processing_enabled(False, lambda: "1") is False
+    def unreadable():
+        raise RuntimeError("redis unavailable")
+    assert current_processing_enabled(True, unreadable) is False

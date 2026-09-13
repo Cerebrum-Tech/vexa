@@ -119,6 +119,16 @@
    ]
   },
   {
+   "key": "VEXA_BOT_TRANSCRIPTION_MODEL",
+   "class": "defaulted",
+   "default": "(unset — the bot uses TRANSCRIPTION_MODEL)",
+   "description": "STT model id for the BOT only, when it must differ from the upload path's TRANSCRIPTION_MODEL — a realtime-only model (gpt-live-transcribe) streams a live meeting but is refused by the batch endpoint uploads use",
+   "targets": [
+    "compose",
+    "lite"
+   ]
+  },
+  {
    "key": "TRANSCRIBE_ENABLED",
    "class": "defaulted",
    "default": "true",
@@ -621,15 +631,6 @@
    "default": "600",
    "description": "O-TEL-1: minimum tape age (s) before the budget janitor may evict it — the in-flight-upload guard, so a sweep firing mid-teardown can never half-delete a tape whose parts are still arriving",
    "targets": []
-  },
-  {
-   "key": "VEXA_BOT_GREETING",
-   "class": "defaulted",
-   "default": "(unset — the bot posts nothing)",
-   "description": "Message the bot posts into the meeting chat once admitted, threaded into invocation.v1 as `greeting`. Unset or blank means it says nothing, which is the default: a bot that writes into a customer's meeting has to be asked to. A deployment that wants the notice — telling participants a notetaker is present is often the point — sets the text here",
-   "targets": [
-    "compose"
-   ]
   },
   {
    "key": "VEXA_UPLOAD_MAX_MB",

@@ -685,6 +685,32 @@ async def test_request_bot_env_transcription_model_rides_invocation(monkeypatch)
     assert "transcriptionModel" not in inv
 
 
+async def test_request_bot_env_bot_only_model_overrides_the_shared_one(monkeypatch):
+    """``VEXA_BOT_TRANSCRIPTION_MODEL`` names the bot's STT model when it must differ from the
+    upload path's ``TRANSCRIPTION_MODEL`` (a realtime-only model streams a meeting but the batch
+    endpoint refuses it). Unset → the shared id, as before."""
+    monkeypatch.setenv("TRANSCRIPTION_SERVICE_URL", "https://stt-env.vexa.ai")
+    monkeypatch.setenv("TRANSCRIPTION_SERVICE_TOKEN", "tok-env")
+    monkeypatch.delenv("ADMIN_API_URL", raising=False)
+    monkeypatch.setenv("TRANSCRIPTION_MODEL", "gpt-transcribe")
+
+    monkeypatch.setenv("VEXA_BOT_TRANSCRIPTION_MODEL", "gpt-live-transcribe")
+    repo, runtime = InMemoryMeetingRepo(), FakeRuntimeClient()
+    await request_bot(repo, runtime, user_id=USER, platform="teams",
+                      native_meeting_id="19:meeting_abc@thread.v2", redis_url="redis://redis:6379/0",
+                      token_secret=SECRET)
+    inv = json.loads(runtime.specs[0]["env"]["BOT_CONFIG"])
+    assert inv["transcriptionModel"] == "gpt-live-transcribe"
+
+    monkeypatch.delenv("VEXA_BOT_TRANSCRIPTION_MODEL", raising=False)
+    repo, runtime = InMemoryMeetingRepo(), FakeRuntimeClient()
+    await request_bot(repo, runtime, user_id=USER, platform="teams",
+                      native_meeting_id="19:meeting_abc@thread.v2", redis_url="redis://redis:6379/0",
+                      token_secret=SECRET)
+    inv = json.loads(runtime.specs[0]["env"]["BOT_CONFIG"])
+    assert inv["transcriptionModel"] == "gpt-transcribe"
+
+
 # ── route: meeting_url passthrough is SSRF-validated at entry (jitsi/zoom, TAKE on #543) ─────────
 #
 # platform=jitsi (and zoom) carries an arbitrary caller URL straight to the bot's browser.
@@ -1020,3 +1046,46 @@ async def test_spawn_threads_capture_signal_from_bot_context(monkeypatch, ctx, e
                       token_secret=SECRET)
     inv = json.loads(runtime.specs[0]["env"]["BOT_CONFIG"])
     assert inv["captureSignalEnabled"] is expected
+
+
+@pytest.mark.parametrize("meeting_id", [0, -1, True, False, 1.5, "101", None])
+def test_post_bots_rejects_nonpositive_or_noninteger_selected_plan_id(meeting_id, monkeypatch):
+    monkeypatch.setenv("ADMIN_TOKEN", SECRET)
+    repo, runtime = InMemoryMeetingRepo(), FakeRuntimeClient()
+    response = _client(repo, runtime).post("/bots", headers=HEADERS,
+        json={"platform": "google_meet", "native_meeting_id": "abc-defg-hij", "meeting_id": meeting_id})
+    assert response.status_code == 422
+    assert "meeting_id" in response.text
+    assert repo._meetings == {} and runtime.specs == []
+
+
+def test_post_bots_rejects_selected_id_and_continue_combination(monkeypatch):
+    monkeypatch.setenv("ADMIN_TOKEN", SECRET)
+    repo, runtime = InMemoryMeetingRepo(), FakeRuntimeClient()
+    response = _client(repo, runtime).post("/bots", headers=HEADERS,
+        json={"platform": "google_meet", "native_meeting_id": "abc-defg-hij", "meeting_id": 101, "continue_meeting": True})
+    assert response.status_code == 422
+    assert repo._meetings == {} and runtime.specs == []
+
+
+def test_post_bots_threads_selected_plan_to_exact_claim(monkeypatch):
+    from test_planned_upgrade import _seed_planned
+    monkeypatch.setenv("ADMIN_TOKEN", SECRET)
+    repo, runtime = InMemoryMeetingRepo(), FakeRuntimeClient()
+    _seed_planned(repo, mid=101)
+    _seed_planned(repo, mid=102)
+    response = _client(repo, runtime).post("/bots", headers=HEADERS,
+        json={"meeting_url": "https://meet.google.com/abc-defg-hij", "meeting_id": 101})
+    assert response.status_code == 201, response.text
+    assert response.json()["id"] == 101
+    assert repo._meetings[102]["status"] == "scheduled"
+    assert len(runtime.specs) == 1
+
+
+def test_post_bots_unknown_selected_plan_is_conflict_without_new_row(monkeypatch):
+    monkeypatch.setenv("ADMIN_TOKEN", SECRET)
+    repo, runtime = InMemoryMeetingRepo(), FakeRuntimeClient()
+    response = _client(repo, runtime).post("/bots", headers=HEADERS,
+        json={"meeting_url": "https://meet.google.com/abc-defg-hij", "meeting_id": 101})
+    assert response.status_code == 409
+    assert repo._meetings == {} and runtime.specs == []

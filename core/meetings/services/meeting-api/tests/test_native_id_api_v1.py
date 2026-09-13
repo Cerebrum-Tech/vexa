@@ -72,8 +72,11 @@ def test_native_patch_unknown_native_404():
 def test_native_patch_fsm_row_409():
     client, store = _client()
     store.seed_meeting(user_id=USER, platform=PLAT, native_meeting_id=NATIVE, status="active")
-    r = client.patch(f"/meetings/{PLAT}/{NATIVE}", json={"title": "nope"}, headers=H)
+    r = client.patch(f"/meetings/{PLAT}/{NATIVE}", json={"title": "nope", "auto_join": False}, headers=H)
     assert r.status_code == 409
+    # A title-only body renames even an FSM-owned row (display-only field; same row-id logic).
+    r = client.patch(f"/meetings/{PLAT}/{NATIVE}", json={"title": "renamed"}, headers=H)
+    assert r.status_code == 200, r.text
 
 
 def test_native_patch_shared_row_not_owned_404():

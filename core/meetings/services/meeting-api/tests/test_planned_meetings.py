@@ -164,8 +164,13 @@ def test_patch_fsm_row_409():
     client, store, _redis = _client()
     mid = store.seed_meeting(user_id=USER, platform="google_meet",
                              native_meeting_id="xxx-xxxx-xxx", status="active")
-    r = client.patch(f"/meetings/{mid}", json={"title": "nope"}, headers=H)
+    # The FSM owns the row: schedule/link/workspace edits are refused …
+    r = client.patch(f"/meetings/{mid}", json={"title": "nope", "scheduled_at": AT}, headers=H)
     assert r.status_code == 409
+    # … but a title-only rename is display-only and goes through in any status.
+    r = client.patch(f"/meetings/{mid}", json={"title": "renamed"}, headers=H)
+    assert r.status_code == 200, r.text
+    assert r.json()["data"]["title"] == "renamed"
 
 
 def test_patch_owner_scoped_404():
@@ -245,3 +250,24 @@ def test_find_meeting_link_in_free_text():
     assert find_meeting_link(text) == ("google_meet", "abc-defg-hij",
                                        "https://meet.google.com/abc-defg-hij")
     assert find_meeting_link("no links here") is None
+
+
+# ---- rename after the fact -------------------------------------------------------------
+
+def test_title_only_patch_renames_a_meeting_the_fsm_owns():
+    """The title is display-only: a meeting that already ran is exactly the one people rename."""
+    client, store, _ = _client()
+    mid = client.post("/meetings", json={"title": "teams · 354453369042446", "meeting_url": URL}, headers=H).json()["id"]
+    store._meetings[mid]["status"] = "completed"
+    r = client.patch(f"/meetings/{mid}", json={"title": "Kurumsal YZ — günlük değerlendirme"}, headers=H)
+    assert r.status_code == 200, r.text
+    assert r.json()["data"]["title"] == "Kurumsal YZ — günlük değerlendirme"
+    assert store._meetings[mid]["status"] == "completed"
+
+
+def test_non_title_patch_on_an_fsm_row_is_still_a_conflict():
+    client, store, _ = _client()
+    mid = client.post("/meetings", json={"title": "x", "meeting_url": URL}, headers=H).json()["id"]
+    store._meetings[mid]["status"] = "completed"
+    assert client.patch(f"/meetings/{mid}", json={"title": "y", "scheduled_at": AT}, headers=H).status_code == 409
+    assert client.patch(f"/meetings/{mid}", json={"auto_join": False}, headers=H).status_code == 409

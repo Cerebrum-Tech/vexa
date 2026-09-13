@@ -1,0 +1,1 @@
+- **Turkish subtitle-credit filtering.** The shared transcription response boundary removes the known false `Altyazı M.K.` credit and its spelling/punctuation variants before meeting drafts and confirmed text are created. It handles credits embedded in real speech or split across provider segments while retaining the surrounding speech.

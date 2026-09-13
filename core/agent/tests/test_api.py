@@ -82,7 +82,7 @@ def _fake_owner_lookup(owned: dict):
         if nat is None:
             return None
         return {"id": int(meeting_id) if str(meeting_id).isdigit() else meeting_id,
-                "native_meeting_id": nat, "user_id": user_id}
+                "native_meeting_id": nat, "user_id": user_id, "shared": False}
     return _lookup
 
 
@@ -458,7 +458,7 @@ def test_meeting_process_off_freezes_cursor(monkeypatch):
     r = c.post("/api/meeting/process", json={"native_id": "m9", "on": False})
 
     assert r.json()["processing"] is False
-    assert "proc:meeting:m9:on" not in fake.kv          # flag cleared
+    assert fake.kv["proc:meeting:m9:on"] == "0"       # explicit OFF survives absent = ON
     assert fake.kv["proc:meeting:m9:cursor"] == "37-0"  # cursor frozen
 
 
@@ -715,9 +715,8 @@ def test_session_history_found_in_active_mount_dir(tmp_path):
     assert reader.history("28", "chat-x", extra_roots=["/etc", str(shared)]) == turns
 
 
-def test_session_history_sweeps_unmounted_strands(tmp_path):
-    """A thread recorded under a workspace that is NO LONGER mounted (deactivated shared ws) must
-    still load: the reader's last-resort sweep finds the pointer without any extra_roots."""
+def test_session_history_denies_unmounted_strands(tmp_path):
+    """A revoked or unmounted workspace is outside the caller's authorized history roots."""
     from control_plane.workspace_reader import WorkspaceReader
 
     gone = tmp_path / "some-shared-ws"          # not passed as an extra root — unmounted
@@ -727,7 +726,7 @@ def test_session_history_sweeps_unmounted_strands(tmp_path):
         {"type": "user", "message": {"role": "user", "content": "stranded"}},
     ])
     reader = WorkspaceReader(str(tmp_path))
-    assert reader.history("28", "chat-z") == [{"role": "user", "text": "stranded"}]
+    assert reader.history("28", "chat-z") == []
 
 
 def test_session_history_prefers_the_system_anchor(tmp_path):
@@ -1436,3 +1435,66 @@ def test_redis_stream_reader_yields_keepalive_ticks(monkeypatch):
     reader = RedisStreamReader("redis://test", block_ms=10, idle_giveup_ms=30)
     out = list(reader.read("u1"))
     assert out == [None, None]                  # ticks until the giveup, then a clean end
+
+
+def test_processing_preference_failure_does_not_acknowledge_a_save(monkeypatch):
+    import redis
+    class UnavailableRedis:
+        def set(self, *_a, **_k):
+            raise RuntimeError("unavailable")
+    monkeypatch.setattr(redis, "from_url", lambda *_a, **_k: UnavailableRedis())
+    client = TestClient(create_app(Dispatcher(load_settings(), _FakeRuntime(), _FakeIdentity()), redis_url="redis://test"))
+    for on in (False, True):
+        response = client.post("/api/meeting/process", json={"native_id": "m9", "on": on})
+        assert response.status_code == 503
+
+
+def test_processing_off_requires_the_same_identity_gate_as_on(monkeypatch):
+    import redis
+    class Preferences:
+        def set(self, *_a, **_k):
+            raise AssertionError("unauthenticated mutation")
+    monkeypatch.setenv("VEXA_REQUIRE_GATEWAY_IDENTITY", "1")
+    monkeypatch.setattr(redis, "from_url", lambda *_a, **_k: Preferences())
+    client = TestClient(create_app(Dispatcher(load_settings(), _FakeRuntime(), _FakeIdentity()), redis_url="redis://test"))
+    response = client.post("/api/meeting/process", json={"native_id": "m9", "on": False})
+    assert response.status_code == 401
+
+
+def test_processing_preference_is_owner_scoped_by_canonical_run(monkeypatch):
+    import redis
+    class Preferences:
+        def __init__(self): self.kv = {}
+        def set(self, key, value, **kwargs): self.kv[key] = value
+        def get(self, key): return self.kv.get(key)
+    prefs = Preferences()
+    monkeypatch.setattr(redis, "from_url", lambda *_a, **_k: prefs)
+    client = TestClient(create_app(Dispatcher(load_settings(), _FakeRuntime(), _FakeIdentity()), redis_url="redis://test",
+                                  meeting_owner_lookup=_fake_owner_lookup({("alice", "42"): "same-link"})))
+    for body in ({"meeting_id": "42", "native_id": "same-link", "on": False}, {"native_id": "42", "on": False}):
+        denied = client.post("/api/meeting/process", headers={"X-User-Id": "bob"}, json=body)
+        assert denied.status_code == 403
+        assert prefs.kv == {}
+    allowed = client.post("/api/meeting/process", headers={"X-User-Id": "alice"}, json={"meeting_id": "42", "native_id": "same-link", "on": False})
+    assert allowed.status_code == 202
+    assert prefs.kv == {"proc:meeting:42:on": "0"}
+
+
+def test_processing_preference_requires_explicit_owner_access_not_transcript_viewing(monkeypatch):
+    import redis
+    class Preferences:
+        def __init__(self): self.kv = {}
+        def set(self, key, value, **kwargs): self.kv[key] = value
+        def get(self, key): return self.kv.get(key)
+    prefs = Preferences()
+    monkeypatch.setattr(redis, "from_url", lambda *_a, **_k: prefs)
+    for access in ({"shared": True, "user_id": "bob"}, {"user_id": "bob"},
+                   {"shared": False, "user_id": "alice"}, {"shared": False}):
+        accessible = {"id": 42, "native_meeting_id": "same-link", **access}
+        client = TestClient(create_app(Dispatcher(load_settings(), _FakeRuntime(), _FakeIdentity()), redis_url="redis://test",
+                                      meeting_owner_lookup=lambda *_args: accessible))
+        for on in (False, True):
+            response = client.post("/api/meeting/process", headers={"X-User-Id": "bob"},
+                                   json={"meeting_id": "42", "native_id": "same-link", "on": on})
+            assert response.status_code == 403
+            assert prefs.kv == {}

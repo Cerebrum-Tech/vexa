@@ -355,6 +355,8 @@ def build_unit_env(settings: Settings, invocation: dict, *, unit_id: str, token:
             env["VEXA_MEETING_SESSION_UID"] = str(meeting["session_uid"])
         if meeting.get("platform"):
             env["VEXA_MEETING_PLATFORM"] = str(meeting["platform"])
+        if meeting.get("title"):
+            env["VEXA_MEETING_TITLE"] = str(meeting["title"])
         if meeting.get("transcript_start_id"):
             env["VEXA_TRANSCRIPT_START_ID"] = str(meeting["transcript_start_id"])
         if "live_beats" in meeting:
@@ -405,6 +407,14 @@ def build_unit_env(settings: Settings, invocation: dict, *, unit_id: str, token:
         value = (os.environ.get(key) or "").strip()
         if value and key not in env:
             env[key] = value
+    # The claude CLI's own reply cap. Unset, the CLI asks the backend for its code default (32k
+    # output tokens) on EVERY turn — which a bounded local model rejects outright once the prompt is
+    # large (65k window − 32k reserved < a 33k report prompt ⇒ HTTP 500, no report, no notification).
+    # VEXA_LLM_MAX_TOKENS already names the deployment's reply cap for the llm/ adapters; the CLI
+    # turn is the same request against the same model, so the same cap applies unless the operator
+    # set the CLI dial explicitly.
+    if "CLAUDE_CODE_MAX_OUTPUT_TOKENS" not in env and env.get("VEXA_LLM_MAX_TOKENS"):
+        env["CLAUDE_CODE_MAX_OUTPUT_TOKENS"] = env["VEXA_LLM_MAX_TOKENS"]
     return env
 
 
@@ -418,7 +428,7 @@ def build_unit_env(settings: Settings, invocation: dict, *, unit_id: str, token:
 # watcher reads off ``proc:meeting:{row}:on``. All are agent-api internal — the sealed MeetingRef
 # forbids them.
 _INTERNAL_MEETING_HINTS = frozenset({"transcript_start_id", "numeric_meeting_id", "native_id",
-                                     "live_beats"})
+                                     "live_beats", "title"})
 
 
 def _without_chat_session(invocation: dict) -> dict:

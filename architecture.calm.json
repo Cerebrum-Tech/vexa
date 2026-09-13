@@ -91,7 +91,7 @@
    "unique-id": "agent-api",
    "node-type": "service",
    "name": "agent-api",
-   "description": "unit control-plane; dispatch -> runtime spawn; meeting copilot",
+   "description": "unit control-plane; dispatch -> runtime spawn; meeting copilot; owner-authorized report edit dispatch",
    "metadata": [
     {
      "path": "core/agent/services/agent-api"
@@ -968,6 +968,17 @@
    ]
   },
   {
+   "unique-id": "terminal-lib",
+   "node-type": "module",
+   "name": "terminal/lib",
+   "description": "Server helpers for corporate directory authentication (terminal)",
+   "metadata": [
+    {
+     "path": "clients/terminal/src/lib"
+    }
+   ]
+  },
+  {
    "unique-id": "terminal-canvas",
    "node-type": "module",
    "name": "terminal/canvas",
@@ -1026,7 +1037,7 @@
    "unique-id": "terminal-workbench",
    "node-type": "module",
    "name": "terminal/workbench",
-   "description": "dockview workbench shell (terminal)",
+   "description": "Responsive page shell, navigation and contextual assistant (terminal)",
    "metadata": [
     {
      "path": "clients/terminal/src/workbench"
@@ -1108,7 +1119,7 @@
    "unique-id": "agent-worker",
    "node-type": "service",
    "name": "agent-worker",
-   "description": "spawned claude-in-container worker; one dispatch turn / meeting copilot",
+   "description": "spawned worker; meeting copilot and report-derived entity pages; deterministic summary edits commit through the same workspace writer",
    "metadata": [
     {
      "path": "core/agent/worker"
@@ -1613,6 +1624,7 @@
      "container": "terminal",
      "nodes": [
       "terminal-app",
+      "terminal-lib",
       "terminal-canvas",
       "terminal-contributions",
       "terminal-platform",
@@ -2010,7 +2022,7 @@
      }
     }
    },
-   "description": "POST /workloads spawn agent-worker",
+   "description": "POST /workloads spawn agent-worker for model turns or owner-submitted deterministic report edits",
    "protocol": "HTTPS"
   },
   {
@@ -2025,7 +2037,7 @@
      }
     }
    },
-   "description": "SSE relay (/api/chat, /api/meeting/stream)",
+   "description": "SSE relay (/api/chat, /api/meeting/stream); await committed report-edit result before responding to PATCH /api/meeting/{id}/summary",
    "metadata": [
     {
      "access": "read"

@@ -11,6 +11,10 @@ meeting entry functions only inside ``main()`` (function-local) to avoid an impo
 from __future__ import annotations
 
 import json
+import hashlib
+import os
+import subprocess
+import yaml
 import logging
 import re
 import time
@@ -30,6 +34,8 @@ from shared.agent_config import (
     DEFAULT_TAG_RULES,
 )
 from worker.budget import context_tokens, estimate_tokens, fit, pack
+from worker.report_entities import entity_page_updates, extract_entity_mentions
+from worker.report_lock import workspace_report_lock
 from worker.engine import _Stream
 from worker.engine import run_turn_over_workspace as _engine_run_turn_over_workspace
 
@@ -387,6 +393,22 @@ def validate_envelope(envelope: dict, seed_dir: Path) -> list[str]:
 
 
 def upsert_meeting_transcript_file(path: Path, meta: dict, note: dict) -> None:
+    """Read and update canonical transcript mirrors under the report workspace lock."""
+    path = Path(path)
+    if not str(note.get("id") or "").strip():
+        return
+    if path.parts[-4:-1] == ("kg", "entities", "meeting"):
+        work = path.parents[3]
+        if not (work / ".git").exists():
+            from worker.engine import _ensure_repo
+            _ensure_repo(work)
+        with workspace_report_lock(work):
+            _upsert_meeting_transcript_file_locked(path, meta, note)
+    else:
+        _upsert_meeting_transcript_file_locked(path, meta, note)
+
+
+def _upsert_meeting_transcript_file_locked(path: Path, meta: dict, note: dict) -> None:
     """Idempotently UPSERT one cleaned ``note`` (keyed by ``note['id']``) into the per-meeting transcript
     file at ``path``. Reads the current id-keyed lines, replaces the matching id (or appends a new one),
     preserves order, and rewrites the whole file. Re-running with the same note id never duplicates a
@@ -450,7 +472,7 @@ def serve_meeting(
     card_turn: Callable[[list[dict]], Iterator[dict]], idle_ms: int,
     beat_segments: int = 4,
     doc_turn: Callable[..., Iterator[dict]] | None = None,
-    enabled: bool = True,
+    enabled: bool | Callable[[], bool] = True,
     start_id: str = "0",
     proc_stream: str | None = None,
     cursor_key: str | None = None,
@@ -580,7 +602,7 @@ def serve_meeting(
             return
         doc_written = True
         mutable = [seg for seg in processing_window if int(seg.get("_rewrite_passes", 0)) < 3]
-        if mutable and enabled:
+        if mutable and (enabled() if callable(enabled) else enabled):
             n += 1
             _run_beat(mutable, n)
         _flush_mirror()      # ingest-only notes (no beat ran) reach the mirrors too
@@ -643,7 +665,7 @@ def serve_meeting(
                 # Advance the per-meeting CURSOR to the last raw stream-id we've now cleaned (gap-fill
                 # picks up from here on re-enable; OFF freezes it at the last processed entry).
                 _set_cursor(stream, cursor_key, entry_id)
-        if enabled and buffer and (new_speaker or len(buffer) >= beat_segments):
+        if buffer and (new_speaker or len(buffer) >= beat_segments) and (enabled() if callable(enabled) else enabled):
             n += 1
             mutable = [seg for seg in processing_window if int(seg.get("_rewrite_passes", 0)) < 3]
             if mutable:
@@ -687,7 +709,7 @@ MEETING_DOC_PROMPT = (
     "file at the EXACT path `kg/entities/meeting/{native}.md` in this workspace (create parent dirs if "
     "needed). This must be IDEMPOTENT — if the file already exists, UPDATE it in place (do not create a "
     "duplicate or a new path).\n\n"
-    "The file MUST have this exact YAML frontmatter (between `---` fences) as the very first lines:\n"
+    "The file MUST have these identity fields in YAML frontmatter (between `---` fences) as the very first lines:\n"
     "---\n"
     "type: meeting\n"
     "id: {native}\n"
@@ -696,7 +718,15 @@ MEETING_DOC_PROMPT = (
     "session_uid: {session_uid}\n"
     "platform: {platform}\n"
     "date: {date}\n"
+    "entity_mentions: []\n"
     "---\n\n"
+    "Keep every identity field unchanged. Replace entity_mentions: [] with a YAML list only for "
+    "explicitly named people or companies supported by the meeting evidence. Each entry has "
+    "kind (person or company), name (the exact name), and evidence (a verbatim quote from the "
+    "FINAL REPORT BODY containing that exact name). Quote YAML values safely. Do not invent "
+    "biographies, roles, affiliations or unnamed identities. Do not add unsupported names to the "
+    "body just to fill this field. Use [] when no entity qualifies. Write only the meeting file; "
+    "the runtime creates any person/company pages from validated mentions.\n\n"
     "After the frontmatter, write a 2-4 line plain-English SUMMARY of the meeting (no transcript — a "
     "distilled summary), then the surfaced entities grouped under `## Attendees`, `## Companies`, "
     "`## Topics`, `## Decisions`, `## Actions` headings, each entry a `[[wikilink]]` (omit a heading if "
@@ -719,7 +749,7 @@ TURKISH_MEETING_DOC_PROMPT = (
     "meeting evidence is given to you below, in full, and it is the ONLY evidence for this report. "
     "Write every narrative sentence in Turkish. This operation must be idempotent: write that one "
     "path and do not create a duplicate or a new path.\n\n"
-    "The file MUST begin with this exact YAML frontmatter (between `---` fences), copied character "
+    "The file MUST begin with these identity fields in YAML frontmatter (between `---` fences), copied character "
     "for character:\n"
     "---\n"
     "type: meeting\n"
@@ -729,7 +759,15 @@ TURKISH_MEETING_DOC_PROMPT = (
     "session_uid: {session_uid}\n"
     "platform: {platform}\n"
     "date: {date}\n"
+    "entity_mentions: []\n"
     "---\n\n"
+    "Keep every identity field unchanged. Replace entity_mentions: [] with a YAML list only for "
+    "explicitly named people or companies supported by the meeting evidence. Each entry has "
+    "kind (person or company), name (the exact name), and evidence (a verbatim quote from the "
+    "FINAL REPORT BODY containing that exact name). Quote YAML values safely. Do not invent "
+    "biographies, roles, affiliations or unnamed identities. Do not add unsupported names to the "
+    "body just to fill this field. Use [] when no entity qualifies. Write only the meeting file; "
+    "the runtime creates any person/company pages from validated mentions.\n\n"
     "Use exactly these three second-level headings, in this order, copied character for character — "
     "they are a contract with the reader's UI, so never translate, reword or re-order them:\n"
     "## Özet\n\n"
@@ -988,10 +1026,54 @@ def _no_report_event(event: dict, defect: str) -> dict:
     }
 
 
+def _publish_report_readiness(work: Path, target: Path, *, meeting_id: str, session_uid: str,
+                              workspace: str, report_language: str) -> None:
+    """Stage exact-run provenance inside the governed turn's commit boundary."""
+    content = target.read_text()
+    match = _FRONTMATTER_BLOCK_RE.match(content)
+    metadata = yaml.safe_load("\n".join(match.group().strip().splitlines()[1:-1])) if match else {}
+    if not isinstance(metadata, dict):
+        raise ValueError("report frontmatter is invalid")
+    body = _FRONTMATTER_BLOCK_RE.sub("", content).strip()
+    metadata.update(meeting_row_id=str(meeting_id), session_uid=session_uid,
+                    report_workspace=workspace, report_status="completed",
+                    report_language=report_language,
+                    report_revision=hashlib.sha256(body.encode()).hexdigest())
+    ready = "---\n" + yaml.safe_dump(metadata, allow_unicode=True, sort_keys=False) + "---\n\n" + body + "\n"
+    run_target = target.with_name(f"{target.stem}.run-{meeting_id}.md")
+    for destination in (run_target, target):
+        temporary = destination.with_name(f".{destination.name}.{os.getpid()}.ready")
+        try:
+            temporary.write_text(ready)
+            temporary.replace(destination)
+        finally:
+            temporary.unlink(missing_ok=True)
+
+
 def meeting_doc_turn(
     work: Path, cards: list[dict], *, native: str, meeting_id: str, session_uid: str,
     platform: str, date: str, title: str, model: str | None = None, report_language: str = "en",
     notes: list[dict] | None = None, completion=None, budget_tokens: int | None = None,
+    workspace: str | None = None,
+) -> Iterator[dict]:
+    """Serialize the report's entire capture, generation, commit and rollback operation."""
+    work = Path(work)
+    if not (work / ".git").exists():
+        from worker.engine import _ensure_repo
+        _ensure_repo(work)
+    with workspace_report_lock(work):
+        yield from _meeting_doc_turn_locked(
+            work, cards, native=native, meeting_id=meeting_id, session_uid=session_uid,
+            platform=platform, date=date, title=title, model=model, report_language=report_language,
+            notes=notes, completion=completion, budget_tokens=budget_tokens, workspace=workspace,
+        )
+
+
+def _meeting_doc_turn_locked(
+    work: Path, cards: list[dict], *, native: str, meeting_id: str, session_uid: str,
+    platform: str, date: str, title: str, model: str | None = None, report_language: str = "en",
+    notes: list[dict] | None = None, completion=None, budget_tokens: int | None = None,
+    workspace: str | None = None,
 ) -> Iterator[dict]:
     """The post-meeting WRITE turn: ONE governed turn (commit=True, Write/Edit allowed,
     session_continuity=False so it never touches the chat session) that authors/updates the meeting
@@ -1033,7 +1115,55 @@ def meeting_doc_turn(
              estimate_tokens(prompt), budget, len(notes or []))
     target = work / "kg" / "entities" / "meeting" / f"{native}.md"
     previous = target.read_bytes() if target.exists() else None
+    run_target = target.with_name(f"{target.stem}.run-{meeting_id}.md")
+    previous_run = run_target.read_bytes() if workspace and run_target.exists() else None
     succeeded = False
+    entity_originals: dict[Path, bytes | None] = {}
+    entity_updates: dict[Path, bytes] = {}
+
+    def prepare_report() -> None:
+        defect = report_defect(target, report_language)
+        if defect:
+            raise ValueError(defect)
+        planned = entity_page_updates(
+            work, target.read_text(), run_target.relative_to(work).as_posix(), meeting_id, cards,
+        )
+        if not planned:
+            content = target.read_text()
+            try:
+                mentions = extract_entity_mentions(completion or completion_from_env(), content, model=model)
+            except Exception as error:
+                log.warning("Report entity extraction unavailable (%s)", type(error).__name__)
+                mentions = []
+            if mentions:
+                front = _FRONTMATTER_BLOCK_RE.match(content)
+                metadata = yaml.safe_load("\n".join(front.group().strip().splitlines()[1:-1])) if front else {}
+                metadata["entity_mentions"] = mentions
+                content = "---\n" + yaml.safe_dump(metadata, allow_unicode=True, sort_keys=False) + "---\n\n" + _FRONTMATTER_BLOCK_RE.sub("", content).strip() + "\n"
+                target.write_text(content)
+                planned = entity_page_updates(work, content, run_target.relative_to(work).as_posix(), meeting_id, cards)
+        entity_updates.clear()
+        for relative, content in planned.items():
+            artifact = work / relative
+            if artifact not in entity_originals:
+                entity_originals[artifact] = artifact.read_bytes() if artifact.exists() else None
+            entity_updates[artifact] = content.encode("utf-8")
+        for artifact, content in entity_updates.items():
+            artifact.parent.mkdir(parents=True, exist_ok=True)
+            artifact.write_bytes(content)
+        _publish_report_readiness(work, target, meeting_id=meeting_id, session_uid=session_uid,
+                                  workspace=workspace, report_language=report_language)
+
+    def verify_committed() -> None:
+        from shared.gitenv import scrubbed_git_env
+        for artifact in (target, run_target, *entity_updates):
+            relative = artifact.relative_to(work).as_posix()
+            result = subprocess.run(["git", "-C", str(work), "show", f"HEAD:{relative}"],
+                                    capture_output=True, env=scrubbed_git_env())
+            current = artifact.read_bytes()
+            if (result.returncode or result.stdout != current
+                    or (artifact in entity_updates and current != entity_updates[artifact])):
+                raise ValueError("report or entity page did not reach workspace history")
 
     def clear_target() -> None:
         """Remove the target so the write turn faces an ABSENT file.
@@ -1053,11 +1183,13 @@ def meeting_doc_turn(
         target.unlink(missing_ok=True)
 
     def restore_target() -> None:
-        if previous is None:
-            target.unlink(missing_ok=True)
-            return
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(previous)
+        for artifact, original in [(target, previous), *([(run_target, previous_run)] if workspace else []),
+                                   *entity_originals.items()]:
+            if original is None:
+                artifact.unlink(missing_ok=True)
+            else:
+                artifact.parent.mkdir(parents=True, exist_ok=True)
+                artifact.write_bytes(original)
 
     try:
         for attempt in range(1, _DOC_TURN_ATTEMPTS + 1):
@@ -1070,8 +1202,9 @@ def meeting_doc_turn(
                 # turn just spent its budget bounding, and the prompt already carries the exact
                 # frontmatter, so a full overwrite is all the report has ever needed.
                 work, prompt, model=model, allowed_tools=["Write"],
-                commit=True, session_continuity=False,
+                commit=True, session_continuity=False, before_commit=prepare_report if workspace else None,
             )
+            final_done: dict | None = None
             try:
                 for event in events:
                     if event.get("type") != "done":
@@ -1082,7 +1215,10 @@ def meeting_doc_turn(
                     defect = report_defect(target, report_language) if event.get("ok", True) is True else ""
                     succeeded = event.get("ok", True) is True and not defect
                     if succeeded:
-                        yield event
+                        if workspace:
+                            final_done = event
+                        else:
+                            yield event
                         continue
                     restore_target()
                     kind = "transient" if defect else _failure_kind(_done_failure_text(event))
@@ -1092,9 +1228,23 @@ def meeting_doc_turn(
                         retry = True
                         break
                     yield _no_report_event(event, defect) if defect else event
+                if succeeded and workspace and final_done:
+                    try:
+                        verify_committed()
+                    except (OSError, ValueError, yaml.YAMLError) as exc:
+                        succeeded = False
+                        restore_target()
+                        if not final_attempt:
+                            retry = True
+                        else:
+                            yield _no_report_event(final_done, str(exc))
+                    else:
+                        yield final_done
             except LLMAuthError:
+                succeeded = False
                 raise  # a rejected credential is not transient — surface it now
             except Exception as exc:  # noqa: BLE001 — classified below; anything unretryable re-raises
+                succeeded = False
                 # The class name carries the signal a bare transport exception's message often doesn't
                 # (``ReadTimeout()`` stringifies empty).
                 if final_attempt or _failure_kind(f"{type(exc).__name__}: {exc}") != "transient":

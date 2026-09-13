@@ -463,3 +463,72 @@ async def test_a_file_that_is_not_media_is_refused_by_the_decoder(tmp_path):
     src.write_bytes(b"this is not a container")
     with pytest.raises(media.DecodeFailed):
         await media.decode_to_pcm(str(src), str(dst))
+
+
+# ---- the gpt-4o-transcribe family on the upload path ----------------------------------------
+
+def _wav(seconds: float, rate: int = 16000) -> bytes:
+    import struct
+    n = int(seconds * rate)
+    return (b"RIFF" + struct.pack("<I", 36 + n * 2) + b"WAVE" + b"fmt " + struct.pack("<IHHIIHH", 16, 1, 1, rate, rate * 2, 2, 16)
+            + b"data" + struct.pack("<I", n * 2) + b"\x00" * (n * 2))
+
+
+class _Reply:
+    def __init__(self, status, body):
+        self.status_code, self._body, self.headers, self.text = status, body, {}, ""
+
+    def json(self):
+        return self._body
+
+
+class _Post:
+    def __init__(self, body):
+        self.body, self.calls = body, []
+
+    async def post(self, url, files=None, data=None, headers=None):
+        self.calls.append(data)
+        return _Reply(200, self.body)
+
+
+def test_stt_response_format_follows_the_model_family():
+    from meeting_api.uploads.adapters import stt_response_format
+    assert stt_response_format("whisper-1") == "verbose_json"
+    assert stt_response_format("whisper-large-v3") == "verbose_json"
+    assert stt_response_format("gpt-4o-transcribe") == "json"
+    assert stt_response_format("gpt-4o-mini-transcribe") == "json"
+    assert stt_response_format("gpt-4o-transcribe-diarize") == "diarized_json"
+
+
+@pytest.mark.asyncio
+async def test_gpt4o_text_only_reply_becomes_one_window_segment():
+    from meeting_api.uploads.adapters import WhisperTranscriber
+    client = _Post({"text": "merhaba dünya", "usage": {"total_tokens": 9}})
+    t = WhisperTranscriber(client, "https://api.openai.com", model="gpt-4o-transcribe", token="k")
+    rows = await t.transcribe(_wav(2.5), language="tr")
+    assert client.calls[0]["response_format"] == "json"
+    assert "timestamp_granularities" not in client.calls[0]
+    assert rows == [{"start": 0.0, "end": 2.5, "text": "merhaba dünya"}]
+
+
+@pytest.mark.asyncio
+async def test_whisper_keeps_verbose_segments_and_asks_for_them():
+    from meeting_api.uploads.adapters import WhisperTranscriber
+    client = _Post({"segments": [{"start": 0.1, "end": 0.9, "text": "bir"}], "text": "bir"})
+    t = WhisperTranscriber(client, "http://stt", model="whisper-1")
+    rows = await t.transcribe(_wav(1.0), language="tr")
+    assert client.calls[0]["response_format"] == "verbose_json"
+    assert client.calls[0]["timestamp_granularities"] == "segment"
+    assert rows == [{"start": 0.1, "end": 0.9, "text": "bir"}]
+
+
+@pytest.mark.asyncio
+async def test_gpt4o_low_confidence_reply_is_dropped_like_whispers_phantoms():
+    from meeting_api.uploads.adapters import WhisperTranscriber
+    client = _Post({"text": "صدای", "logprobs": [{"token": "ص", "logprob": -1.3}, {"token": "دای", "logprob": -8.1}]})
+    t = WhisperTranscriber(client, "https://api.openai.com", model="gpt-4o-transcribe", token="k")
+    assert await t.transcribe(_wav(1.0), language="tr") == []
+    assert client.calls[0]["include[]"] == "logprobs"
+    confident = _Post({"text": "merhaba", "logprobs": [{"token": "mer", "logprob": -0.01}, {"token": "haba", "logprob": -0.02}]})
+    rows = await WhisperTranscriber(confident, "https://api.openai.com", model="gpt-4o-transcribe").transcribe(_wav(1.0))
+    assert rows[0]["text"] == "merhaba" and abs(rows[0]["avg_logprob"] + 0.015) < 1e-9

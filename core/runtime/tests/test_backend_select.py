@@ -82,3 +82,14 @@ def test_production_runtime_gets_the_env_grace(monkeypatch):
     monkeypatch.delenv("AGENT_IMAGE", raising=False)        # no worker-image ensure
     app = build_production_app()
     assert app.state.runtime.grace_sec == 47.0
+
+
+@pytest.mark.parametrize("prefix", [None, "vexa-ui-test-"])
+def test_docker_backend_uses_deployment_name_prefix(monkeypatch, prefix):
+    monkeypatch.setenv("RUNTIME_BACKEND", "docker")
+    if prefix is None:
+        monkeypatch.delenv("DOCKER_NAME_PREFIX", raising=False)
+    else:
+        monkeypatch.setenv("DOCKER_NAME_PREFIX", prefix)
+    backend = _build_backend()
+    assert backend._cname("agent-u1-chat-main") == f"{prefix or 'vexa-'}worker-u1-chat-main"

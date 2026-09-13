@@ -69,3 +69,19 @@ Observe-only sessions are never later reinterpreted as enforced sessions.
 No config means explicit stock OSS allow-all. Once configured, unavailable, malformed, stale, or
 cross-bound decisions fail closed. `mode=observe` records the authority response but cannot satisfy
 a hosted hard-spend-cap claim.
+
+
+### Terminal plan submission: exact row claim
+
+The Terminal may supply `meeting_id` as an optional positive JSON integer on its existing
+`POST /bots` request, alongside the meeting URL or platform/native identity. This internal
+extension of the open request object claims only the selected owned `idle`/`scheduled` row.
+The claim preserves plan metadata and the existing advisory-lock, dedup, concurrency-cap, and
+row-lock protections. An unavailable, foreign, mismatched, or nonclaimable selected row returns
+409 without claiming another plan, inserting a row, or spawning a workload. Invalid IDs and
+combining the selected ID with `continue_meeting` return 422.
+
+Omitting `meeting_id` retains existing launch behavior. The Terminal first explicitly saves the
+complete plan with `auto_join:false`, then submits the saved row ID when the user chooses Join.
+The frozen api.v1 request object allows this internal extension; its typed public schema is
+unchanged. A future typed public field belongs in a versioned contract change.

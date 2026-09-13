@@ -49,9 +49,6 @@ export interface Invocation {
   platform: Platform;
   meetingUrl: string | null;
   botName: string;
-  /** Message posted into the meeting chat once admitted. Absent/empty ⇒ the bot says nothing,
-   *  which is the default: speaking into a customer's meeting is opt-in. */
-  greeting?: string;
   passcode?: string;
   nativeMeetingId?: string;
   // ── identity / control plane ──

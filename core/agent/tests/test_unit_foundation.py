@@ -524,3 +524,60 @@ def test_message_dispatch_stamps_the_chat_idle_window():
     d.dispatch(VALID_INV)
     _, _profile, env = rt.spawned[0]
     assert env["VEXA_IDLE_TIMEOUT_SEC"] == str(settings.chat_idle_timeout_sec)
+
+
+def test_dispatcher_preserves_authoritative_meeting_title_as_internal_hint():
+    settings = load_settings()
+    rt = _FakeRuntime()
+    d = dispatch.Dispatcher(settings, rt, _FakeIdentity())
+    inv = {
+        **VALID_INV, "trigger": "transcription",
+        "context": {"kind": "meeting", "meeting": {
+            "meeting_id": "64", "session_uid": "64", "platform": "teams",
+            "native_id": "322077721440001", "numeric_meeting_id": "64",
+            "title": "Elle belirlenen başlık",
+        }},
+    }
+    d.dispatch(inv)
+    _, _, env = rt.spawned[0]
+    assert env["VEXA_MEETING_TITLE"] == "Elle belirlenen başlık"
+    assert env["VEXA_MEETING_PLATFORM"] == "teams"
+    assert env["VEXA_TRANSCRIPT_STREAM"] == "tc:meeting:64"
+    assert inv["context"]["meeting"]["title"] == "Elle belirlenen başlık"
+
+
+def test_dispatcher_worker_env_derives_claude_output_cap_from_reply_cap(monkeypatch):
+    """A local-model deployment that bounded replies (VEXA_LLM_MAX_TOKENS) gets the same bound on
+    the claude CLI turn: unset, the CLI reserves its 32k default and a 65k-window model rejects any
+    large report prompt with a 500 — the failure that produced 'no summary, no notification'."""
+    for key in dispatch.MODEL_AUTH_ENV_ALLOWLIST:
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("VEXA_LLM_MAX_TOKENS", "2048")
+    rt = _FakeRuntime()
+    d = dispatch.Dispatcher(load_settings(), rt, _FakeIdentity())
+    d.dispatch(VALID_INV)
+    _, _profile, env = rt.spawned[0]
+    assert env["CLAUDE_CODE_MAX_OUTPUT_TOKENS"] == "2048"
+
+
+def test_dispatcher_worker_env_explicit_claude_output_cap_wins(monkeypatch):
+    """An operator who set the CLI dial keeps it — the derivation is a fallback, never an override."""
+    monkeypatch.setenv("VEXA_LLM_MAX_TOKENS", "2048")
+    monkeypatch.setenv("CLAUDE_CODE_MAX_OUTPUT_TOKENS", "4096")
+    rt = _FakeRuntime()
+    d = dispatch.Dispatcher(load_settings(), rt, _FakeIdentity())
+    d.dispatch(VALID_INV)
+    _, _profile, env = rt.spawned[0]
+    assert env["CLAUDE_CODE_MAX_OUTPUT_TOKENS"] == "4096"
+
+
+def test_dispatcher_worker_env_no_claude_output_cap_without_reply_cap(monkeypatch):
+    """Nothing to derive from ⇒ the dial stays absent (the CLI keeps its own default)."""
+    for key in dispatch.MODEL_AUTH_ENV_ALLOWLIST:
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.delenv("VEXA_LLM_MAX_TOKENS", raising=False)
+    rt = _FakeRuntime()
+    d = dispatch.Dispatcher(load_settings(), rt, _FakeIdentity())
+    d.dispatch(VALID_INV)
+    _, _profile, env = rt.spawned[0]
+    assert "CLAUDE_CODE_MAX_OUTPUT_TOKENS" not in env

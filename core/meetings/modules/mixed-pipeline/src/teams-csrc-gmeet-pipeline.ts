@@ -3,6 +3,7 @@ import {
   type GmeetCompatibleBufferConfig,
   type GmeetCompatibleSubmissionTrigger,
 } from '@vexa/transcribe-buffer';
+import type { TranscriptEngine } from './transcript-engine.js';
 import type { TranscriptionResult } from '@vexa/transcribe-whisper';
 import { teamsWindowHallucinationRule } from './hallucination-gate.js';
 import {
@@ -10,6 +11,7 @@ import {
   type TeamsContestSubmission,
   type TeamsRoutedSpan,
   type TeamsWordContest,
+  resolveTeamsWordContest,
 } from './teams-contested-word-marker.js';
 import {
   TeamsCsrcChannelizer,
@@ -18,6 +20,11 @@ import {
 } from './teams-csrc-channelizer.js';
 import type { TransportEvent } from './turn-source.js';
 import { TrackNamer } from './track-namer.js';
+
+/** The track namer's fallback label (`Speaker A`) means no human identity was earned for the lane. */
+export function isAttributedSpeaker(speaker: string): boolean {
+  return !/^Speaker(?: [A-Z]+)?$/.test(speaker.trim());
+}
 
 export interface TeamsCsrcTranscriptSegment {
   csrc: number;
@@ -49,6 +56,9 @@ export interface TeamsCsrcGmeetPipelineOptions {
   /** Evaluation/telemetry seam: every frame the smoothed channelizer actually routes. */
   onRoutedFrame?: (frame: TeamsCsrcVirtualFrame) => void;
   onError?: (error: unknown) => void;
+  /** The track namer's decision log (bind / release / refusal reasons). Silent when absent — wire it
+   *  to the bot log so an unnamed lane in production explains itself instead of reading as "Speaker A". */
+  onNamerLog?: (message: string) => void;
   /** Our own Teams display name; the existing namer excludes it from human identity. */
   selfName?: string;
   /** CSRC activation may arrive after its first PCM callback. Default: 600 ms. */
@@ -65,6 +75,10 @@ export interface TeamsCsrcGmeetPipelineOptions {
   persistTimeoutMs?: number;
   /** GMeet-compatible window tuning. Defaults are identical to Google Meet. */
   buffer?: GmeetCompatibleBufferConfig;
+  /** The transcript engine to drive instead of the shared GMeet window — a streaming engine when
+   *  the deployment's STT model streams (`transcribe` is then never called). Attribution,
+   *  ownership, drafts and publication are the pipeline's either way. */
+  engine?: TranscriptEngine;
 }
 
 export interface TeamsCsrcGmeetPipelineHealth extends TeamsCsrcChannelizerHealth {
@@ -76,6 +90,8 @@ export interface TeamsCsrcGmeetPipelineHealth extends TeamsCsrcChannelizerHealth
   rejectedOwnership: number;
   timeoutPromotions: number;
   contestedPairs: number;
+  /** Contested pairs settled by retracting the bleed copy (see resolveTeamsWordContest). */
+  resolvedContests: number;
 }
 
 export interface CsrcOwnershipInterval { startMs: number; endMs?: number }
@@ -143,7 +159,7 @@ interface PendingDraft {
  * ../TEAMS_CSRC_CONTESTED_TRANSCRIPTS.md.
  */
 export class TeamsCsrcGmeetPipeline {
-  private readonly manager: GmeetCompatibleBuffer;
+  private readonly manager: TranscriptEngine;
   private readonly channelizer: TeamsCsrcChannelizer;
   private readonly trackNamer: TrackNamer;
   private readonly tracks = new Map<number, TrackState>();
@@ -170,6 +186,7 @@ export class TeamsCsrcGmeetPipeline {
   private turnCount = 0;
   private rejectedOwnership = 0;
   private timeoutPromotions = 0;
+  private resolvedContests = 0;
 
   constructor(private readonly options: TeamsCsrcGmeetPipelineOptions) {
     this.onsetGapMs = Math.max(0, options.onsetGapMs ?? 1000);
@@ -183,8 +200,9 @@ export class TeamsCsrcGmeetPipeline {
       // canonical display name. Unknown is safer than that false attribution.
       requireCanonicalDisplayName: true,
       onNamed: (trackId) => this.repaintTrack(trackId),
+      log: options.onNamerLog,
     });
-    this.manager = new GmeetCompatibleBuffer({
+    this.manager = options.engine ?? new GmeetCompatibleBuffer({
       ...options.buffer,
       // Teams' wall-clock witness proved that GMeet's confirmed-prefix early-return can otherwise
       // suppress a Whisper-available trailing draft for > 4 seconds. The shared module's default
@@ -209,8 +227,9 @@ export class TeamsCsrcGmeetPipeline {
       },
     });
 
-    this.manager.onSegmentReady = (sourceKey, _name, audio, observedTrigger) => {
-      const prompt = this.manager.getLastConfirmedText(sourceKey) || undefined;
+    const windowEngine = this.manager instanceof GmeetCompatibleBuffer ? this.manager : null;
+    if (windowEngine) windowEngine.onSegmentReady = (sourceKey, _name, audio, observedTrigger) => {
+      const prompt = windowEngine.getLastConfirmedText(sourceKey) || undefined;
       const bufferTrigger = observedTrigger ?? 'input-gap';
       const trigger = bufferTrigger === 'interval' || bufferTrigger === 'manual'
         ? 'scheduled'
@@ -236,7 +255,7 @@ export class TeamsCsrcGmeetPipeline {
           const lastEnd = result.segments?.length
             ? result.segments[result.segments.length - 1].end
             : undefined;
-          this.manager.handleTranscriptionResult(
+          windowEngine.handleTranscriptionResult(
             sourceKey,
             (result.text ?? '').trim(),
             lastEnd,
@@ -246,7 +265,7 @@ export class TeamsCsrcGmeetPipeline {
           this.refreshContestsForSource(sourceKey);
         } catch (error) {
           this.options.onError?.(error);
-          this.manager.handleTranscriptionResult(sourceKey, '');
+          windowEngine.handleTranscriptionResult(sourceKey, '');
         }
       })();
       this.inflight.add(job);
@@ -359,6 +378,7 @@ export class TeamsCsrcGmeetPipeline {
       rejectedOwnership: this.rejectedOwnership,
       timeoutPromotions: this.timeoutPromotions,
       contestedPairs: this.contests.size,
+      resolvedContests: this.resolvedContests,
     };
   }
 
@@ -557,6 +577,30 @@ export class TeamsCsrcGmeetPipeline {
       const contest = detectTeamsWordContest(row, rival, this.contestSubmissions, this.routedSpans);
       if (contest) this.contests.set(this.contestKey(row.segmentId, rival.segmentId), contest);
     }
+    this.settleContests();
+  }
+
+  /** Every active CSRC lane is handed the same mixed frame during overlap, so a phrase one person
+   *  spoke can come back transcribed under two lanes — two public rows, two names, one utterance.
+   *  A contest with a decidable bleed side is settled by RETRACTING that row (empty text under its
+   *  id → transcript.v1 retract → the durable row and every live view drop it). Text is never
+   *  rewritten: the keeper stays Whisper's confirmed text verbatim, and an undecidable pair stays
+   *  as two verbatim rows rather than one guessed attribution. */
+  private settleContests(): void {
+    for (const contest of [...this.contests.values()]) {
+      const left = this.rawPublished.get(contest.leftSegmentId);
+      const right = this.rawPublished.get(contest.rightSegmentId);
+      if (!left || !right) continue;
+      const resolution = resolveTeamsWordContest(left, right, contest, this.routedSpans, {
+        leftNamed: isAttributedSpeaker(left.speaker),
+        rightNamed: isAttributedSpeaker(right.speaker),
+      });
+      if (!resolution) continue;
+      const loser = this.rawPublished.get(resolution.loserSegmentId);
+      if (!loser) continue;
+      this.resolvedContests++;
+      this.emit({ ...loser, text: '', endMs: loser.startMs, completed: false });
+    }
   }
 
   private refreshContestsForSource(sourceKey: string): void {
@@ -568,8 +612,8 @@ export class TeamsCsrcGmeetPipeline {
 
   private reconcilePublished(): void {
     for (const raw of this.rawPublished.values()) {
-      // Contest detection is internal abstention/telemetry. Customer transcript text is always
-      // Whisper's confirmed text verbatim; implementation diagnostics never enter public rows.
+      // A settled contest retracts the bleed row (settleContests); what remains is always Whisper's
+      // confirmed text verbatim — contest diagnostics never enter public rows.
       const desired = raw;
       const previous = this.published.get(raw.segmentId);
       if (previous && previous.text === desired.text && previous.speaker === desired.speaker

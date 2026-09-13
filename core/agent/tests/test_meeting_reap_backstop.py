@@ -219,7 +219,7 @@ def test_doc_turn_retries_a_transient_failure_from_the_pre_turn_file(tmp_path, m
     seen: list[str] = []
 
     def exec_fn(argv, cwd):
-        seen.append(doc.read_text())          # what THIS attempt starts from
+        seen.append(doc.exists())          # each attempt starts with an absent write target
         if len(seen) == 1:
             doc.write_text("yarım kalmış çıktı")   # a half-written file, then the provider 429s
             yield _result("429 Too Many Requests from the model gateway", ok=False)
@@ -229,7 +229,7 @@ def test_doc_turn_retries_a_transient_failure_from_the_pre_turn_file(tmp_path, m
 
     events = _run_doc_turn(tmp_path, exec_fn, monkeypatch)
 
-    assert len(seen) == 2 and seen[1] == TRANSCRIPT       # attempt 2 restarted from the pre-turn file
+    assert seen == [False, False]       # attempt 2 restarted from the pre-turn file
     dones = [e for e in events if e.get("type") == "done"]
     assert len(dones) == 1 and dones[0]["ok"] is True     # ONE terminal event: the retry's outcome
     assert doc.read_text() == REPORT
@@ -307,7 +307,7 @@ def test_a_turn_that_answers_in_prose_and_never_writes_is_a_failure(tmp_path, mo
     attempts: list[str] = []
 
     def exec_fn(argv, cwd):
-        attempts.append(doc.read_text())
+        attempts.append(doc.exists())
         yield _result("Toplantıyı özetledim: ekip yerel kurulumu değerlendirdi.")  # prose, no write
 
     events = _run_doc_turn(tmp_path, exec_fn, monkeypatch)
@@ -315,7 +315,7 @@ def test_a_turn_that_answers_in_prose_and_never_writes_is_a_failure(tmp_path, mo
     assert len(attempts) == 2                              # judged a retryable failure, tried twice
     (done,) = [e for e in events if e.get("type") == "done"]
     assert done["ok"] is False                             # NOT the ok=True the harness reported
-    assert "still holds the raw transcript" in done["detail"]
+    assert "no report file" in done["detail"]
     assert doc.read_text() == TRANSCRIPT                   # restored, so the transcript is not lost
 
 
@@ -326,7 +326,7 @@ def test_a_prose_only_first_attempt_is_retried_and_the_retry_authors_the_report(
     attempts: list[str] = []
 
     def exec_fn(argv, cwd):
-        attempts.append(doc.read_text())
+        attempts.append(doc.exists())
         if len(attempts) == 1:
             yield _result("Rapor hazır.")                  # claims success, writes nothing
             return
@@ -335,7 +335,7 @@ def test_a_prose_only_first_attempt_is_retried_and_the_retry_authors_the_report(
 
     events = _run_doc_turn(tmp_path, exec_fn, monkeypatch)
 
-    assert attempts == [TRANSCRIPT, TRANSCRIPT]            # attempt 2 read the PRE-TURN file
+    assert attempts == [False, False]            # attempt 2 read the PRE-TURN file
     dones = [e for e in events if e.get("type") == "done"]
     assert len(dones) == 1 and dones[0]["ok"] is True
     assert doc.read_text() == REPORT

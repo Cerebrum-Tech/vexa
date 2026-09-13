@@ -165,6 +165,7 @@ services:
       # Spawn the bot onto THIS compose network so it resolves meeting-api:8080 (lifecycle callback)
       # + redis. Must equal the project-prefixed network name (DockerBackend → HostConfig.NetworkMode).
       - DOCKER_NETWORK=${COMPOSE_PROJECT_NAME:-vexa-v012}_vexa
+      - DOCKER_NAME_PREFIX=${DOCKER_NAME_PREFIX:-vexa-}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       # Mirror of HOST_CLAUDE_CREDENTIALS (a DOCKER-HOST path — see .env.example) into THIS container,
@@ -323,8 +324,6 @@ services:
       # Media upload (POST /uploads): an audio/video recording becomes a meeting. The ceiling is
       # counted as the body is spooled, so a lying Content-Length cannot raise it. The speaker label
       # is one honest name for every segment — whisper does not diarize.
-      # Message the bot posts into the meeting chat when it joins. Empty = says nothing.
-      - VEXA_BOT_GREETING=${VEXA_BOT_GREETING:-}
       - VEXA_UPLOAD_MAX_MB=${VEXA_UPLOAD_MAX_MB:-1024}
       # Language whisper is forced to on every transcription request (bot + upload) when the
       # caller names none. Empty = auto-detect per window.

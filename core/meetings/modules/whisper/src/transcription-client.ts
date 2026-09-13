@@ -1,5 +1,6 @@
 import { log } from './log.js';
-import { isLowConfidenceSegment } from './confidence.js';
+import { isForeignScript, isLowConfidenceSegment } from './confidence.js';
+import { cleanSubtitleCredits, stripSubtitleCredit } from './subtitle-credit.js';
 
 export interface TranscriptionWord {
   word: string;
@@ -24,6 +25,22 @@ export interface TranscriptionResult {
   language_probability?: number;
   duration: number;
   segments: TranscriptionSegment[];
+}
+
+/** The response shape a model family can actually produce.
+ *
+ *  `verbose_json` (segments + word times) is Whisper's — every local faster-whisper unit and OpenAI's
+ *  `whisper-1`. OpenAI's `gpt-4o-transcribe` family refuses it ("use json or text"); the `-diarize`
+ *  variant is the one member that returns timed `segments` again, under `diarized_json`. The rest of
+ *  the pipeline never sees the difference: a `json`-only reply becomes ONE segment spanning the
+ *  submitted window, so the shared buffer still gets an end time to advance its offset to. */
+export type SttResponseFormat = 'verbose_json' | 'diarized_json' | 'json';
+
+export function sttResponseFormatFor(model: string): SttResponseFormat {
+  const id = (model || '').toLowerCase();
+  if (/diariz/.test(id)) return 'diarized_json';
+  if (/transcribe/.test(id) && !/whisper/.test(id)) return 'json';
+  return 'verbose_json';
 }
 
 export interface TranscriptionClientConfig {
@@ -125,10 +142,11 @@ export class TranscriptionClient {
    */
   async transcribe(audioData: Float32Array, language?: string, prompt?: string): Promise<TranscriptionResult> {
     const wavBuffer = this.float32ToWav(audioData);
+    const windowSeconds = audioData.length / this.sampleRate;
 
     for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
       try {
-        const result = await this.sendRequest(wavBuffer, language, prompt);
+        const result = await this.sendRequest(wavBuffer, language, prompt, windowSeconds);
         return result;
       } catch (err: any) {
         // Normalize anything non-HTTP (abort/network) into a typed fault too, so the
@@ -158,9 +176,10 @@ export class TranscriptionClient {
   /**
    * Send the WAV buffer to the transcription-service as multipart form data.
    */
-  private async sendRequest(wavBuffer: Buffer, language?: string, prompt?: string): Promise<TranscriptionResult> {
+  private async sendRequest(wavBuffer: Buffer, language?: string, prompt?: string, windowSeconds = 0): Promise<TranscriptionResult> {
     // Build multipart form data manually (no external dependency needed)
     const boundary = `----FormBoundary${Date.now().toString(36)}`;
+    const responseFormat = sttResponseFormatFor(this.model);
 
     const parts: Buffer[] = [];
 
@@ -184,7 +203,7 @@ export class TranscriptionClient {
     parts.push(Buffer.from(
       `--${boundary}\r\n` +
       `Content-Disposition: form-data; name="response_format"\r\n\r\n` +
-      `verbose_json\r\n`
+      `${responseFormat}\r\n`
     ));
 
     // Language part (if specified)
@@ -196,12 +215,26 @@ export class TranscriptionClient {
       ));
     }
 
-    // Request word-level timestamps
-    parts.push(Buffer.from(
-      `--${boundary}\r\n` +
-      `Content-Disposition: form-data; name="timestamp_granularities"\r\n\r\n` +
-      `word\r\n`
-    ));
+    // Request word-level timestamps — a Whisper-only parameter; the gpt-4o-transcribe family
+    // rejects any timestamp request outright.
+    if (responseFormat === 'verbose_json') {
+      parts.push(Buffer.from(
+        `--${boundary}\r\n` +
+        `Content-Disposition: form-data; name="timestamp_granularities"\r\n\r\n` +
+        `word\r\n`
+      ));
+    }
+    // The gpt-4o-transcribe family has no per-segment confidence, but it does return per-token
+    // log-probabilities on request. Their mean stands in for Whisper's avg_logprob, so the same
+    // low-confidence gate that drops Whisper's phantom segments drops this family's — measured:
+    // real speech ≈ −0.01 per token, a hallucinated word on noise ≈ −4.7.
+    if (responseFormat === 'json') {
+      parts.push(Buffer.from(
+        `--${boundary}\r\n` +
+        `Content-Disposition: form-data; name="include[]"\r\n\r\n` +
+        `logprobs\r\n`
+      ));
+    }
 
     // Max speech segment duration (controls how often Whisper splits segments)
     if (this.maxSpeechDurationSec !== undefined) {
@@ -221,8 +254,13 @@ export class TranscriptionClient {
       ));
     }
 
-    // Prompt: previous confirmed text as context for streaming continuity
-    if (prompt) {
+    // Prompt: previous confirmed text as context for streaming continuity — Whisper only. The
+    // gpt-4o-transcribe family treats `prompt` as a style hint and, on a window with no clear speech
+    // (the pause between two phrases), returns the prompt text itself as the transcription. Measured:
+    // 2s of noise + a 748-char prompt ⇒ the prompt back verbatim, twice out of twice. In a live
+    // meeting that echo is then "stable" across two windows, confirms, becomes the next prompt and
+    // loops — a ~140-word block published three times over.
+    if (prompt && responseFormat === 'verbose_json') {
       parts.push(Buffer.from(
         `--${boundary}\r\n` +
         `Content-Disposition: form-data; name="prompt"\r\n\r\n` +
@@ -260,7 +298,22 @@ export class TranscriptionClient {
 
       const data = await response.json() as any;
 
-      const allSegments = (data.segments || []).map((s: any) => ({
+      // A timestamp-free reply (gpt-4o-transcribe's `json`) carries text only. The pipeline's
+      // contract is segments with times, so the whole submitted window becomes one segment: its end
+      // is the window's end, which is exactly the boundary the shared buffer advances to once the
+      // words are confirmed. Whisper-shaped replies pass through untouched.
+      const tokenLogprobs: number[] = Array.isArray(data.logprobs)
+        ? data.logprobs.map((t: any) => Number(t?.logprob)).filter((v: number) => Number.isFinite(v))
+        : [];
+      const avgLogprob = tokenLogprobs.length
+        ? tokenLogprobs.reduce((sum, v) => sum + v, 0) / tokenLogprobs.length
+        : undefined;
+      const rawSegments: any[] = Array.isArray(data.segments) && data.segments.length
+        ? data.segments
+        : ((data.text || '').trim() && windowSeconds > 0
+          ? [{ start: 0, end: windowSeconds, text: String(data.text), avg_logprob: avgLogprob }]
+          : []);
+      const allSegments = rawSegments.map((s: any) => ({
         start: s.start || 0,
         end: s.end || 0,
         text: s.text || '',
@@ -271,19 +324,31 @@ export class TranscriptionClient {
       }));
       // Drop low-confidence (hallucinated / faint-bleed) segments at the source and
       // rebuild the text from what survives, so phantoms never reach the pipeline.
-      // If the model returned no segments we can't score, so keep its text as-is.
-      const segments = allSegments.filter((s: any) => !isLowConfidenceSegment(s));
+      // Match credits against original adjacency; confidence pruning must not
+      // turn separate phrases into a new match across a removed segment.
+      const creditCleaned = cleanSubtitleCredits(allSegments);
+      // A forced-language deployment cannot legitimately produce a whole segment in another script;
+      // that is a hallucination on noise, and the model returns it with full confidence.
+      const foreign = creditCleaned.filter((s: any) => isForeignScript(s.text, language));
+      const segments = creditCleaned.filter(s => !isLowConfidenceSegment(s) && !isForeignScript(s.text, language));
+      const lowConfidenceCount = allSegments.filter((s: any) => isLowConfidenceSegment(s)).length;
       const text = allSegments.length
         ? segments.map((s: any) => (s.text || '').trim()).filter(Boolean).join(' ')
-        : (data.text || '');
-      if (allSegments.length && segments.length < allSegments.length) {
-        log(`[STT] dropped ${allSegments.length - segments.length}/${allSegments.length} low-confidence segment(s)`);
+        : stripSubtitleCredit(data.text || '');
+      if (lowConfidenceCount) {
+        log(`[STT] dropped ${lowConfidenceCount}/${allSegments.length} low-confidence segment(s)`);
+      }
+      if (foreign.length) {
+        log(`[STT] dropped ${foreign.length} segment(s) written in a script "${language}" does not use`);
+      }
+      if (creditCleaned !== allSegments || (!allSegments.length && text !== (data.text || ''))) {
+        log('[STT] removed Turkish subtitle-credit text');
       }
       return {
         text,
         language: data.language || language || 'unknown',
         language_probability: data.language_probability ?? 0,
-        duration: data.duration || 0,
+        duration: data.duration || windowSeconds || 0,
         segments,
       };
     } finally {

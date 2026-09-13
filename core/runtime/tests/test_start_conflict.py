@@ -9,6 +9,7 @@ pinned here so the branch keeps its (now safe) replace semantics and finally has
 from __future__ import annotations
 
 import json
+import pytest
 from urllib.parse import unquote, urlparse
 
 from runtime_kernel.docker_backend import DockerBackend
@@ -29,7 +30,13 @@ class _ConflictThenCreateSession:
     """First create → 409 (name taken by a stale container); expects a force DELETE, then a clean
     create + start. Records the call sequence for the assertion."""
 
-    def __init__(self) -> None:
+    def __init__(self, inspect=None, inspect_status=200) -> None:
+        self.inspect = inspect if inspect is not None else {
+            "Id": "stale-id", "State": {"Running": False, "Status": "exited"},
+            "Config": {"Labels": {"runtime.managed": "true", "runtime.workload_id": "w9"}},
+            "HostConfig": {"NetworkMode": "test-network"},
+        }
+        self.inspect_status = inspect_status
         self.calls: list[str] = []
         self._conflicted = False
 
@@ -44,6 +51,8 @@ class _ConflictThenCreateSession:
                 self._conflicted = True
                 return _Resp(409, {"message": "Conflict. The container name is already in use"})
             return _Resp(201, {"Id": "cid-123"})
+        if method == "GET" and path.endswith("/json"):
+            return _Resp(self.inspect_status, self.inspect)
         if method == "DELETE" and path.startswith("/containers/"):
             return _Resp(204)
         if method == "POST" and path.endswith("/start"):
@@ -51,7 +60,8 @@ class _ConflictThenCreateSession:
         return _Resp(500, {"message": f"unhandled {method} {path}"})
 
 
-def test_start_replaces_stale_named_container_on_409():
+def test_start_replaces_stale_named_container_on_409(monkeypatch):
+    monkeypatch.setenv("DOCKER_NETWORK", "test-network")
     be = DockerBackend()
     fake = _ConflictThenCreateSession()
     be._session = fake  # inject the fake socket
@@ -61,7 +71,28 @@ def test_start_replaces_stale_named_container_on_409():
     assert h.id == "w9" and h._impl == "vexa-w9"
     assert fake.calls == [
         "POST /containers/create?name=vexa-w9",       # taken by a stale container → 409
-        "DELETE /containers/vexa-w9?force=true",      # reclaim the name
+        "GET /containers/vexa-w9/json",
+        "DELETE /containers/stale-id?force=true",     # reclaim only the inspected stale container
         "POST /containers/create?name=vexa-w9",       # clean re-create
         "POST /containers/cid-123/start",
     ]
+
+
+@pytest.mark.parametrize("kind", ["foreign-network", "foreign-owner", "live", "inspect-failed"])
+def test_start_never_deletes_foreign_or_live_name_conflicts(monkeypatch, kind):
+    monkeypatch.setenv("DOCKER_NETWORK", "test-network")
+    fake = _ConflictThenCreateSession()
+    if kind == "foreign-network":
+        fake.inspect["HostConfig"]["NetworkMode"] = "vexa-v012_vexa"
+    elif kind == "foreign-owner":
+        fake.inspect["Config"]["Labels"]["runtime.workload_id"] = "another-workload"
+    elif kind == "live":
+        fake.inspect["State"] = {"Running": True, "Status": "running"}
+    else:
+        fake.inspect_status = 404
+    backend = DockerBackend()
+    backend._session = fake
+    with pytest.raises(RuntimeError, match="refusing to replace"):
+        backend.start("w9", Runnable(image="alpine", command=["true"]), env={})
+    assert not any(call.startswith("DELETE ") for call in fake.calls)
+    assert len([call for call in fake.calls if call.startswith("POST /containers/create")]) == 1

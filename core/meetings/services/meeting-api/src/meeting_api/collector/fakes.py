@@ -455,7 +455,8 @@ class InMemoryTranscriptStore:
         m = self._meetings.get(meeting_id)
         if m is None or m["user_id"] != user_id:
             return None
-        if m["status"] not in ("idle", "scheduled"):
+        title_only = set(updates) <= {"title"}
+        if m["status"] not in ("idle", "scheduled") and not title_only:
             return {"error": "conflict"}
         data = m["data"]
         if "native_meeting_id" in updates:

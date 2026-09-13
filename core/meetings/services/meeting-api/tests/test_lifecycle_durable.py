@@ -233,3 +233,39 @@ def test_no_publish_on_idempotent_replay(goldens):
     n_after_first = len(redis.published)
     client.post(ENDPOINT, json=goldens["completed-stopped"])  # redelivery
     assert len(redis.published) == n_after_first, "duplicate publish on idempotent replay"
+
+
+def test_platform_title_is_persisted_without_overwriting_manual_title():
+    import asyncio
+
+    for existing in ({}, {"title": "Benim başlığım"}, {"title": "Takvim başlığı", "calendar_uid": "calendar-1"}):
+        repo = InMemoryMeetingRepo()
+        m = asyncio.run(repo.create_meeting(user_id=1, platform="teams", native_meeting_id="322077721440001", data=dict(existing)))
+        asyncio.run(repo.create_session(meeting_id=m["id"], session_uid="title-session"))
+        repo.set_status(m["id"], "joining")
+        client = TestClient(create_app(meeting_repo=repo))
+        response = client.post(ENDPOINT, json={"connection_id": "title-session", "status": "active", "meeting_title": "  Haftalık  Planlama  "})
+        assert response.status_code == 200, response.text
+        saved = repo._meetings[m["id"]]["data"]
+        assert saved["platform_title"] == "Haftalık Planlama"
+        assert saved["title"] == existing.get("title", "Haftalık Planlama")
+        # A user edit made during the call must survive subsequent lifecycle persistence.
+        saved["title"] = "Elle düzenlendi"
+        response = client.post(ENDPOINT, json={"connection_id": "title-session", "status": "completed", "completion_reason": "stopped"})
+        assert response.status_code == 200, response.text
+        assert repo._meetings[m["id"]]["data"]["title"] == "Elle düzenlendi"
+
+
+def test_invalid_platform_title_is_not_persisted():
+    import asyncio
+
+    for title in (None, 4, [], {}, "   ", "x" * 501):
+        repo = InMemoryMeetingRepo()
+        m = asyncio.run(repo.create_meeting(user_id=1, platform="teams", native_meeting_id="322077721440001", data={}))
+        asyncio.run(repo.create_session(meeting_id=m["id"], session_uid="title-session"))
+        repo.set_status(m["id"], "joining")
+        response = TestClient(create_app(meeting_repo=repo)).post(ENDPOINT, json={"connection_id": "title-session", "status": "active", "meeting_title": title})
+        assert response.status_code == 200, response.text
+        saved = repo._meetings[m["id"]]["data"]
+        assert "title" not in saved
+        assert "platform_title" not in saved

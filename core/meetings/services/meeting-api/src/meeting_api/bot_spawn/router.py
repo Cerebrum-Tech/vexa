@@ -256,6 +256,15 @@ def build_router(
         if not isinstance(body, dict):
             raise HTTPException(status_code=422, detail="body must be an object")
 
+        selected_meeting_id = body.get("meeting_id")
+        if "meeting_id" in body and (
+            isinstance(selected_meeting_id, bool) or not isinstance(selected_meeting_id, int)
+            or selected_meeting_id <= 0
+        ):
+            raise HTTPException(status_code=422, detail="meeting_id must be a positive integer")
+        if selected_meeting_id is not None and body.get("continue_meeting"):
+            raise HTTPException(status_code=422, detail="meeting_id cannot be combined with continue_meeting")
+
         platform = str(body.get("platform", "")).strip()
         native_meeting_id = str(body.get("native_meeting_id", "")).strip()
         meeting_url = body.get("meeting_url")
@@ -381,6 +390,7 @@ def build_router(
                 user_id=user_id,
                 platform=platform,
                 native_meeting_id=native_meeting_id,
+                meeting_id=selected_meeting_id,
                 bot_name=body.get("bot_name"),
                 owner_email=x_user_email,
                 passcode=passcode,

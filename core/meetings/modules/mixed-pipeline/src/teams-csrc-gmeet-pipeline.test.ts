@@ -257,6 +257,65 @@ check('the pipeline health still exposes the unresolved pair without mutating tr
   JSON.stringify(contestedPipeline.health()));
 await contestedPipeline.dispose();
 
+// ── the measured production shape: one lane says the sentence, the bleed lane echoes a fragment ──
+// (meeting 83, 11 Sep 2026: csrc-201 "Diye bir cümle söyledim. Bakalım burada üç tane adım var…"
+//  and csrc-414 "diye bir cümle söyledim." at the same instant). The fragment must be retracted.
+{
+  let bleedNow = 0;
+  const bleedDurable = new Map<string, TeamsCsrcTranscriptSegment>();
+  const bleedCallbacks: TeamsCsrcTranscriptSegment[] = [];
+  const bleedPipeline = new TeamsCsrcGmeetPipeline({
+    lookbackMs: 0,
+    flickerHoldMs: 0,
+    onsetGapMs: 1000,
+    buffer: { scheduleSubmissions: false, now: () => bleedNow, silenceRmsThreshold: 0 },
+    onSegment: (segment) => {
+      bleedCallbacks.push({ ...segment });
+      if (!segment.completed && !segment.text.trim()) bleedDurable.delete(segment.segmentId);
+      else bleedDurable.set(segment.segmentId, segment);
+    },
+    transcribe: async (_audio, _prompt, context) => {
+      const text = context?.csrc === 201
+        ? 'diye bir cümle söyledim bakalım burada üç tane adım var değil mi'
+        : 'diye bir cümle söyledim';
+      const parts = text.split(/\s+/);
+      return {
+        text, language: 'tr', duration: 4,
+        segments: [{
+          text, start: 0, end: parts.length * 0.4,
+          words: parts.map((word, index) => ({ word, start: index * 0.4, end: (index + 0.8) * 0.4, probability: 0.99 })),
+        }],
+      };
+    },
+  });
+  bleedPipeline.recordTransportEvent({ csrc: 201, active: true, tMs: 0 });
+  bleedPipeline.recordTransportEvent({ csrc: 414, active: true, tMs: 0 });
+  for (let index = 0; index < 8; index++) {
+    bleedNow = index * 500;
+    bleedPipeline.feedMixedAudio(new Float32Array(8000).fill(0.1), bleedNow);
+  }
+  bleedNow = 4000;
+  await bleedPipeline.requestTranscription(201);
+  await bleedPipeline.requestTranscription(414);
+  for (let index = 8; index < 12; index++) {
+    bleedNow = index * 500;
+    bleedPipeline.feedMixedAudio(new Float32Array(8000).fill(0.1), bleedNow);
+  }
+  bleedNow = 6000;
+  await bleedPipeline.requestTranscription(201);
+  await bleedPipeline.requestTranscription(414);
+  const survivors = [...bleedDurable.values()].filter((segment) => segment.completed && segment.text.trim());
+  check('the bleed fragment is retracted and only the owner\'s sentence survives',
+    survivors.length === 1 && survivors[0].csrc === 201
+      && survivors[0].text === 'diye bir cümle söyledim bakalım burada üç tane adım var değil mi',
+    JSON.stringify(survivors));
+  check('the retraction went out as an empty-text callback under the fragment\'s own id',
+    bleedCallbacks.some((segment) => segment.csrc === 414 && !segment.completed && segment.text === ''),
+    JSON.stringify(bleedCallbacks));
+  check('the settled pair is counted', bleedPipeline.health().resolvedContests >= 1, JSON.stringify(bleedPipeline.health()));
+  await bleedPipeline.dispose();
+}
+
 // ── a long meeting's closed turns leave nothing behind in the shared GMeet window ──
 // Every turn boundary mints a new `csrc-<n>:<turn>` key, and each key carries its own buffer and
 // two-second submission timer. What the window holds must track the number of ACTIVE lanes, not

@@ -9,6 +9,7 @@
  */
 const fs = require("fs");
 const path = require("path");
+const { isBuiltin } = require("node:module");
 
 const PKG_ROOT = path.resolve(__dirname, "..");
 const SRC = path.join(PKG_ROOT, "src");
@@ -16,10 +17,6 @@ const pkg = JSON.parse(fs.readFileSync(path.join(PKG_ROOT, "package.json"), "utf
 const allowedPkgs = new Set([
   ...Object.keys(pkg.dependencies || {}),
   ...Object.keys(pkg.devDependencies || {}),
-]);
-const NODE_BUILTINS = new Set([
-  "fs", "path", "child_process", "net", "os", "util", "events", "stream",
-  "crypto", "http", "https", "url", "assert", "buffer", "process",
 ]);
 
 function walk(dir) {
@@ -49,7 +46,7 @@ for (const file of walk(SRC)) {
     } else {
       // bare: must be a Node builtin or a declared dependency
       const top = spec.startsWith("@") ? spec.split("/").slice(0, 2).join("/") : spec.split("/")[0];
-      if (!NODE_BUILTINS.has(top) && !allowedPkgs.has(top)) {
+      if (!isBuiltin(spec) && !allowedPkgs.has(top)) {
         violations.push(`${rel}: undeclared external dependency → "${spec}"`);
       }
     }

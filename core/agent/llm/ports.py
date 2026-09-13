@@ -277,6 +277,7 @@ def run_harness_turn(
     commit: bool = True,
     author: Optional[tuple[str, str]] = None,
     extra_mounts: Optional[Iterable[Path | str]] = None,
+    before_commit: Optional[Callable[[], None]] = None,
 ) -> Iterator[dict]:
     """Run one harness turn over ``work``, streaming normalized UnitEvents, then commit EACH mount.
 
@@ -344,6 +345,10 @@ def run_harness_turn(
             reverted = []
         if reverted:
             yield {"type": "policy-reverted", "paths": reverted}
+    # All policy baselines are restored even if artifact preparation rejects the turn.
+    if before_commit and done and done.get("ok", True) is True:
+        before_commit()
+    for mount in mounts:
         try:
             sha = _commit_mount(mount, message=msg, author=author)
         except subprocess.CalledProcessError:

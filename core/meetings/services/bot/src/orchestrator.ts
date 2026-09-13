@@ -43,12 +43,6 @@ export interface OrchestratorDeps {
   aloneness: AlonenessSource;
   /** Optional — recording is gated by invocation.recordingEnabled; the core only closes it. */
   recording?: RecordingSink;
-  /** Optional — run ONCE, right after the bot is admitted and the engine is up. Today: post the
-   *  configured greeting into the meeting chat. Deliberately a hook rather than inline work: the
-   *  orchestrator owns WHEN the bot is seated, and nothing about a greeting belongs in its state
-   *  machine. MUST NOT throw and must never be allowed to end the meeting — a chat panel that
-   *  refuses a message is not a reason to leave a call. */
-  onAdmitted?: () => Promise<void>;
   /** Optional (#530) — the SECONDARY control-plane channel probe (redis), consulted only when
    *  the first `joining` emit is unreachable on the primary channel. ABSENT ⇒ the secondary is
    *  treated as reachable (conservative: never abort on an un-probeable channel), so the gate
@@ -248,6 +242,7 @@ export function createOrchestrator(inv: Invocation, deps: OrchestratorDeps) {
     const unsubscribe = deps.acts.subscribe(handle);
     let outcome: JoinOutcome;
     let joinReason: string | undefined;
+    let meetingTitle: string | undefined;
     try {
       // Race the (possibly long, lobby-blocked) join against a pre-active abort. A stop/SIGTERM in the
       // waiting room resolves `aborted` → we stop waiting, WITHDRAW the join request, and terminate —
@@ -276,6 +271,7 @@ export function createOrchestrator(inv: Invocation, deps: OrchestratorDeps) {
       }
       outcome = raced.result.outcome;
       joinReason = raced.result.reason;
+      meetingTitle = raced.result.meetingTitle;
       await reportChain;   // flush in-flight reports before deciding admission
     } catch (e) {
       unsubscribe();
@@ -294,15 +290,7 @@ export function createOrchestrator(inv: Invocation, deps: OrchestratorDeps) {
       await emit('failed', { failure_stage: 'awaiting_admission', completion_reason: reason, reason: reasonText, exit_code: 1 });
       return { exitCode: 1, status: 'failed', completionReason: reason };
     }
-    if (cur !== 'active') await emit('active');   // the join driver may already have reported active
-
-    // Seated. Anything the bot should DO on arrival (the greeting) happens here — after admission
-    // so the chat panel exists, and fully isolated so it can only cost itself: a greeting that
-    // fails must not turn a joined meeting into a failed one.
-    if (deps.onAdmitted) {
-      try { await deps.onAdmitted(); }
-      catch (e) { console.error(`[bot] onAdmitted hook failed (ignored): ${String(e)}`); }
-    }
+    if (cur !== 'active') await emit('active', meetingTitle ? { meeting_title: meetingTitle } : {});   // the join driver may already have reported active
 
     // ── active: start the engine, wire removal + aloneness + the optional time cap (acts already subscribed) ──
     try {

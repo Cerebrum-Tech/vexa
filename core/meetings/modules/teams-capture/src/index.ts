@@ -6,9 +6,6 @@
  *   - createTeamsSpeakers: watches Teams' voice-level "blue-square" outline to
  *     detect the active speaker → a mixed-capture.v1 `hint` (kind 'dom-outline').
  *   - createTeamsChat: reads the chat panel (content tier).
- *   - focusTeamsChatInput / clickTeamsChatSend / teamsChatHasMessage: the send half.
- *     The page opens the panel and focuses the box; the TYPING is done by Playwright's real
- *     keyboard on the Node side, because Teams' editor ignores DOM-written text.
  *   - createTeamsCaptions: reads Teams' live closed captions when they are ON —
  *     an ALTERNATIVE speaker-attribution SOURCE (Teams attributes each caption to
  *     a named participant itself). Best-effort and DIAGNOSTIC in this iteration:
@@ -57,8 +54,6 @@ export type {
 } from './producer-dom-trace.js';
 export { createTeamsChat } from './teams-chat.js';
 export type { TeamsChat, TeamsChatMessage } from './teams-chat.js';
-export { focusTeamsChatInput, teamsChatHasMessage, teamsChatComposeText, teamsChatEditorIsActive, clickTeamsChatSend } from './teams-chat-send.js';
-export type { TeamsChatSendOptions, TeamsChatSendResult } from './teams-chat-send.js';
 export { createTeamsCaptions, teamsCaptionSelectors } from './msteams-captions.js';
 export type {
   TeamsCaptions,

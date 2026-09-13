@@ -51,6 +51,15 @@ async function main(): Promise<void> {
     words: [{ word: 'hello', start: 0, end: 0.5, probability: 0.99 }, { word: 'world', start: 0.6, end: 1.2 }],
   };
 
+  // Native IDs without their platform cannot identify the source meeting's metadata.
+  {
+    const { client, xadds } = fakeClient();
+    const sink = createRedisTranscriptSink({ client, meetingId: 64, nativeMeetingId: '322077721440001', platform: 'teams' } as any);
+    await sink.publish(seg);
+    await sink.retract!([seg.segment_id]);
+    check('durable transcription and retract carry Teams platform', xadds.length === 2 && xadds.every((entry) => JSON.parse(entry.fields.payload).platform === 'teams'));
+  }
+
   // ── publish one segment → assert both legs ──
   {
     const { client, xadds, pubs } = fakeClient();

@@ -39,6 +39,8 @@ export interface RedisTranscriptSinkOptions {
   /** The native meeting code (e.g. `abc-defg-hij`). Stamped on the segment so the agent watcher keys
    *  on the native id WITHOUT a /meetings lookup (P23: one writer, no re-derivation). */
   nativeMeetingId?: string;
+  /** Source platform accompanies native IDs for downstream meeting metadata. */
+  platform?: string;
   /** Live WebSocket envelope. `speaker-snapshot` is the Dashboard's GMeet-compatible contract:
    * each message replaces the complete pending set for one stable speaker key while confirmed
    * rows remain additive. Keep the legacy one-segment envelope as the default for every platform
@@ -50,7 +52,7 @@ export interface RedisTranscriptSinkOptions {
  *  mutable channel for one segment (best-effort fan-out; rejections propagate to the engine,
  *  which decides whether a publish failure is fatal). */
 export function createRedisTranscriptSink(opts: RedisTranscriptSinkOptions): TranscriptSink {
-  const { client, meetingId, nativeMeetingId, liveEnvelope = 'segment' } = opts;
+  const { client, meetingId, nativeMeetingId, platform, liveEnvelope = 'segment' } = opts;
   const channel = mutableChannel(meetingId);
   const pendingBySpeakerKey = new Map<string, Map<string, TranscriptSegment>>();
 
@@ -90,7 +92,7 @@ export function createRedisTranscriptSink(opts: RedisTranscriptSinkOptions): Tra
     // Emit that, not a flat segment, so the bot's transcripts actually reach the collector. (The
     // mock-bot L3 lane caught the flat form: O6 read the raw stream directly and never exercised the collector.)
     const payload = JSON.stringify({
-      type: 'transcription', meeting_id: meetingId, native_meeting_id: nativeMeetingId, segments: [segment],
+      type: 'transcription', meeting_id: meetingId, native_meeting_id: nativeMeetingId, platform, segments: [segment],
     });
     await client.xAdd(TRANSCRIPTION_STREAM, '*', { payload });
 
@@ -127,7 +129,7 @@ export function createRedisTranscriptSink(opts: RedisTranscriptSinkOptions): Tra
     const changed = liveEnvelope === 'segment' ? [] : withdrawFromPending(segmentIds);
 
     const payload = JSON.stringify({
-      type: 'transcript_retract', meeting_id: meetingId, native_meeting_id: nativeMeetingId, segment_ids: segmentIds,
+      type: 'transcript_retract', meeting_id: meetingId, native_meeting_id: nativeMeetingId, platform, segment_ids: segmentIds,
     });
     await client.xAdd(TRANSCRIPTION_STREAM, '*', { payload });
 

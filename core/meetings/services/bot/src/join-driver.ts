@@ -44,7 +44,7 @@ export function admissionOutcomeToJoinOutcome(outcome: AdmissionOutcome): JoinOu
 function mapState(s: JoinState): BotStatus | null {
   switch (s) {
     case 'awaiting_admission': return 'awaiting_admission';
-    case 'admitted':           return 'active';
+    case 'admitted':           return null; // The orchestrator emits active with the returned subject.
     case 'blocked':
     case 'needs_human_help':   return 'needs_help';
     default:                   return null;   // 'joining'/'leaving' — orchestrator owns those
@@ -82,7 +82,7 @@ export function createBrowserJoinDriver(page: Page, inv: Invocation): JoinDriver
         if (e instanceof AdmissionError) return { outcome: admissionOutcomeToJoinOutcome(e.outcome), reason: e.message };
         throw e;
       }
-      if (r.admitted) { await report('active'); return { outcome: 'admitted' }; }
+      if (r.admitted) return { outcome: 'admitted', ...(r.meetingTitle ? { meetingTitle: r.meetingTitle } : {}) };
       const outcome: JoinOutcome = (r.state === 'blocked' || r.state === 'needs_human_help') ? 'blocked' : 'rejected';
       return { outcome, reason: `join ended in state '${r.state}' without admission` };
     },

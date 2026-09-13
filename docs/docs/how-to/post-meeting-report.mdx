@@ -14,8 +14,10 @@ workspace the attendees already share.
 
 ## Automatic Turkish report on meeting end
 
-The meeting worker can update `kg/entities/meeting/<meeting-id>.md` automatically when it receives
-`session_end`. Configure the workspace's visible `agents/meeting.md` frontmatter:
+The meeting worker updates `kg/entities/meeting/<native-id>.md` when it receives `session_end` and
+retains the completed report at `kg/entities/meeting/<native-id>.run-<meeting-row-id>.md` for that
+specific run. Recurring meetings therefore keep their earlier summaries. Configure the workspace's
+visible `agents/meeting.md` frontmatter:
 
 ```yaml
 enabled: false
@@ -28,6 +30,29 @@ model: gemma4:12b
 the final document turn. The Turkish report contains exactly `## Özet`, `## Alınan Kararlar`, and
 `## Aksiyon Maddeleri`. Decisions require an explicit commitment in the transcript. Action owners
 are retained only when stated; otherwise the report says `Sorumlu belirtilmedi`.
+
+Correction is enabled by default. The meeting owner can turn processing off during a live meeting;
+that explicit preference is retained and prevents further model beats and the final report turn.
+Changing the displayed transcript in a shared meeting changes only the viewer's local view.
+
+The browser's **Özet** tab and **Bildirimler** menu recognize completion from producer-stamped run,
+workspace and content revision metadata. The producer validates the report, commits its readiness metadata and per-run copy through the
+governed writer, and confirms that both exact files reached workspace history. Preparation notes, a report
+from another run on the same join link, and inaccessible files do not produce a ready indicator.
+Notifications are observed while other pages are open; opening one returns to its canonical meeting.
+
+The meeting owner can select **Özeti düzenle**, change the summary, and click **Kaydet**. Typing does
+not save. **Vazgeç** discards the draft. Decisions and action items remain separate. Saving checks the
+report revision and workspace write access, and confirms the worker's commit before showing success.
+A conflicting update keeps your draft so you can review the latest report before trying again.
+
+Named people and companies supported by the generated report become pages in the same workspace's
+**Kişiler** and **Şirketler** directories. Each page includes the exact source excerpt and a link to
+the meeting run. Matching titles and aliases reuse existing pages while preserving their notes;
+ambiguous matches are left unchanged. Default workspaces start without demo people or companies.
+When the document's entity metadata provides no usable report evidence, the worker extracts names
+from the finished report through the configured completion provider and validates each quoted mention.
+If that provider is unavailable, the report is retained and no unsupported entity page is created.
 
 ## Long meetings, small context windows
 

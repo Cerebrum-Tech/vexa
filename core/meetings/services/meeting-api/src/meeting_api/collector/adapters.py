@@ -1089,7 +1089,11 @@ class SqlAlchemyTranscriptStore:
             )).scalars().first()
             if meeting is None:
                 return None
-            if meeting.status not in ("idle", "scheduled"):
+            # The title is display-only and never fought over by the bot FSM: renaming a meeting that
+            # already ran (or is running) is the one edit allowed past the intent statuses. Any other
+            # key on an FSM-owned row is still a conflict.
+            title_only = set(updates) <= {"title"}
+            if meeting.status not in ("idle", "scheduled") and not title_only:
                 return {"error": "conflict"}
             data = dict(meeting.data) if isinstance(meeting.data, dict) else {}
 

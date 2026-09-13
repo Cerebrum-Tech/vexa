@@ -8,8 +8,9 @@ REGISTER the live meeting, RE-ARM the copilot dispatch on EVERY meeting that str
 EVERY meeting gets a copilot, because every meeting gets a post-meeting report. ``proc:meeting:{row}:on``
 is the LIVE-BEATS desired state — the per-meeting live LLM inference the user toggles — NOT the worker's
 existence gate: it rides to the worker as ``VEXA_MEETING_LIVE_BEATS`` and gates only the live card beats
-there. Live beats are the per-meeting spend; the post-meeting report is not, so arming a worker for every
-meeting must never silently switch live inference on for every meeting.
+there. Correction is OFF until a reader asks for it (the raw transcript is the default view), subject
+to workspace policy. The preference is owned by the API and re-checked by the worker before each live
+correction beat.
 
 P0 (cross-tenant leak fix): the transcript CARRIER + ``:on`` + ``:cursor`` + dispatch keys are the numeric
 ROW id ``mid`` (unique per (user, platform, native, run)), NOT the native Meet code (which collides across
@@ -44,16 +45,12 @@ logger = logging.getLogger("agent_api.tx_watch")
 SRC = "transcription_segments"           # the wire every bot publishes to (configurable upstream)
 GROUP = "agent_copilot"                  # our consumer group — independent of the collector's
 REARM_SEC = 30.0                         # re-touch a meeting's dispatch at most this often (keep-alive)
-# Rolling TTL the arm block refreshes on the ``proc:meeting:{row}:on`` live-beats flag while segments
-# flow — the flag's REAL end-of-life (the wire carries no session_end on the stop path, so the reap
-# branch is belt-only). Refresh cadence == REARM_SEC, so anything ≥ a few minutes is safe; an hour also
-# rides out long mid-meeting silences without silently disarming an active toggle.
-PROC_FLAG_ROLLING_TTL_SEC = 3600
 _BRIEF = (
     "You are the live meeting copilot. Watch the meeting transcript as it streams in and surface the "
     "people, companies, products, and projects worth tagging."
 )
 _PLATFORM = {"google_meet": "Google Meet", "teams": "Microsoft Teams", "zoom": "Zoom", "jitsi": "Jitsi Meet"}
+_details: dict[tuple[str, str], dict] = {}  # (owner, canonical row) → last authorized display metadata
 _native: dict[str, tuple[str, str]] = {}  # numeric meeting_id → (native_meeting_id, platform), cached
 # Only the meeting_id whose row we actually matched is cached above. A MISS is NOT cached (so it is
 # retried on the next segment — the new meeting's row may not be visible in the gateway list yet),
@@ -160,7 +157,7 @@ def _resolve_native(meeting_id: str) -> "tuple[str, str] | None":
             mid = str(mt.get("id") or mt.get("meeting_id") or "")
             nat = mt.get("native_meeting_id") or mt.get("native_id") or mt.get("platform_specific_id")
             if mid and nat:
-                _native[mid] = (nat, mt.get("platform") or "google_meet")
+                _native[mid] = (nat, mt.get("platform") or "unknown")
     except urllib.error.HTTPError as e:
         # P18: a TYPED, ATTRIBUTED fault — not a swallowed "best-effort" miss. 401/403 almost always means
         # the bot key is stale/invalid (e.g. after a DB wipe), which is exactly the 90-minute mystery.
@@ -243,6 +240,33 @@ def _resolve_owner(meeting_id: str) -> "str | None":
     subject = str(user_id)
     _owner[meeting_id] = subject
     return subject
+
+
+def _resolve_meeting_details(base: str, mid: str, owner: str) -> dict:
+    """Read display metadata from the exact owned row; shares never supply private context."""
+    if not mid.isdigit() or not owner.isdigit():
+        return {}
+    try:
+        req = urllib.request.Request(
+            f"{base.rstrip('/')}/meetings/{mid}", headers={"X-User-Id": owner})
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            row = json.loads(resp.read().decode() or "{}")
+        if (not isinstance(row, dict) or str(row.get("id")) != mid
+                or str(row.get("user_id")) != owner or row.get("shared") is not False):
+            return {}
+        details = {}
+        for source, target in (("native_meeting_id", "native_id"), ("platform", "platform")):
+            value = row.get(source)
+            if isinstance(value, str) and value.strip():
+                details[target] = value.strip()
+        data = row.get("data")
+        title = data.get("title") if isinstance(data, dict) else None
+        if isinstance(title, str) and title.strip():
+            details["title"] = title.strip()
+        return details
+    except Exception:
+        logger.warning("meeting display metadata unavailable for canonical row %s", mid)
+        return {}
 
 
 def _record_meeting_doc(native: str, platform: str, subject: str) -> None:
@@ -359,11 +383,11 @@ def _handle(r, dispatcher, live, subject, p, last_arm, keymap, first_seen) -> No
     # The gateway lookup is only a labeled fallback for older bots that don't stamp it — and now purely a
     # DISPLAY concern (the carrier keys on `mid` regardless).
     stamped = p.get("native_meeting_id") or p.get("native_id")
-    if stamped:
-        resolved = (str(stamped), p.get("platform") or "google_meet")
+    if stamped and p.get("platform"):
+        resolved = (str(stamped), p["platform"])
     else:
         resolved = _resolve_native(mid)
-    native, platform = resolved if resolved else (mid, p.get("platform") or "google_meet")
+    native, platform = resolved if resolved else (str(stamped or mid), p.get("platform") or "unknown")
     if resolved is None and p.get("type") != "session_end":
         # DISPLAY-only divergence: the copilot/terminal still key transcript data on the row id `mid`
         # (correct + isolated) — only the human-readable native code/title is unavailable until the
@@ -380,7 +404,8 @@ def _handle(r, dispatcher, live, subject, p, last_arm, keymap, first_seen) -> No
     # written into THEIR workspace — the one the terminal's recap panel reads. ``subject`` (the
     # ``u_live`` placeholder) is now only the fallback for a row we genuinely cannot attribute, and
     # the fallback is loud rather than silent.
-    owner = _resolve_owner(mid) or subject
+    resolved_owner = _resolve_owner(mid)
+    owner = resolved_owner or subject
     kind = p.get("type")
     if kind == "transcription":  # P18 liveness: record that segments ARE arriving (distinct from relayed)
         with _HEALTH_LOCK:
@@ -389,28 +414,33 @@ def _handle(r, dispatcher, live, subject, p, last_arm, keymap, first_seen) -> No
             ing["segments"] = int(ing.get("segments", 0)) + 1
     out_stream = f"tc:meeting:{key}"
     if kind == "session_end":
-        # The collector emits the session_end MARKER onto tc:meeting:{row_id} (P23/P0, single writer); the
-        # agent only does its OWN reaping here — drop the live row (by the row-id key we registered it
-        # under), clear keymap, reap the live-beats DESIRED STATE (the meeting is over — a stale `:on`
-        # flag would arm live inference for the NEXT run on this key and litter redis; ADR 0027 makes
-        # this watcher the flag's end-of-life owner), connect the kg doc (native, for display).
+        # The collector owns the session_end carrier. The agent retires its live registry entry.
+        # Processing preferences belong to the API: the watcher never deletes or expires them,
+        # so a concurrent OFF remains attached to this canonical run through any worker resume.
         live.drop(key)
         last_arm.pop(key, None)
         keymap.pop(mid, None)
         first_seen.pop(mid, None)
-        try:
-            r.delete(f"proc:meeting:{key}:on")
-        except Exception:  # noqa: BLE001 — best-effort; a leftover flag only mis-sets the next run's beats
-            logger.exception("live-beats flag reap failed for %s", key)
         logger.info("meeting %s ended → reaping copilot", key)
         # Connect this meeting's own kg doc (authored by the §4 worker on session_end) to the
         # meeting — from here, so the user key stays out of the isolated worker container.
         _record_meeting_doc(native, platform, owner)
+        _details.pop((owner, mid), None)
         _owner.pop(mid, None)
         _owner_miss_at.pop(mid, None)
         return
     if kind != "transcription":
         return
+
+    now = time.monotonic()
+    due = now - last_arm.get(key, 0.0) > REARM_SEC
+    settings = getattr(dispatcher, "settings", None)
+    if due and resolved_owner and settings is not None:
+        _details[(owner, mid)] = _resolve_meeting_details(settings.meeting_api_url, mid, resolved_owner)
+    details = _details.get((owner, mid), {})
+    native = details.get("native_id") or native
+    platform = details.get("platform") or platform
+    title = details.get("title")
 
     # Keep the terminal's live feed fresh on EVERY batch (a cheap dict write) so an agent-api restart
     # can't drop the meeting from the list — it reappears on the first segment. Throttle only the spawn.
@@ -418,7 +448,7 @@ def _handle(r, dispatcher, live, subject, p, last_arm, keymap, first_seen) -> No
     # transcript carrier (tc:meeting:{mid}) agree — the terminal SSE reads both by the same id.
     live.add({
         "meeting_id": key, "session_uid": key, "native_id": native, "platform": platform,
-        "title": _title(platform, native), "unit_id": f"agent-meet-{key}",
+        "title": title or _title(platform, native), "unit_id": f"agent-meet-{key}",
         # The meetings-domain ROW id (unique per meeting run). Now the ROUTING key itself — carried
         # explicitly so /api/meeting/process keys the SAME copilot dispatch by it, and the worker writes
         # proc:meeting:{row_id} which the meeting-api db-writer persists into the meeting row's data JSONB.
@@ -429,36 +459,30 @@ def _handle(r, dispatcher, live, subject, p, last_arm, keymap, first_seen) -> No
     # EVERY streaming meeting arms (and keeps alive) a copilot — the post-meeting report is the
     # default journey, not an opt-in, so the worker's existence can never depend on a user toggle.
     # ADR 0027 keeps this loop the ONE dispatch arbiter; the throttle below is the only gate.
-    now = time.monotonic()
     # ``proc:meeting:{key}:on`` is the LIVE-BEATS desired state (the terminal's per-meeting toggle via
     # /api/meeting/process), carried into the dispatch and read there as VEXA_MEETING_LIVE_BEATS. It is
     # a DISTINCT key from the processed-notes stream ``proc:meeting:{key}`` (a GET on that stream raises
-    # WRONGTYPE). A lookup failure reads as beats OFF: the report is still authored, and per-meeting live
-    # inference is never switched on by an unreadable flag.
+    # WRONGTYPE). An ABSENT flag reads as beats OFF — the same default the worker applies
+    # (``current_processing_enabled``) and the terminal renders (``defaultProcessingView``); the three
+    # are one rule and must not drift. A lookup failure reads as OFF too: the report is still authored,
+    # and per-meeting live inference is never switched on by a missing or unreadable flag.
     try:
-        live_beats = bool(r.get(f"proc:meeting:{key}:on"))
+        preference = r.get(f"proc:meeting:{key}:on")
+        live_beats = preference is not None and str(preference).strip().lower() in {"1", "true", "yes", "on"}
     except Exception:  # noqa: BLE001 — an unreadable desired state must not cost the meeting its report
         logger.exception("live-beats flag lookup failed for %s — arming with live beats off", key)
         live_beats = False
-    if now - last_arm.get(key, 0.0) > REARM_SEC:
+    if due:
         last_arm[key] = now
-        if live_beats:
-            # Rolling TTL refresh (P21/P22 — the flag's REAL end-of-life): segments flowing = the flag
-            # stays; flow stopped = it expires within the hour. Needed because NO session_end frame
-            # crosses this wire on the stop path (verified on the eyeball) — the reap branch below only
-            # covers bots that do publish one; without this, an armed flag persisted forever.
-            try:
-                r.expire(f"proc:meeting:{key}:on", PROC_FLAG_ROLLING_TTL_SEC)
-            except Exception:  # noqa: BLE001 — refresh is hygiene; never block the arm
-                pass
         _arm(dispatcher, owner, key, platform, live_beats=live_beats,
              transcript_start_id=_resume_cursor(r, key),
-             numeric_meeting_id=mid if mid.isdigit() else None, native_id=native)
+             numeric_meeting_id=mid if mid.isdigit() else None, native_id=native, title=title)
 
 
 def _arm(dispatcher, subject: str, key: str, platform: str, *, live_beats: bool,
          transcript_start_id: str = "0-0",
-         numeric_meeting_id: str | None = None, native_id: str | None = None) -> None:
+         numeric_meeting_id: str | None = None, native_id: str | None = None,
+         title: str | None = None) -> None:
     """Spawn-or-touch the meeting's copilot (keyed agent-meet-{key}, where key is the ROW id). Idempotent
     FOR REAL since ADR 0027: runtime.v1 create touches a running workload (returns its live status) and
     only spawns one that is absent/exited — before that, every re-arm force-replaced the live container
@@ -474,6 +498,8 @@ def _arm(dispatcher, subject: str, key: str, platform: str, *, live_beats: bool,
         # unit.v1 check.
         "live_beats": bool(live_beats),
     }
+    if title:
+        meeting_ref["title"] = title
     if native_id:
         # DISPLAY only: the worker names kg/entities/meeting/{native}.md + the title by this human-readable
         # code (e.g. wfn-gzwz-kwt), never the numeric row id. An internal hint — stripped before the

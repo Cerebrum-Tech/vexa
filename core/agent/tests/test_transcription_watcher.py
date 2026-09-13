@@ -79,6 +79,7 @@ def _fresh_state():
 
 
 def _reset_module_caches():
+    w._details.clear()
     w._native.clear()
     w._resolve_miss_at.clear()
     w._owner.clear()
@@ -211,11 +212,8 @@ def test_arm_resumes_from_the_frozen_cursor(monkeypatch):
     assert len(r.streams["tc:meeting:42"]) == 2                   # unchanged — the agent appended nothing
 
 
-def test_arm_refreshes_the_flag_rolling_ttl(monkeypatch):
-    """The flag's REAL end-of-life is its rolling TTL (verified on the eyeball: NO session_end frame
-    crosses the wire on the stop path, so the reap branch is belt-only). While segments flow, each
-    throttled arm refreshes proc:meeting:{row}:on to PROC_FLAG_ROLLING_TTL_SEC; when the flow stops,
-    the flag expires instead of persisting forever."""
+def test_arm_leaves_preference_expiry_to_the_api(monkeypatch):
+    """The watcher never changes preference TTLs; absent and explicit ON both enable processing."""
     _reset_module_caches()
     monkeypatch.setattr(w, "_resolve_native", lambda mid: ("aaa-aaaa-aaa", "google_meet"))
 
@@ -225,7 +223,7 @@ def test_arm_refreshes_the_flag_rolling_ttl(monkeypatch):
     w._handle(r, disp, live, "u_live", _payload("42"), *_fresh_state())
 
     assert len(disp.dispatched) == 1
-    assert getattr(r, "expires", {}).get("proc:meeting:42:on") == w.PROC_FLAG_ROLLING_TTL_SEC
+    assert "proc:meeting:42:on" not in getattr(r, "expires", {})
 
 
 def test_arm_without_cursor_backfills_full_history(monkeypatch):
@@ -246,15 +244,16 @@ def test_arm_without_cursor_backfills_full_history(monkeypatch):
 def test_every_meeting_arms_a_copilot_with_live_beats_off_by_default(monkeypatch):
     """EVERY meeting that streams transcript arms a copilot — the post-meeting report is the default
     journey, so the worker's EXISTENCE can never hang off a toggle a user can only reach mid-meeting.
-    With no proc:meeting flag the dispatch still fires, carrying live_beats=False (no per-meeting live
-    inference). The agent writes no transcript stream either way."""
+    With no proc:meeting flag the dispatch still happens, but live correction stays OFF: the raw
+    transcript is what the terminal shows by default, and the two defaults are one rule. The agent
+    never writes the raw transcript carrier."""
     _reset_module_caches()
     monkeypatch.setattr(w, "_resolve_native", lambda mid: ("aaa-aaaa-aaa", "google_meet"))
     r, disp, live = _FakeRedis(), _FakeDispatcher(), _FakeLive()
 
     w._handle(r, disp, live, "u_live", _payload("42"), *_fresh_state())
     assert len(disp.dispatched) == 1                                        # armed with the flag UNSET
-    assert disp.dispatched[0]["context"]["meeting"]["live_beats"] is False  # …but live beats stay OFF
+    assert disp.dispatched[0]["context"]["meeting"]["live_beats"] is False  # absent preference ⇒ no correction
     assert "42" in live.by_uid                      # the meeting registers (by ROW id)
     assert _native_streams(r) == []                 # …and the agent writes no transcript carrier
 
@@ -270,6 +269,14 @@ def test_processing_flag_switches_live_beats_not_the_copilot(monkeypatch):
     w._handle(r, disp, live, "u_live", _payload("42"), *_fresh_state())
     assert len(disp.dispatched) == 1
     assert disp.dispatched[0]["context"]["meeting"]["live_beats"] is True
+
+    # …and switching it back off keeps the copilot (the report) while dropping the beats.
+    _reset_module_caches()
+    r2, disp2, live2 = _FakeRedis(), _FakeDispatcher(), _FakeLive()
+    r2.set("proc:meeting:42:on", "0")
+    w._handle(r2, disp2, live2, "u_live", _payload("42"), *_fresh_state())
+    assert len(disp2.dispatched) == 1
+    assert disp2.dispatched[0]["context"]["meeting"]["live_beats"] is False
 
 
 def test_unreadable_flag_still_arms_with_beats_off(monkeypatch):
@@ -310,7 +317,8 @@ def test_live_beats_reaches_the_worker_env_as_a_string_flag(monkeypatch):
         contracts.validate_unit_invocation(dispatch._without_chat_session(inv))  # the hint never leaks
         return dispatch.build_unit_env(settings, inv, unit_id="agent-meet-42", token="t")
 
-    assert env_for(None)["VEXA_MEETING_LIVE_BEATS"] == "0"   # default journey: worker yes, beats no
+    assert env_for(None)["VEXA_MEETING_LIVE_BEATS"] == "0"   # no preference ⇒ raw transcript, no beats
+    assert env_for("0")["VEXA_MEETING_LIVE_BEATS"] == "0"
     assert env_for("1")["VEXA_MEETING_LIVE_BEATS"] == "1"    # user toggled live processing on
 
 
@@ -403,10 +411,8 @@ def test_session_end_reaps_copilot_without_writing_the_carrier(monkeypatch):
     assert _native_streams(r) == []                          # the agent wrote NO session_end marker
 
 
-def test_session_end_reaps_the_processing_flag(monkeypatch):
-    """session_end also deletes the desired-state flag (proc:meeting:{row}:on) — the meeting is over, so
-    a leftover flag must not survive to litter redis / re-arm a copilot for a dead meeting (ADR 0027:
-    this watcher is the flag's end-of-life owner). The frozen cursor is intentionally LEFT in place."""
+def test_session_end_preserves_the_processing_preference(monkeypatch):
+    """Ending a run leaves preference lifetime to its writer and preserves the processing cursor."""
     _reset_module_caches()
     monkeypatch.setattr(w, "_resolve_native", lambda mid: ("nat-9", "google_meet"))
     monkeypatch.delenv("VEXA_BOT_API_KEY", raising=False)
@@ -418,7 +424,7 @@ def test_session_end_reaps_the_processing_flag(monkeypatch):
     w._handle(r, disp, live, "u", _payload("9"), *st)
     w._handle(r, disp, live, "u", {"type": "session_end", "meeting_id": "9"}, *st)
 
-    assert r.get("proc:meeting:9:on") is None                # desired state reaped with the meeting
+    assert r.get("proc:meeting:9:on") == "1"                # writer owns preference lifetime
     assert r.get("proc:meeting:9:cursor") == "5-0"           # cursor frozen (audit / late gap-fill)
 
 
@@ -517,3 +523,101 @@ def test_arm_omits_numeric_meeting_id_when_key_is_not_numeric(monkeypatch):
     assert meeting["meeting_id"] == "sess-uid-fallback"    # keyed on the (non-numeric) uid fallback
     assert "numeric_meeting_id" not in meeting            # no row id → the durable-proc hint is omitted
     assert live.by_uid["sess-uid-fallback"]["numeric_meeting_id"] is None
+
+
+def test_watcher_cannot_expire_or_delete_a_concurrent_explicit_opt_out(monkeypatch):
+    """A stale read of ON must never mutate the newer OFF written by the API."""
+    _reset_module_caches()
+    monkeypatch.setattr(w, "_resolve_native", lambda mid: ("same-link", "google_meet"))
+    monkeypatch.delenv("VEXA_BOT_API_KEY", raising=False)
+    class StalePreferenceRedis(_FakeRedis):
+        def get(self, key):
+            if key.endswith(":on"):
+                return "1"  # ON read overlaps the API's newer SET 0
+            return super().get(key)
+    for kind in ("transcription", "session_end"):
+        r, disp, live = StalePreferenceRedis(), _FakeDispatcher(), _FakeLive()
+        r.set("proc:meeting:42:on", "0")
+        payload = _payload("42") if kind == "transcription" else {"type": "session_end", "meeting_id": "42"}
+        w._handle(r, disp, live, "u_live", payload, *_fresh_state())
+        assert r.kv.get("proc:meeting:42:on") == "0"
+        assert "proc:meeting:42:on" not in getattr(r, "expires", {})
+
+
+def test_native_stamp_without_platform_resolves_canonical_teams_row(monkeypatch):
+    _reset_module_caches()
+    monkeypatch.setattr(w, "_resolve_native", lambda mid: ("322077721440001", "teams") if mid == "64" else None)
+    monkeypatch.setattr(w, "_resolve_owner", lambda mid: "3")
+    r, disp, live = _FakeRedis(), _FakeDispatcher(), _FakeLive()
+    w._handle(r, disp, live, "unused", {**_payload("64"), "native_meeting_id": "322077721440001"}, *_fresh_state())
+    assert live.by_uid["64"]["platform"] == "teams"
+    assert disp.dispatched[0]["context"]["meeting"]["platform"] == "teams"
+
+
+def test_complete_native_platform_stamp_avoids_metadata_lookup(monkeypatch):
+    _reset_module_caches()
+    def forbidden(_):
+        raise AssertionError("fully stamped producer must not need a gateway lookup")
+    monkeypatch.setattr(w, "_resolve_native", forbidden)
+    monkeypatch.setattr(w, "_resolve_owner", lambda mid: "3")
+    r, disp, live = _FakeRedis(), _FakeDispatcher(), _FakeLive()
+    w._handle(r, disp, live, "unused", {**_payload("64"), "native_meeting_id": "322077721440001", "platform": "teams"}, *_fresh_state())
+    assert live.by_uid["64"]["platform"] == "teams"
+
+
+def test_missing_platform_never_invents_google_meet(monkeypatch):
+    _reset_module_caches()
+    monkeypatch.setattr(w, "_resolve_native", lambda mid: None)
+    monkeypatch.setattr(w, "_resolve_owner", lambda mid: "3")
+    r, disp, live = _FakeRedis(), _FakeDispatcher(), _FakeLive()
+    w._handle(r, disp, live, "unused", {**_payload("64"), "native_meeting_id": "322077721440001"}, *_fresh_state())
+    assert live.by_uid["64"]["platform"] == "unknown"
+    assert live.by_uid["64"]["native_id"] == "322077721440001"
+
+
+def test_owned_metadata_uses_exact_row_owner_and_preserves_manual_title(monkeypatch):
+    from types import SimpleNamespace
+    _reset_module_caches()
+    monkeypatch.setattr(w, "_resolve_native", lambda mid: None)
+    monkeypatch.setattr(w, "_resolve_owner", lambda mid: "3")
+    requests = []
+    class Response:
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+        def read(self):
+            return json.dumps({"id": 64, "user_id": 3, "shared": False, "platform": "teams", "native_meeting_id": "322077721440001", "data": {"title": "Elle belirlenen başlık", "platform_title": "Platform başlığı"}}).encode()
+    def get(req, timeout):
+        requests.append(req)
+        return Response()
+    monkeypatch.setattr(w.urllib.request, "urlopen", get)
+    r, disp, live = _FakeRedis(), _FakeDispatcher(), _FakeLive()
+    disp.settings = SimpleNamespace(meeting_api_url="http://meeting-api.test:8080")
+    state = _fresh_state()
+    p = {**_payload("64"), "native_meeting_id": "322077721440001", "platform": "teams"}
+    w._handle(r, disp, live, "unused", p, *state)
+    w._handle(r, disp, live, "unused", p, *state)
+    assert len(requests) == 1
+    assert requests[0].full_url == "http://meeting-api.test:8080/meetings/64"
+    assert dict((k.lower(), v) for k, v in requests[0].header_items())["x-user-id"] == "3"
+    assert live.by_uid["64"]["title"] == "Elle belirlenen başlık"
+    assert disp.dispatched[0]["context"]["meeting"]["title"] == "Elle belirlenen başlık"
+
+
+def test_owned_metadata_rejects_foreign_shared_missing_and_mismatched_rows(monkeypatch):
+    from types import SimpleNamespace
+    for invalid in ({"id": 65, "user_id": 3, "shared": False}, {"id": 64, "user_id": 4, "shared": False}, {"id": 64, "user_id": 3, "shared": True}, {"id": 64, "user_id": 3}):
+        _reset_module_caches()
+        monkeypatch.setattr(w, "_resolve_native", lambda mid: None)
+        monkeypatch.setattr(w, "_resolve_owner", lambda mid: "3")
+        class Response:
+            def __enter__(self): return self
+            def __exit__(self, *args): pass
+            def read(self):
+                return json.dumps({**invalid, "platform": "zoom", "native_meeting_id": "private", "data": {"title": "Other owner private title"}}).encode()
+        monkeypatch.setattr(w.urllib.request, "urlopen", lambda *a, **k: Response())
+        r, disp, live = _FakeRedis(), _FakeDispatcher(), _FakeLive()
+        disp.settings = SimpleNamespace(meeting_api_url="http://meeting-api.test:8080")
+        w._handle(r, disp, live, "unused", {**_payload("64"), "native_meeting_id": "322077721440001", "platform": "teams"}, *_fresh_state())
+        assert "title" not in disp.dispatched[0]["context"]["meeting"]
+        assert live.by_uid["64"]["title"] != "Other owner private title"
+        assert live.by_uid["64"]["platform"] == "teams"

@@ -4,7 +4,7 @@
  * the confirm loop. Pure + offline (the HTTP client is exercised by pipeline replay
  * + live L4). Run: npm test  (or npx tsx src/confidence.test.ts)
  */
-import { isLowConfidenceSegment } from "./index.js";
+import { isForeignScript, isLowConfidenceSegment } from "./index.js";
 
 let failed = 0;
 const check = (name: string, cond: boolean) => {
@@ -28,3 +28,27 @@ check("compression boundary 2.4 kept (strict >)", isLowConfidenceSegment({ compr
 
 if (failed) { console.error(`\n❌ confidence: ${failed} checks FAILED.`); process.exit(1); }
 console.log(`\n✅ confidence: all checks pass — junk segments dropped, real speech and threshold edges kept.`);
+
+
+// ── the foreign-script gate (meeting 90: a noisy car, tr forced) ───────────────────────────────
+{
+  const real = [
+    'Arabada çok gürültü olduğu için.',
+    'Sen konuşmazsan saçmalıyor.',
+    "Ama şöyle, İngilizce'de daha çok materyal...",
+  ];
+  const hallucinated = ['삶을 바라보는', '在家里', 'Солтүстік-шығысқа қараймын.', 'هادا.', 'あ', '또한,'];
+  for (const text of real) {
+    check(`real Turkish survives: ${text.slice(0, 28)}`, !isForeignScript(text, 'tr'));
+  }
+  for (const text of hallucinated) {
+    check(`foreign-script hallucination dropped: ${text}`, isForeignScript(text, 'tr'));
+  }
+  check('a Latin-script hallucination is NOT caught here (the logprob gate owns it)',
+    !isForeignScript('Hämähäkkä.', 'tr') && !isForeignScript('Jeg starter tirsdag.', 'tr'));
+  check('one quoted foreign word inside a Turkish line survives',
+    !isForeignScript('Japonca 猫 kelimesini kullandı.', 'tr'));
+  check('without a forced language nothing is filtered', !isForeignScript('삶을 바라보는', undefined));
+  check('a non-Latin deployment is never filtered by this gate',
+    !isForeignScript('삶을 바라보는', 'ko') && !isForeignScript('Солтүстік', 'ru'));
+}

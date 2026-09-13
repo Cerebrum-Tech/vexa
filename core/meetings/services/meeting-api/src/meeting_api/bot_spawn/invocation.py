@@ -132,7 +132,6 @@ def build_invocation(
     platform: str,
     meeting_url: Optional[str],
     bot_name: str,
-    greeting: Optional[str] = None,
     passcode: Optional[str] = None,
     token: str,
     native_meeting_id: Optional[str],
@@ -168,10 +167,6 @@ def build_invocation(
         "platform": platform,
         "meetingUrl": meeting_url,
         "botName": bot_name,
-        # Optional (invocation.v1): the chat message the bot posts once admitted. Left OUT of the
-        # payload when unset — the schema is additionalProperties:false, and a null would be a
-        # different statement from "not configured".
-        "greeting": greeting,
         "passcode": passcode,
         "nativeMeetingId": native_meeting_id,
         "token": token,

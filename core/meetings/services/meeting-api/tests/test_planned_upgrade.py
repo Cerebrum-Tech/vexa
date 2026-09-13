@@ -122,3 +122,66 @@ async def test_double_spawn_after_claim_still_dedups():
     await request_bot(repo, runtime, **_KW)
     with pytest.raises(DuplicateMeeting):
         await request_bot(repo, runtime, **_KW)
+
+
+async def test_explicit_plan_id_claims_selected_older_run_and_preserves_newer_plan():
+    repo, runtime = InMemoryMeetingRepo(), FakeRuntimeClient()
+    selected = _seed_planned(repo, mid=101)
+    _seed_planned(repo, mid=102)
+    repo._meetings[102]["created_at"] = "2026-07-09T09:00:00Z"
+    result = await request_bot(repo, runtime, meeting_id=selected, **_KW)
+    assert result["id"] == selected
+    assert repo._meetings[102]["status"] == "scheduled"
+    assert len(repo._meetings) == 2 and len(runtime.specs) == 1
+
+
+@pytest.mark.parametrize("mismatch", ["missing", "foreign", "native", "platform", "completed", "failed", "active", "stopping"])
+async def test_explicit_plan_id_never_falls_back_or_spawns_for_an_unclaimable_row(mismatch):
+    from copy import deepcopy
+    from meeting_api.bot_spawn import DuplicateMeeting
+    repo, runtime = InMemoryMeetingRepo(), FakeRuntimeClient()
+    selected = _seed_planned(repo, mid=101)
+    _seed_planned(repo, mid=102)
+    row = repo._meetings[selected]
+    if mismatch == "missing":
+        del repo._meetings[selected]
+    elif mismatch == "foreign":
+        row["user_id"] = USER + 1
+    elif mismatch == "native":
+        row["native_meeting_id"] = "another-link"
+    elif mismatch == "platform":
+        row["platform"] = "teams"
+    else:
+        row["status"] = mismatch
+    before = deepcopy(repo._meetings)
+    with pytest.raises(DuplicateMeeting):
+        await request_bot(repo, runtime, meeting_id=selected, **_KW)
+    assert repo._meetings == before
+    assert runtime.specs == []
+
+
+async def test_explicit_plan_still_honors_cap_and_concurrent_duplicate_guards():
+    import asyncio
+    from meeting_api.bot_spawn import DuplicateMeeting, MaxBotsExceeded
+    repo, runtime = InMemoryMeetingRepo(), FakeRuntimeClient()
+    selected = _seed_planned(repo)
+    with pytest.raises(MaxBotsExceeded):
+        await request_bot(repo, runtime, meeting_id=selected, max_concurrent=0, **_KW)
+    assert repo._meetings[selected]["status"] == "scheduled" and runtime.specs == []
+    results = await asyncio.gather(
+        request_bot(repo, runtime, meeting_id=selected, max_concurrent=1, **_KW),
+        request_bot(repo, runtime, meeting_id=selected, max_concurrent=1, **_KW),
+        return_exceptions=True,
+    )
+    assert len([r for r in results if isinstance(r, dict)]) == 1
+    assert len([r for r in results if isinstance(r, DuplicateMeeting)]) == 1
+    assert len(runtime.specs) == 1
+
+
+async def test_explicit_plan_cannot_be_combined_with_continuing_a_terminal_meeting():
+    from meeting_api.bot_spawn import DuplicateMeeting
+    repo, runtime = InMemoryMeetingRepo(), FakeRuntimeClient()
+    selected = _seed_planned(repo, status="completed")
+    with pytest.raises(DuplicateMeeting):
+        await request_bot(repo, runtime, meeting_id=selected, continue_meeting=True, **_KW)
+    assert repo._meetings[selected]["status"] == "completed" and runtime.specs == []

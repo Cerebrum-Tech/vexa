@@ -28,7 +28,7 @@ import { longestCommonWordPrefix } from './local-agreement.js';
  * change or idle timeout.
  */
 
-interface WhisperSegment {
+export interface WhisperSegment {
   text: string;
   start: number;
   end: number;
@@ -69,6 +69,9 @@ interface SpeakerBuffer {
   pendingFinal: boolean;
   /** Samples inherited from a previous speaker via carry-forward */
   carryForwardSamples: number;
+  /** totalSamples at the moment of the most recent submission — everything fed after it has never
+   *  been heard by STT. The hard-cap flush keeps exactly that tail. 0 until the first submission. */
+  lastSubmitTotalSamples: number;
   /** Generation counter — incremented on full reset to detect stale responses */
   generation: number;
   /** Last confirmed text — passed as prompt to Whisper for context continuity */
@@ -220,6 +223,7 @@ export class GmeetCompatibleBuffer {
       idleSubmitted: false,
       pendingFinal: false,
       carryForwardSamples: 0,
+      lastSubmitTotalSamples: 0,
       generation: 0,
       lastConfirmedText: '',
       pendingDraftText: '',
@@ -694,6 +698,17 @@ export class GmeetCompatibleBuffer {
           this.log(`[SpeakerStreams] Hard cap force-flush for "${buffer.speakerName}" (${totalSec.toFixed(1)}s > ${this.maxBufferDuration}s, no confirmation)`);
           this.emitSegment(buffer, buffer.lastTranscript);
         }
+        // The flushed transcript covers the audio up to the last SUBMISSION, not up to now: with a
+        // text-only STT model (no word times) nothing ever confirms, so a continuous speaker rides
+        // this path every 30s, and the seconds fed since that submission were never heard by STT.
+        // Discarding them here is a hole in the transcript, measured on a read-aloud article as one
+        // ~10-word gap per cap. Keep that unheard tail as the start of the next window; only the
+        // transcribed-and-emitted span is dropped. A buffer that never submitted has no transcript
+        // to protect and resets as before.
+        if (buffer.lastSubmitTotalSamples > 0 && buffer.lastSubmitTotalSamples < buffer.totalSamples) {
+          this.keepUnheardTail(buffer);
+          return;
+        }
         this.fullReset(buffer);
         return;
       }
@@ -749,6 +764,7 @@ export class GmeetCompatibleBuffer {
     }
 
     buffer.inFlight = true;
+    buffer.lastSubmitTotalSamples = buffer.totalSamples;
     this.submitGeneration.set(buffer.speakerId, buffer.generation);
 
     try {
@@ -923,6 +939,29 @@ export class GmeetCompatibleBuffer {
   }
 
   /**
+   * Hard-cap continuation — drop the span the last submission already covered (its transcript has
+   * been emitted) and keep everything fed after it, which STT has not heard yet. The window's start
+   * moves along the audio timeline by the dropped span, never to wall-clock now(), so the next
+   * segment's times stay gapless with the one just emitted.
+   */
+  private keepUnheardTail(buffer: SpeakerBuffer): void {
+    const heard = buffer.lastSubmitTotalSamples;
+    buffer.confirmedSamples = heard;
+    this.trimBuffer(buffer);                      // chunks/totalSamples now hold only the unheard tail
+    buffer.windowStartMs += (heard / this.sampleRate) * 1000;
+    buffer.bufferStartMs = buffer.windowStartMs;
+    buffer.lastTranscript = '';
+    buffer.confirmCount = 0;
+    buffer.lastWords = [];
+    buffer.idleSubmitted = false;
+    buffer.pendingFinal = false;
+    buffer.pendingDraftText = '';
+    buffer.lastSubmitTotalSamples = 0;
+    buffer.generation++;
+    this.log(`[SpeakerStreams] Hard cap kept ${(buffer.totalSamples / this.sampleRate).toFixed(1)}s of unheard audio for "${buffer.speakerName}"`);
+  }
+
+  /**
    * Full reset — discard everything. Used on speaker change and idle cleanup.
    */
   private fullReset(buffer: SpeakerBuffer): void {
@@ -939,6 +978,7 @@ export class GmeetCompatibleBuffer {
     buffer.idleSubmitted = false;
     buffer.pendingFinal = false;
     buffer.carryForwardSamples = 0;
+    buffer.lastSubmitTotalSamples = 0;
     buffer.generation++;
   }
 }

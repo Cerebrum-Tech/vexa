@@ -235,9 +235,7 @@ class _Sessions:
 # guard was papering over.
 LIVE_SILENCE_TTL_SEC = 60.0
 
-# The processing desired-state flag's set-time backstop TTL (the watcher refreshes a rolling TTL per
-# armed batch while segments flow — transcription_watcher.PROC_FLAG_ROLLING_TTL_SEC). Bounds a flag
-# whose meeting never produces a segment; generous because the toggle is only offered on live rows.
+# Explicit ON preferences expire back to the ON default. OFF preferences have no expiry.
 PROC_FLAG_BACKSTOP_TTL_SEC = 4 * 3600
 
 
@@ -302,6 +300,13 @@ class ChatBody(BaseModel):
     # so it can't send Last-Event-ID) from a genuinely new turn with identical text ("yes" twice):
     # a matching nonce re-attaches from the turn's recorded start — no second dispatch, no lost events.
     turn_id: Optional[str] = None
+
+
+class SummaryEditBody(BaseModel):
+    workspace: str
+    path: str
+    expected_revision: str
+    summary: str
 
 
 class ResetBody(BaseModel):
@@ -1119,17 +1124,18 @@ def create_app(
 
     @app.post("/api/meeting/process", status_code=202)
     def meeting_process(body: MeetingProcess, request: Request):
-        """User-controlled copilot PROCESSING for a meeting — DESIRED STATE ONLY (ADR 0027). This
-        endpoint writes the opt-in flag; it never dispatches. The transcription watcher is the ONE
-        dispatch arbiter: it arms (and keeps alive) the copilot while ``proc:meeting:{row}:on`` is
-        set, always resuming from the per-meeting CURSOR (``proc:meeting:{row}:cursor`` = the last
-        raw transcript stream-id already cleaned; absent ⇒ ``'0-0'`` = full history). Two writers
-        used to dispatch here (this handler from the cursor, the watcher from the stream tail) and
-        race — whichever landed second was a touch, so a tail-armed win silently skipped the
-        backfill. OFF just clears the flag — the cursor is FROZEN at the last processed entry so a
-        later re-enable gap-fills from exactly where we left off."""
+        """Store the canonical run's processing preference without dispatching a worker.
+
+        Missing means OFF — the raw transcript is the default view, so correction is something a
+        reader turns on rather than something that runs by default (``current_processing_enabled``
+        holds the same rule for the worker). Explicit ON is stored as one and survives a worker
+        resume. The transcription watcher owns dispatch, and the worker reads this preference
+        before each live correction beat. The raw transcript and post-meeting report remain
+        available either way.
+        """
         import redis as _redis
 
+        subject = subject_of(request)
         r = _redis.from_url(redis_url, decode_responses=True)
         # P0 (cross-tenant leak fix): the copilot's opt-in flag / cursor / processed stream ALL key on
         # the meetings-domain ROW id — the native id is NOT unique (it collides across tenants + a user's
@@ -1149,6 +1155,12 @@ def create_app(
                 if live_entry and live_entry.get("numeric_meeting_id") else None)
         )
         key = row_id or body.native_id
+        # Canonical runs require the same owner check as the transcript stream. Numeric legacy
+        # keys are checked too, so omitting meeting_id cannot bypass authorization.
+        if row_id or str(key).isdigit():
+            owned = _meeting_owner_lookup(subject, str(key))
+            if not isinstance(owned, dict) or owned.get("shared") is not False or str(owned.get("user_id")) != subject:
+                raise HTTPException(status_code=403, detail="not authorized for this meeting")
         # The opt-in flag has its OWN key suffix — it must NOT collide with the processed-notes STREAM
         # ``proc:meeting:{key}`` the worker XADDs (worker.py), else a GET on the flag hits a stream →
         # WRONGTYPE (crashes the watcher's arm loop). ``:cursor`` is likewise a distinct sibling key.
@@ -1156,21 +1168,21 @@ def create_app(
         cursor_key = f"proc:meeting:{key}:cursor"
         if not body.on:
             try:
-                r.delete(flag)  # cursor is intentionally LEFT in place (frozen) for the next re-enable
-            except Exception:  # noqa: BLE001 — best-effort; the watcher reaps the copilot on TTL anyway
-                pass
+                r.set(flag, "0")  # explicit OFF persists for this canonical run; cursor is preserved
+            except Exception as exc:
+                raise HTTPException(status_code=503, detail="Processing preference could not be saved") from exc
             return {"native_id": body.native_id, "meeting_id": row_id, "processing": False}
-        subject_of(request)  # identity gate (P20) — kept even though nothing dispatches from here
         cursor: str | None = None
         try:
-            # TTL'd desired state (P21/P22 — verified on the eyeball: NO session_end frame ever
-            # crosses the wire on the stop path, so the watcher's reap there is belt-only and the
-            # flag used to persist forever). This backstop bounds a flag that never sees a segment;
-            # the watcher REFRESHES a rolling TTL while segments actually flow, so the flag outlives
-            # any real meeting and self-cleans within ~an hour of the flow stopping.
+            # ON has a bounded lifetime (4h — longer than a meeting, so a reader who turned it on
+            # keeps it for the whole run) and falls back to the OFF default when it expires.
+            # OFF needs no TTL: it is already the default. The watcher never mutates lifetimes.
             r.set(flag, "1", ex=PROC_FLAG_BACKSTOP_TTL_SEC)
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="Processing preference could not be saved") from exc
+        try:
             cursor = r.get(cursor_key)
-        except Exception:  # noqa: BLE001
+        except Exception:
             cursor = None
         # `resumed_from` reports where the watcher's arm WILL resume (the frozen cursor, else the
         # start of the transcript) — informational for the client; the dispatch itself happens on
@@ -1426,6 +1438,72 @@ def create_app(
             if m.slug == target:
                 return Path(m.path)
         raise HTTPException(status_code=403, detail="not authorized for this workspace")
+
+    @app.patch("/api/meeting/{meeting_id}/summary")
+    def edit_meeting_summary(meeting_id: str, body: SummaryEditBody, request: Request):
+        from uuid import uuid4
+        from shared.reports import ReportEditError, parse_report, replace_summary, report_path
+
+        subject = subject_of(request)
+
+        def authorized_target() -> Path:
+            owned = _meeting_owner_lookup(subject, meeting_id)
+            if (not isinstance(owned, dict) or str(owned.get("id")) != meeting_id
+                    or str(owned.get("user_id")) != subject or owned.get("shared") is not False):
+                raise HTTPException(403, "Bu toplantının özetini düzenleme yetkiniz yok.")
+            mounts = active_workspaces(wsr.root, subject)
+            mounts += shared_active_mounts(wsr.root, subject, mindex.list(subject))
+            mount = next((m for m in mounts if m.slug == body.workspace and m.write
+                          and m.role not in ("system", "global")), None)
+            if mount is None:
+                raise HTTPException(403, "Bu çalışma alanına yazma yetkiniz yok.")
+            return Path(mount.path)
+
+        try:
+            target = authorized_target()
+            path = report_path(body.path, meeting_id)
+            original = wsr.read_at(target, path)
+            if original is None:
+                raise HTTPException(404, "Özet bulunamadı.")
+            expected_content = replace_summary(
+                original, meeting_id=meeting_id, workspace=body.workspace,
+                expected_revision=body.expected_revision, summary=body.summary,
+            )
+            if stream_reader is None or dispatcher is None:
+                raise HTTPException(503, "Özet kaydetme hizmeti kullanılamıyor.")
+            job = {**body.model_dump(), "meeting_id": meeting_id}
+            email = (request.headers.get("x-user-email") or "").strip()
+            invocation = units.make_dispatch(
+                subject=subject, trigger="message", runner="report-edit",
+                start=units.entrypoint(inline=json.dumps(job, ensure_ascii=False)),
+                context={"kind": "none", "session": f"report-edit-{uuid4().hex}"},
+                workspaces=[{"id": body.workspace, "mode": "rw"}],
+                principal={"name": email} if email else None,
+            )
+            unit_id = dispatcher.dispatch(invocation)
+            deadline = time.monotonic() + 60
+            for item in stream_reader.read(unit_id, resume="0-0"):
+                event = item[0] if isinstance(item, tuple) else item
+                if time.monotonic() > deadline:
+                    break
+                if not isinstance(event, dict) or event.get("type") != "done":
+                    continue
+                if event.get("ok") is not True:
+                    status = event.get("status")
+                    raise HTTPException(status if status in (403, 404, 409, 422, 503) else 503,
+                                        event.get("error") or "Özet kaydedilemedi.")
+                # Recheck ownership and membership before returning private report content.
+                content = wsr.read_at(authorized_target(), path)
+                if content != expected_content:
+                    raise HTTPException(409, "Özet değişti. Güncel sürümü açın.")
+                metadata, _ = parse_report(content, meeting_id=meeting_id, workspace=body.workspace)
+                return {"meeting_id": meeting_id, "workspace": body.workspace, "path": path,
+                        "revision": metadata["report_revision"], "content": content}
+            raise HTTPException(503, "Kaydetme sonucu doğrulanamadı. Özeti yenileyip yeniden deneyin.")
+        except ReportEditError as error:
+            raise HTTPException(error.status, str(error)) from error
+        except ValueError as error:
+            raise HTTPException(403, "Özet yolu bu çalışma alanında doğrulanamadı.") from error
 
     def _manage_dir(subject: str, slug: Optional[str]) -> Path:
         """Resolve a workspace dir for a MANAGEMENT op (git sync, purpose) — unlike ``_read_target`` this

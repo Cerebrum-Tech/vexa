@@ -271,16 +271,6 @@ def _owner_username(owner_email: Optional[str]) -> Optional[str]:
     return local[:_OWNER_SUFFIX_MAX] or None
 
 
-def _greeting() -> Optional[str]:
-    """The message the bot posts into the meeting chat once admitted (``VEXA_BOT_GREETING``).
-
-    Unset or blank ⇒ ``None`` ⇒ the bot says nothing. Off by default on purpose: a bot that writes
-    into a customer's meeting has to be asked to, and a deployment that wants the notice (in many
-    places, telling people a notetaker is present is the point) turns it on explicitly."""
-    value = (os.getenv("VEXA_BOT_GREETING") or "").strip()
-    return value or None
-
-
 def _transcription_language(requested: Optional[str] = None) -> Optional[str]:
     """The language whisper is told to transcribe in (``VEXA_TRANSCRIPTION_LANGUAGE``).
 
@@ -324,6 +314,7 @@ async def request_bot(
     user_id: int,
     platform: str,
     native_meeting_id: str,
+    meeting_id: Optional[int] = None,
     bot_name: Optional[str] = None,
     owner_email: Optional[str] = None,
     passcode: Optional[str] = None,
@@ -357,6 +348,8 @@ async def request_bot(
     ``<= 0`` means the quota is DEPLETED (every spawn rejected) — 0 is never "unlimited"; ``None``
     means no cap was provided, so no pre-check.
     """
+    if meeting_id is not None and continue_meeting:
+        raise DuplicateMeeting("Selected planned meeting cannot be combined with continue_meeting")
     authority = authority or AllowAllServiceAuthority()
     # 1. URL.
     constructed_url = meeting_url or construct_meeting_url(platform, native_meeting_id)
@@ -374,6 +367,11 @@ async def request_bot(
     transcription_service_url = os.getenv("TRANSCRIPTION_SERVICE_URL") or None
     transcription_service_token = os.getenv("TRANSCRIPTION_SERVICE_TOKEN") or None
     transcription_model = os.getenv("TRANSCRIPTION_MODEL") or None
+    # The bot may run a different STT model from the upload path: a realtime-only model
+    # (``gpt-live-transcribe``) streams a live meeting word by word but is refused by the batch
+    # transcription endpoint uploads use, so the two cannot share one id. Bot-only override; a
+    # Settings-configured backend below still carries its own model.
+    transcription_model = os.getenv("VEXA_BOT_TRANSCRIPTION_MODEL") or transcription_model
     bot_context = await _fetch_bot_context(user_id)
     configured = _transcription_from_context(bot_context)
     # O-TEL-1 fixture collection, resolved from the SAME best-effort lookup (one hop, two readers).
@@ -615,6 +613,7 @@ async def request_bot(
                 native_meeting_id=native_meeting_id,
                 data=meeting_data,
                 max_concurrent=max_concurrent,
+                meeting_id=meeting_id,
             )
         except MaxBotsExceeded:
             log_event(
@@ -646,7 +645,6 @@ async def request_bot(
         platform=platform,
         meeting_url=constructed_url,
         bot_name=_display_bot_name(bot_name, owner_email),
-        greeting=_greeting(),
         passcode=passcode,
         token=token,
         native_meeting_id=native_meeting_id,

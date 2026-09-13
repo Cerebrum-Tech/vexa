@@ -14,7 +14,7 @@ import os
 from datetime import datetime, timezone
 from typing import Optional
 
-from ..lifecycle.machine import dominant_completion_reason
+from ..lifecycle.machine import dominant_completion_reason, merge_lifecycle_data
 from ..sessions import new_session
 from .ports import (
     DuplicateMeeting,
@@ -310,8 +310,7 @@ class SqlAlchemyMeetingRepo:
                 merged["completion_reason"] = completion_reason
             if failure_stage is not None:
                 merged["failure_stage"] = failure_stage
-            for k, v in (data or {}).items():
-                merged[k] = v
+            merged = merge_lifecycle_data(merged, data or {})
             if status in ("completed", "failed"):
                 # Delivery marker (#807): `completed` alone means "the bot exited cleanly" — it says
                 # nothing about whether a transcript exists. Persisting the segment count at the
@@ -458,7 +457,7 @@ class SqlAlchemyMeetingRepo:
 
     async def create_meeting_guarded(
         self, *, user_id, platform, native_meeting_id, data, max_concurrent=None,
-        exclude_meeting_id=None,
+        exclude_meeting_id=None, meeting_id=None,
     ) -> dict:
         """ATOMIC dedup + cap + insert in ONE transaction (ROB1/ROB2).
 
@@ -530,14 +529,19 @@ class SqlAlchemyMeetingRepo:
             #     survive — the plan, its workspace bind, and the transcript live on ONE row.
             from sqlalchemy.orm.attributes import flag_modified
 
-            claimable = (await db.execute(
-                select(Meeting).where(
-                    Meeting.user_id == user_id,
-                    Meeting.platform == platform,
-                    Meeting.platform_specific_id == native_meeting_id,
-                    Meeting.status.in_(("idle", "scheduled")),
-                ).order_by(Meeting.created_at.desc()).limit(1).with_for_update()
-            )).scalars().first()
+            claim_query = select(Meeting).where(
+                Meeting.user_id == user_id,
+                Meeting.platform == platform,
+                Meeting.platform_specific_id == native_meeting_id,
+                Meeting.status.in_(("idle", "scheduled")),
+            )
+            if meeting_id is not None:
+                claim_query = claim_query.where(Meeting.id == meeting_id)
+            else:
+                claim_query = claim_query.order_by(Meeting.created_at.desc()).limit(1)
+            claimable = (await db.execute(claim_query.with_for_update())).scalars().first()
+            if meeting_id is not None and claimable is None:
+                raise DuplicateMeeting("Selected meeting is not available to join")
             if claimable is not None:
                 planned = dict(claimable.data) if isinstance(claimable.data, dict) else {}
                 # A THIS-REQUEST dispatch supersedes an earlier stop ON THE PLAN. Legacy zombie rows

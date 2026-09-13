@@ -93,15 +93,15 @@ alanlarını taşır (ek alanlar serbesttir), çapraz referanslar başlığa gö
   ```
   ---
   type: person
-  id: jane-liu
-  title: Jane Liu
+  id: <slug>
+  title: <Ad Soyad>
   self: true                                       # ← çalışma alanının sahibi (kullanıcı); TAM OLARAK tek düğüm
-  company: Acme
-  role: VP Eng
-  location: Lisbon
-  linkedin: https://www.linkedin.com/in/janeliu/   # kullanıcının size verdiği adres (kendi profili)
+  company: <Şirket>
+  role: <Unvan>
+  location: <Şehir>
+  linkedin: https://www.linkedin.com/in/<kullanici>/  # kullanıcının size verdiği adres (kendi profili)
   ---
-  Kim olduğunu ve kullanıcı için neden önemli olduğunu anlatan tek satır. [[Acme]] şirketinde çalışıyor.
+  Kim olduğunu ve kullanıcı için neden önemli olduğunu anlatan tek satır. [[Şirket]] şirketinde çalışıyor.
   ```
 
   Bulunan kişiler aynı biçimi `self` ve `linkedin` **olmadan** kullanır.
@@ -111,9 +111,9 @@ alanlarını taşır (ek alanlar serbesttir), çapraz referanslar başlığa gö
   ```
   ---
   type: company
-  id: acme
-  title: Acme
-  domain: acme.com
+  id: <slug>
+  title: <Şirket>
+  domain: <sirket>.com
   ---
   Ne yaptıklarını anlatan tek satır; biliniyorsa aşaması, büyüklüğü ve pazarı.
   ```

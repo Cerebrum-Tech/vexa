@@ -16,7 +16,9 @@ import addFormats from 'ajv-formats';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createBotPipeline, createTranscribe } from './pipeline.js';
+import { createBotPipeline, createTranscribe,
+  DEFAULT_SILENCE_RMS, silenceRmsFrom, createStreamingEngine,
+} from './pipeline.js';
 import type { Invocation } from './config.js';
 import type { TranscriptSegment } from './contracts.js';
 import type { TranscriptSink } from './ports.js';
@@ -315,6 +317,87 @@ async function main(): Promise<void> {
       !sink.retracted.includes('turn:1:0'), JSON.stringify(sink.retracted));
     check('retraction: the confirmed segment WAS published (real content kept)',
       sink.published.some((s) => s.segment_id === 'turn:1:0' && s.completed), JSON.stringify(sink.published.map((s) => s.segment_id)));
+  }
+
+  // ── The BOT_SPEAKER_* window knobs reach the TEAMS lane ────────────────────────────────────
+  //     Teams runs the same shared GMeet-compatible buffer as Meet, so the deployment's window
+  //     length has to land in it. The knobs were read from the environment and then dropped on the
+  //     floor for this platform, which made every one of them a silent no-op on the only platform
+  //     the deployment runs — a window that cannot be shortened pins STT latency to the 30s default.
+  {
+    const sink = captureSink();
+    let seen: { maxBufferDuration?: number; submitInterval?: number; silenceRmsThreshold?: number } | undefined;
+    const factory = (options: { buffer?: { maxBufferDuration?: number; submitInterval?: number; silenceRmsThreshold?: number } }) => {
+      seen = options.buffer;
+      return {
+        feedMixedAudio() { /* stub */ },
+        recordTransportEvent() { /* stub */ },
+        recordHint() { /* stub */ },
+        recordCaption() { /* stub */ },
+        recordRosterName() { /* stub */ },
+        recordRosterCoverage() { /* stub */ },
+        async dispose() { /* stub */ },
+      };
+    };
+    createBotPipeline(baseInv({ platform: 'teams' }), sink, {
+      createTeamsTranscriber: factory as never,
+      config: { maxBufferDuration: 12, submitInterval: 3 },
+    });
+    check('teams lane: maxBufferDuration from BOT_SPEAKER_* reaches the shared buffer',
+      seen?.maxBufferDuration === 12, JSON.stringify(seen));
+    check('teams lane: submitInterval reaches the shared buffer too',
+      seen?.submitInterval === 3, JSON.stringify(seen));
+    check('teams lane: the RMS floor keeps its own env source (not overwritten by the knobs)',
+      seen?.silenceRmsThreshold === silenceRmsFrom(), JSON.stringify(seen));
+
+    let bare: { maxBufferDuration?: number; silenceRmsThreshold?: number } | undefined;
+    createBotPipeline(baseInv({ platform: 'teams' }), sink, {
+      createTeamsTranscriber: ((options: { buffer?: typeof bare }) => {
+        bare = options.buffer;
+        return {
+          feedMixedAudio() {}, recordTransportEvent() {}, recordHint() {}, recordCaption() {},
+          recordRosterName() {}, recordRosterCoverage() {}, async dispose() {},
+        };
+      }) as never,
+    });
+    check('teams lane: no knobs configured leaves the module default in charge',
+      bare?.maxBufferDuration === undefined && bare?.silenceRmsThreshold === silenceRmsFrom(), JSON.stringify(bare));
+  }
+
+  // ── the STT model decides the engine: a realtime-only model streams, a batch model windows ──
+  {
+    const streaming = createStreamingEngine(baseInv({ platform: 'teams', transcriptionServiceUrl: 'https://api.openai.com', transcriptionServiceToken: 't', transcriptionModel: 'gpt-live-transcribe', language: 'tr' }));
+    check('gpt-live-transcribe → the streaming turn engine', !!streaming && typeof streaming.feedAudio === 'function');
+    for (const model of ['gpt-4o-transcribe', 'gpt-transcribe', 'whisper-1', undefined]) {
+      check(`${model ?? 'unset'} → no streaming engine (the shared GMeet window runs)`,
+        createStreamingEngine(baseInv({ platform: 'teams', transcriptionServiceUrl: 'https://api.openai.com', transcriptionModel: model })) === undefined);
+    }
+    check('transcribeEnabled=false never opens a streaming session',
+      createStreamingEngine(baseInv({ transcribeEnabled: false, transcriptionServiceUrl: 'https://api.openai.com', transcriptionModel: 'gpt-live-transcribe' })) === undefined);
+    // The engine reaches the Teams lane through the same seam the buffer knobs use.
+    let seen: unknown;
+    createBotPipeline(baseInv({ platform: 'teams' }), captureSink(), {
+      engine: { marker: 'engine' } as never,
+      createTeamsTranscriber: ((options: { engine?: unknown }) => { seen = options.engine; return {
+        feedMixedAudio() {}, recordTransportEvent() {}, recordHint() {}, recordCaption() {}, recordRosterName() {}, recordRosterCoverage() {}, async dispose() {},
+      }; }) as never,
+    });
+    check('an injected engine is handed to the Teams lane', (seen as { marker?: string })?.marker === 'engine', JSON.stringify(seen));
+  }
+
+  // ── VEXA_STT_SILENCE_RMS: the operator's dial for a noisy room ──────────────────────────────
+  // Silence is where every STT model invents text, so the skip threshold has to be tunable — and
+  // a value that would mute the whole transcript has to be refused rather than obeyed.
+  for (const [env, want, why] of [
+    [{}, DEFAULT_SILENCE_RMS, 'unset keeps the measured default'],
+    [{ VEXA_STT_SILENCE_RMS: '0.02' }, 0.02, 'a usable value is honoured'],
+    [{ VEXA_STT_SILENCE_RMS: '0' }, 0, 'zero disables the skip'],
+    [{ VEXA_STT_SILENCE_RMS: '   ' }, DEFAULT_SILENCE_RMS, 'blank keeps the default'],
+    [{ VEXA_STT_SILENCE_RMS: 'loud' }, DEFAULT_SILENCE_RMS, 'garbage keeps the default'],
+    [{ VEXA_STT_SILENCE_RMS: '-1' }, DEFAULT_SILENCE_RMS, 'a negative RMS keeps the default'],
+    [{ VEXA_STT_SILENCE_RMS: '1' }, DEFAULT_SILENCE_RMS, 'a threshold that would mute everything keeps the default'],
+  ] as Array<[NodeJS.ProcessEnv, number, string]>) {
+    check(`silence rms: ${why}`, silenceRmsFrom(env) === want, `got ${silenceRmsFrom(env)}, want ${want}`);
   }
 
   if (failed) { console.error(`\n❌ pipeline (L3): ${failed} check(s) FAILED.`); process.exit(1); }

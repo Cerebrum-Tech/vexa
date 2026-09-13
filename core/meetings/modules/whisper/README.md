@@ -10,6 +10,11 @@ nothing of topology, naming, or confirmation.
 
 - `isLowConfidenceSegment` drops acoustically-junk segments (bad logprob, high
   no-speech, runaway compression) before they reach the confirm loop.
+- The known false Turkish subtitle credit `Altyazı M.K.` is removed before draft
+  or confirmed text reaches either lane, including spelling/punctuation variants
+  and credits embedded in speech or split across provider segments. Surrounding
+  speech keeps its timestamps; word alignment is retained when it can be matched
+  exactly, and omitted otherwise. Generic discussion of subtitles is preserved.
 - WAV-encodes Float32 PCM, retries transient failures with backoff, 30s timeout.
 
 ## Surface
@@ -20,8 +25,10 @@ nothing of topology, naming, or confirmation.
 ## Verify
 ```bash
 pnpm --filter @vexa/transcribe-whisper build
-pnpm --filter @vexa/transcribe-whisper test   # the stt.v1 low-confidence filter golden
+pnpm --filter @vexa/transcribe-whisper test   # confidence, HTTP errors/model, subtitle credits
 ```
-`gate:node` runs the **offline** filter golden here; the HTTP client is exercised
-end-to-end by pipeline replay (3.2) and live L4. Covered by `gate:node`,
+The subtitle-credit regression uses a local HTTP server to exercise the actual
+response boundary, with negative controls for legitimate speech and word timing.
+`gate:node` runs the **offline** filter golden here; pipeline replay (3.2) and
+live L4 exercise the downstream consumers. Covered by `gate:node`,
 `gate:isolation`, `gate:exports`, `gate:readme`.

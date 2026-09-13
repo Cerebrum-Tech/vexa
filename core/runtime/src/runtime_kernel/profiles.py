@@ -105,6 +105,10 @@ def default_registry() -> ProfileRegistry:
             "BOT_SPEAKER_CONFIRM_THRESHOLD",
             "BOT_SPEAKER_MAX_BUFFER_SEC",
             "BOT_SPEAKER_IDLE_TIMEOUT_SEC",
+            # The near-silence floor below which a window is never sent to STT. It belongs in this
+            # list for the same reason as the window knobs: it is read inside the BOT container, so
+            # a deployment that sets it anywhere else is setting nothing.
+            "VEXA_STT_SILENCE_RMS",
         )
         if os.environ.get(key, "").strip()
     }

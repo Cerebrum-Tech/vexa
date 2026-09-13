@@ -194,7 +194,9 @@ class TranscriptStore(Protocol):
         self, user_id: int, meeting_id: int, updates: dict
     ) -> Optional[dict]:
         """OWNER-scoped, ROW-id-addressed edit of a PLANNED meeting. Refused unless the row's
-        status is an intent status (``idle``/``scheduled``) — the bot FSM is never fought.
+        status is an intent status (``idle``/``scheduled``) — the bot FSM is never fought — with
+        ONE exception: a body carrying only ``title`` is applied in any status, because the title is
+        display-only and a meeting that already ran is exactly the one people want to rename.
 
         ``updates`` carries only the keys the caller sent (PATCH semantics): ``title`` (None
         clears), ``scheduled_at`` (ISO8601; None clears → status flips to ``idle``; a value flips

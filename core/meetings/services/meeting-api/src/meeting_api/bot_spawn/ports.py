@@ -82,6 +82,7 @@ class MeetingRepo(Protocol):
         data: dict,
         max_concurrent: Optional[int] = None,
         exclude_meeting_id: Optional[int] = None,
+        meeting_id: Optional[int] = None,
     ) -> dict:
         """ATOMIC dedup + cap-check + insert — the TOCTOU-safe spawn primitive (ROB1/ROB2).
 
@@ -96,6 +97,10 @@ class MeetingRepo(Protocol):
              bots (``browser_session`` excluded; ``exclude_meeting_id`` not counted), raise
              ``MaxBotsExceeded`` (→ HTTP 429);
           3. insert the ``Meeting`` row (status ``requested``) and return it as a dict.
+
+        When meeting_id is supplied, claim only that owned idle/scheduled row with matching
+        platform/native identity under the row lock. A missing or unclaimable selected row raises
+        DuplicateMeeting; it never falls back to another plan or an insert.
 
         The real (SQLAlchemy) adapter serializes concurrent spawns for the SAME user with a per-user
         ``pg_advisory_xact_lock`` and backstops dedup with a unique partial index on active rows; the

@@ -40,6 +40,8 @@ export interface LifecycleEvent {
   connection_id: string;
   container_id?: string;
   status: BotStatus;
+  /** Optional platform subject. lifecycle.v1 accepts additive fields; manual titles win in storage. */
+  meeting_title?: string;
   /** Time the producer observed this lifecycle transition. Callback receipt time is not an
    *  admission/departure clock: delivery may be delayed or retried. */
   timestamp?: string;

@@ -1,0 +1,1 @@
+Teams bots carry an available platform subject on admission and fill an empty meeting display title. Manual and calendar titles, including edits during the meeting, remain authoritative. Title capture is best-effort and does not affect admission.

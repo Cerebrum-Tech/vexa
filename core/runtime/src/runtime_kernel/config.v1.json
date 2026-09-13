@@ -66,6 +66,13 @@
    "targets": []
   },
   {
+   "key": "DOCKER_NAME_PREFIX",
+   "class": "defaulted",
+   "default": "vexa-",
+   "description": "Docker workload container name prefix; use a distinct prefix for each stack sharing a Docker daemon",
+   "targets": ["compose"]
+  },
+  {
    "key": "DOCKER_NETWORK",
    "class": "defaulted",
    "default": "(unset — docker's default bridge)",

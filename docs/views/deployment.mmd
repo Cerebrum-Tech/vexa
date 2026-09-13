@@ -5,7 +5,7 @@ flowchart TB
     agent_worker["agent-worker"]
   end
   meeting_api -->|"POST /workloads spawn bot"| runtime_wl
-  agent_api -->|"POST /workloads spawn agent-worker"| runtime_wl
+  agent_api -->|"POST /workloads spawn agent-worker for model turns or owner-submitted deterministic report edits"| runtime_wl
   subgraph deploy_wl["deploy workloads"]
     gateway["gateway"]
     meeting_api["meeting-api"]

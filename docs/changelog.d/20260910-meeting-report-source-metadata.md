@@ -1,0 +1,1 @@
+Meeting report dispatch reads the current title, native ID, and platform from the exact owned meeting row. It preserves canonical run isolation and manual titles through internal worker context. Bots stamp the source platform on transcript envelopes; missing metadata no longer labels a Teams meeting as Google Meet.

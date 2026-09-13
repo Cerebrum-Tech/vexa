@@ -15,6 +15,7 @@ import { joinMicrosoftTeams } from "./msteams/join";
 import { waitForTeamsMeetingAdmission, checkForTeamsAdmissionSilent } from "./msteams/admission";
 import { prepareForRecording as prepareForTeamsRecording, leaveMicrosoftTeams } from "./msteams/leave";
 import { startTeamsRemovalMonitor } from "./msteams/removal";
+import { readTeamsMeetingTitle } from "./msteams/title";
 import { joinZoomMeeting, buildZoomWebClientUrl } from "./zoom/join";
 import { waitForZoomMeetingAdmission, checkForZoomAdmissionSilent } from "./zoom/admission";
 import { leaveZoomMeeting, dismissZoomPopups } from "./zoom/leave";
@@ -36,6 +37,8 @@ export { JOIN_BROWSER_ARGS, getJoinBrowserArgs };
 export type Platform = "google_meet" | "teams" | "zoom" | "jitsi";
 
 export interface JoinResult {
+  /** Platform subject observed after admission, when available. */
+  meetingTitle?: string;
   admitted: boolean;
   state: JoinState;
 }
@@ -133,7 +136,8 @@ export async function joinMeeting(page: Page, opts: JoinOptions): Promise<JoinRe
     );
   }
 
-  return { admitted: !!admitted, state: admitted ? "admitted" : "awaiting_admission" };
+  const meetingTitle = admitted && platform === "teams" ? await readTeamsMeetingTitle(page) : undefined;
+  return { admitted: !!admitted, state: admitted ? "admitted" : "awaiting_admission", ...(meetingTitle ? { meetingTitle } : {}) };
 }
 
 export { joinGoogleMeeting, waitForGoogleMeetingAdmission, checkForGoogleAdmissionSilent, prepareForRecording, leaveGoogleMeet, startGoogleRemovalMonitor };

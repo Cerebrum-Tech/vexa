@@ -256,8 +256,19 @@ class DockerBackend:
             payload["Cmd"] = list(runnable.command)
 
         r = self._req("POST", f"/containers/create?name={name}", json=payload)
-        if r.status_code == 409:  # stale container with this name — replace it
-            self._req("DELETE", f"/containers/{name}?force=true")
+        if r.status_code == 409:
+            existing = self._req("GET", f"/containers/{name}/json")
+            body = existing.json() if existing.status_code == 200 else {}
+            labels = (body.get("Config") or {}).get("Labels") or {}
+            state = body.get("State") or {}
+            owned = (labels.get(MANAGED_LABEL) == "true"
+                     and labels.get(WORKLOAD_ID_LABEL) == workload_id
+                     and _in_stack_network(_stack_network(), body))
+            stale = state.get("Status") in {"created", "exited", "dead"} and not state.get("Running")
+            if not owned or not stale or not body.get("Id"):
+                raise RuntimeError(f"docker name conflict for {name}: refusing to replace an unverified, foreign, or live container")
+            # Delete the inspected immutable ID so a name reassignment cannot target another container.
+            self._req("DELETE", f"/containers/{body['Id']}?force=true")
             r = self._req("POST", f"/containers/create?name={name}", json=payload)
         if r.status_code not in (200, 201):
             raise RuntimeError(f"docker create {name} failed ({r.status_code}): {r.text.strip()}")

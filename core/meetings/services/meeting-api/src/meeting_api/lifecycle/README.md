@@ -60,3 +60,18 @@ TRANSIENT → retry: `awaiting_admission_timeout`, `join_failure`. PERMANENT →
 `test_lifecycle_diagnostics.py` (P3a: per-terminal-cause attribution + webhook) ·
 `test_lifecycle_fixtures.py` (P3b: normal / user-stop+leave-command / join-failure) ·
 `test_join_retry.py` (P3d: FakeClock-driven bounded retries). Ride `gate:python`.
+
+## Platform meeting titles
+
+An admitted bot may include optional `meeting_title` on its first `active` lifecycle event.
+This additive field uses lifecycle.v1's existing liberal ingestion (`additionalProperties`).
+The receiver accepts a nonempty string of at most 500 characters after whitespace normalization.
+It persists the subject as `data.platform_title`; the locked meeting-row merge fills `data.title`
+only when no display title is already set. User-entered and calendar titles retain priority,
+including edits made during the call. Same-status lifecycle replays remain no-ops.
+
+The Teams join adapter reads an explicit `data-tid="meeting-title"` subject or a document title
+with a Microsoft Teams brand prefix/suffix after admission. Generic join/sign-in/app titles are
+ignored. Missing metadata does not fail a join. Other platform join results remain unchanged.
+The meeting API's existing `data` DTO already carries the title to consumers; no database migration
+or public API schema change is needed. Both bot and meeting-api images must include this code.

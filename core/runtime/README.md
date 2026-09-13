@@ -49,3 +49,11 @@ uv run pytest -q
 - ✅ delivered — store port (InMemory / Redis) so workloads survive a process restart
 - ✅ delivered — `schedule.v1` Scheduler: `scheduler:jobs` sorted set, `tick()` every 5s, HTTP dispatch, exponential-backoff retry, cron re-arm, idempotency, orphan recovery
 - ⬜ planned — the scheduler fires scheduled-meeting jobs (a job whose request POSTs agent-api `/api/meeting/bot`)
+
+
+Docker deployments sharing a daemon must use distinct `DOCKER_NAME_PREFIX` values as well as
+separate `DOCKER_NETWORK` values. The name prefix defaults to `vexa-`; an isolated test deployment
+can use `vexa-ui-test-`. Prefixes keep identical user/session IDs in copied data from sharing
+container names. A create conflict only replaces an exited, dead, or unstarted container carrying
+this workload's runtime labels on this stack's network. Foreign, live, or unverifiable containers
+are left untouched and the conflicting create fails visibly.

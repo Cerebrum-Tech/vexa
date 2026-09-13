@@ -109,7 +109,7 @@ def _build_backend():
         return ProcessBackend()
     from .docker_backend import DockerBackend
 
-    return DockerBackend()
+    return DockerBackend(name_prefix=os.getenv("DOCKER_NAME_PREFIX") or "vexa-")
 
 
 def _kernel_grace_sec() -> float:
