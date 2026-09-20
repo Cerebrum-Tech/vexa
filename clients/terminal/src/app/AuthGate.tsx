@@ -130,7 +130,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     : `${SERVICE_NAME}'na giriş yapın`;
 
   return (
-    <div className="auth-screen" style={{ minHeight: "100dvh", background: "var(--bg)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "clamp(48px, 12vh, 140px) 24px 48px" }}>
+    <div className="auth-screen" style={{ minHeight: "100dvh", background: "var(--bg)", display: "flex", alignItems: "center", justifyContent: "center", padding: "48px 24px" }}>
       <div style={{ width: 560, maxWidth: "100%", display: "flex", flexDirection: "column", gap: 28 }}>
         <h1 style={{ margin: 0, fontSize: "clamp(28px, 5vw, 40px)", lineHeight: 1.2, fontWeight: 500, letterSpacing: "-0.02em", color: "var(--t1)", textAlign: "center", textWrap: "balance" }}>
           {heading}
