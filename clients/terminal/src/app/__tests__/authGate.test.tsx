@@ -1,6 +1,7 @@
 /** AuthGate — the sign-in page's shape and method switch. With LDAP configured the page is the
- *  domain form (heading naming the service and LDAP, label-over-field inputs, one pill, one link);
- *  the link swaps to the other methods and back. Without LDAP the other methods are the page. */
+ *  domain form (heading naming the service, label-over-field inputs, one pill, a note under it) and
+ *  links nowhere; the other methods open only through `?auth=email` and link back. Without LDAP the
+ *  other methods are the page. */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import React from "react";
@@ -12,6 +13,7 @@ import { AuthGate } from "../AuthGate";
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  window.history.replaceState({}, "", "/");
 });
 
 function stubProbes(opts: { ldap: boolean; providers?: Record<string, unknown>; adminExists?: boolean }) {
@@ -30,15 +32,17 @@ function stubProbes(opts: { ldap: boolean; providers?: Record<string, unknown>; 
 }
 
 describe("AuthGate", () => {
-  it("LDAP deploy: heading, label-over-field inputs, pill, and the e-posta link", async () => {
+  it("LDAP deploy: heading, label-over-field inputs, pill, the note, and no method link", async () => {
     stubProbes({ ldap: true });
     render(<AuthGate><div data-testid="workbench" /></AuthGate>);
-    await waitFor(() => expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("İnnova Toplantı Asistanı'na LDAP ile giriş yapın"));
+    await waitFor(() => expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("İnnova Toplantı Asistanı'na giriş yapın"));
     expect(screen.queryByTestId("workbench")).toBeNull();
     expect(screen.getByLabelText("Kullanıcı Adı").getAttribute("placeholder")).toBe("Kullanıcı adınızı girin");
     expect(screen.getByLabelText("Şifre").getAttribute("placeholder")).toBe("Şifrenizi girin");
-    expect(screen.getByRole("button", { name: "Kimlik Doğrula" }).getAttribute("disabled")).not.toBeNull();
-    expect(screen.getByRole("button", { name: "E-posta ile devam et" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Giriş yap" }).getAttribute("disabled")).not.toBeNull();
+    expect(screen.getByText("* İnnova kullanıcınız ile giriş yapın")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "E-posta ile devam et" })).toBeNull();
+    expect(screen.queryByText(/LDAP/)).toBeNull();
     // the old card chrome is gone
     expect(screen.queryByAltText("Innova")).toBeNull();
     expect(screen.queryByText("Diğer giriş seçenekleri")).toBeNull();
@@ -55,15 +59,16 @@ describe("AuthGate", () => {
     expect(pass.getAttribute("type")).toBe("password");
   });
 
-  it("the link swaps LDAP for the other methods and back", async () => {
+  it("?auth=email opens the other methods; their link leads back to LDAP", async () => {
+    window.history.replaceState({}, "", "/?auth=email");
     stubProbes({ ldap: true, providers: { google: {} } });
     render(<AuthGate><div /></AuthGate>);
-    fireEvent.click(await screen.findByRole("button", { name: "E-posta ile devam et" }));
+    expect(await screen.findByRole("button", { name: /Google ile devam et/ })).toBeTruthy();
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("İnnova Toplantı Asistanı'na giriş yapın");
-    expect(screen.getByRole("button", { name: /Google ile devam et/ })).toBeTruthy();
     expect(screen.queryByLabelText("Kullanıcı Adı")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "LDAP ile devam et" }));
     expect(screen.getByLabelText("Kullanıcı Adı")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "E-posta ile devam et" })).toBeNull();
   });
 
   it("no LDAP and no OAuth: the e-posta form is the page, with no method link", async () => {
@@ -80,7 +85,7 @@ describe("AuthGate", () => {
     stubProbes({ ldap: true, adminExists: false });
     render(<AuthGate><div /></AuthGate>);
     await waitFor(() => expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("İnnova Toplantı Asistanı kurulumunu sahiplenin"));
-    expect(screen.getByRole("button", { name: "Yönetici olarak doğrula" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Yönetici olarak giriş yap" })).toBeTruthy();
     expect(screen.getByText("Bu ekran, bir yönetici belirlendikten sonra bir daha görünmez.")).toBeTruthy();
   });
 });

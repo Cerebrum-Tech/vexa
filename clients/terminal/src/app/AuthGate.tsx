@@ -1,13 +1,14 @@
 "use client";
 /** Login gate. Polls /api/auth/me on mount; if unauthenticated, renders the sign-in page.
  *
- *  Layout: one centered column on the page background — a large heading naming the service and the
- *  method, stacked "label over field" inputs with no box around them, a full-width pill button, and a
- *  single underlined text link for the alternative method beneath it. No card, no logo row.
+ *  Layout — the same page as the CereInsight /login: one centered column on the page background, a
+ *  large heading naming the service, stacked "label over field" inputs with no box around them, a
+ *  full-width neutral pill button and a small note under it. No card, no logo row.
  *
- *  Method order: when the deploy carries LDAP_* config the domain form is the page and
- *  "E-posta ile devam et" swaps it for the other methods (OAuth buttons when configured, otherwise the
- *  direct email entry — a DEBUG path the server restricts to addresses containing "test"). Without
+ *  Method order: when the deploy carries LDAP_* config the domain form is the page, and nothing on it
+ *  links elsewhere. The other methods (OAuth buttons when configured, otherwise the direct email
+ *  entry — a DEBUG path the server restricts to addresses containing "test") stay reachable by URL
+ *  only, with `?auth=email`, just as CereInsight keeps /login/noldap off its sign-in page. Without
  *  LDAP the other methods are the page. Enabled OAuth providers are discovered from NextAuth's
  *  /api/auth/providers so a deploy with no OAuth creds simply hides the buttons.
  *
@@ -23,6 +24,12 @@ type Method = "ldap" | "email";
 
 const SERVICE_NAME = "İnnova Toplantı Asistanı";
 
+/** `?auth=email` opens the non-LDAP methods; there is no link to them on the LDAP page. */
+function methodFromUrl(): Method {
+  if (typeof window === "undefined") return "ldap";
+  return new URLSearchParams(window.location.search).get("auth") === "email" ? "email" : "ldap";
+}
+
 export function AuthGate({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = useState<Status>("checking");
   const [providers, setProviders] = useState<Providers>({ google: false, microsoft: false });
@@ -37,8 +44,8 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   const [ldapPass, setLdapPass] = useState("");
   const [showPass, setShowPass] = useState(false);
   const [ldapSubmitting, setLdapSubmitting] = useState(false);
-  // Which method the page currently shows; the link under the button swaps between the two.
-  const [method, setMethod] = useState<Method>("ldap");
+  // Which method the page shows. LDAP unless the URL asks for the others; the email page links back.
+  const [method, setMethod] = useState<Method>(methodFromUrl);
 
   useEffect(() => {
     let active = true;
@@ -120,9 +127,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
 
   const heading = claiming
     ? `${SERVICE_NAME} kurulumunu sahiplenin`
-    : showLdap
-      ? `${SERVICE_NAME}'na LDAP ile giriş yapın`
-      : `${SERVICE_NAME}'na giriş yapın`;
+    : `${SERVICE_NAME}'na giriş yapın`;
 
   return (
     <div className="auth-screen" style={{ minHeight: "100dvh", background: "var(--bg)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "clamp(48px, 12vh, 140px) 24px 48px" }}>
@@ -190,11 +195,9 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
             </div>
             {error && <div style={errorStyle}>{error}</div>}
             <button type="submit" disabled={!ldapUser.trim() || !ldapPass || ldapSubmitting} style={pillBtn(!!ldapUser.trim() && !!ldapPass && !ldapSubmitting)}>
-              {ldapSubmitting ? "Doğrulanıyor…" : claiming ? "Yönetici olarak doğrula" : "Kimlik Doğrula"}
+              {ldapSubmitting ? "Giriş yapılıyor…" : claiming ? "Yönetici olarak giriş yap" : "Giriş yap"}
             </button>
-            <button type="button" onClick={() => switchMethod("email")} style={textLink}>
-              E-posta ile devam et
-            </button>
+            <div style={noteStyle}>* İnnova kullanıcınız ile giriş yapın</div>
           </form>
         )}
 
@@ -269,16 +272,16 @@ const inputStyle: React.CSSProperties = {
   color: "var(--t1)", fontSize: 20, outline: "none", width: "100%",
 };
 const errorStyle: React.CSSProperties = { fontSize: 13, color: "var(--danger)", lineHeight: 1.4 };
+const noteStyle: React.CSSProperties = { fontSize: 13, color: "var(--t2)", lineHeight: 1.4, textAlign: "center", marginTop: -8 };
 const textLink: React.CSSProperties = {
   background: "none", border: "none", padding: 0, alignSelf: "center", cursor: "pointer",
   color: "var(--t1)", fontSize: 16, textDecoration: "underline", textUnderlineOffset: 3,
 };
-/** Full-width pill. Enabled: primary accent. Idle (nothing typed yet): the quiet panel tone. */
+/** Full-width neutral pill in the quiet panel tone, as on the CereInsight sign-in; disabled fades. */
 function pillBtn(enabled: boolean): React.CSSProperties {
   return {
     display: "flex", alignItems: "center", justifyContent: "center", gap: 10, width: "100%",
-    background: enabled ? "var(--accent)" : "var(--panel2)",
-    color: enabled ? "var(--on-accent)" : "var(--t2)",
+    background: "var(--panel2)", color: "var(--t1)", opacity: enabled ? 1 : 0.6,
     border: "none", borderRadius: 999, padding: "16px 20px", fontSize: 18, fontWeight: 500,
     cursor: enabled ? "pointer" : "default",
   };
