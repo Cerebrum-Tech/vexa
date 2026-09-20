@@ -1,20 +1,27 @@
 "use client";
-/** Login gate. Polls /api/auth/me on mount; if unauthenticated, renders the sign-in card.
- *  Primary path is OAuth — Google / Microsoft buttons (next-auth/react `signIn`, which works without a
- *  SessionProvider). Enabled providers are discovered from NextAuth's /api/auth/providers so a deploy
- *  with no OAuth creds simply hides the buttons. The direct email form is kept as a DEBUG path (server
- *  restricts it to addresses containing "test"), tucked behind a toggle. Styled to match the terminal
- *  (CSS vars from globals.css); does not redesign the workbench.
+/** Login gate. Polls /api/auth/me on mount; if unauthenticated, renders the sign-in page.
  *
- *  FIRST RUN: /api/auth/instance says whether an admin exists. On a fresh instance the card becomes
- *  the one-time "Set up your instance" claim screen — first sign-in becomes the admin — through
- *  whatever auth the deploy actually has: OAuth buttons when configured, otherwise the test-mode
- *  direct entry with an honest banner naming the OAuth upgrade path. */
+ *  Layout: one centered column on the page background — a large heading naming the service and the
+ *  method, stacked "label over field" inputs with no box around them, a full-width pill button, and a
+ *  single underlined text link for the alternative method beneath it. No card, no logo row.
+ *
+ *  Method order: when the deploy carries LDAP_* config the domain form is the page and
+ *  "E-posta ile devam et" swaps it for the other methods (OAuth buttons when configured, otherwise the
+ *  direct email entry — a DEBUG path the server restricts to addresses containing "test"). Without
+ *  LDAP the other methods are the page. Enabled OAuth providers are discovered from NextAuth's
+ *  /api/auth/providers so a deploy with no OAuth creds simply hides the buttons.
+ *
+ *  FIRST RUN: /api/auth/instance says whether an admin exists. On a fresh instance the page becomes
+ *  the one-time "claim this instance" screen — first sign-in becomes the admin — through whatever
+ *  auth the deploy actually has. Colors come from the globals.css tokens so both themes work. */
 import { useEffect, useState, type FormEvent } from "react";
 import { signIn } from "next-auth/react";
 
 type Status = "checking" | "out" | "in";
 type Providers = { google: boolean; microsoft: boolean };
+type Method = "ldap" | "email";
+
+const SERVICE_NAME = "İnnova Toplantı Asistanı";
 
 export function AuthGate({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = useState<Status>("checking");
@@ -28,9 +35,10 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   const [ldapEnabled, setLdapEnabled] = useState(false);
   const [ldapUser, setLdapUser] = useState("");
   const [ldapPass, setLdapPass] = useState("");
+  const [showPass, setShowPass] = useState(false);
   const [ldapSubmitting, setLdapSubmitting] = useState(false);
-  // When LDAP is the default sign-in, OAuth + the debug email path collapse behind this toggle.
-  const [showOther, setShowOther] = useState(false);
+  // Which method the page currently shows; the link under the button swaps between the two.
+  const [method, setMethod] = useState<Method>("ldap");
 
   useEffect(() => {
     let active = true;
@@ -43,7 +51,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
       .then((p: Record<string, unknown>) =>
         active && setProviders({ google: !!p.google, microsoft: !!p.microsoft }))
       .catch(() => undefined);
-    // First-run probe — {admin_exists:false} flips the card into the admin-claim variant.
+    // First-run probe — {admin_exists:false} flips the page into the admin-claim variant.
     fetch("/api/auth/instance", { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : { admin_exists: true }))
       .then((d: { admin_exists?: boolean }) => active && setAdminExists(d.admin_exists !== false))
@@ -107,173 +115,145 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
 
   const hasOAuth = providers.google || providers.microsoft;
   const claiming = !adminExists; // fresh instance → this sign-in claims the admin role
+  const showLdap = ldapEnabled && method === "ldap";
+  const switchMethod = (next: Method) => { setMethod(next); setError(null); };
+
+  const heading = claiming
+    ? `${SERVICE_NAME} kurulumunu sahiplenin`
+    : showLdap
+      ? `${SERVICE_NAME}'na LDAP ile giriş yapın`
+      : `${SERVICE_NAME}'na giriş yapın`;
 
   return (
-    <div className="auth-screen" style={{ minHeight: "100dvh", background: "var(--bg)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
-      <div
-        style={{
-          width: 420, maxWidth: "100%", background: "var(--panel)", border: "1px solid var(--line2)", borderRadius: 12,
-          padding: 34, display: "flex", flexDirection: "column", gap: 20, boxShadow: "0 12px 50px rgba(0,0,0,.06)",
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/innova-logo.svg" alt="Innova" width={104} height={20} style={{ display: "block", flex: "none" }} />
-          <div style={{ fontSize: 15, fontWeight: 600, color: "var(--t1)" }}>
-            {claiming ? "Bu kurulumu sahiplenin" : "Toplantı Asistanı"}
-          </div>
-        </div>
-        {claiming ? (
-          <>
-            <div style={{ fontSize: 12, color: "var(--t3)", lineHeight: 1.5 }}>
-               Bu Innova Toplantı Asistanı kurulumunda henüz yönetici yok. İlk giriş yapan kişi yönetici
-               olur; modelleri, transkripsiyonu ve diğer kullanıcıları yapılandırabilir.
+    <div className="auth-screen" style={{ minHeight: "100dvh", background: "var(--bg)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "clamp(48px, 12vh, 140px) 24px 48px" }}>
+      <div style={{ width: 560, maxWidth: "100%", display: "flex", flexDirection: "column", gap: 28 }}>
+        <h1 style={{ margin: 0, fontSize: "clamp(28px, 5vw, 40px)", lineHeight: 1.2, fontWeight: 500, letterSpacing: "-0.02em", color: "var(--t1)", textAlign: "center", textWrap: "balance" }}>
+          {heading}
+        </h1>
+
+        {claiming && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 12, textAlign: "center" }}>
+            <div style={{ fontSize: 14, color: "var(--t2)", lineHeight: 1.5 }}>
+              Bu kurulumda henüz yönetici yok. İlk giriş yapan kişi yönetici olur; modelleri,
+              transkripsiyonu ve diğer kullanıcıları yapılandırabilir.
             </div>
-            <div
-              style={{
-                alignSelf: "flex-start", fontSize: 11, color: "var(--t2)", border: "1px solid var(--line2)",
-                borderRadius: 20, padding: "3px 10px", display: "inline-flex", alignItems: "center", gap: 6,
-              }}
-            >
-              <span style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--accent)", display: "inline-block" }} />
-              İlk giriş = yönetici
-            </div>
-            {!hasOAuth && (
-              <div
-                style={{
-                  fontSize: 11.5, lineHeight: 1.5, color: "var(--t2)", background: "var(--panel2)",
-                  border: "1px solid var(--line2)", borderRadius: 8, padding: "9px 11px",
-                }}
-              >
+            {!hasOAuth && !ldapEnabled && (
+              <div style={{ fontSize: 12.5, lineHeight: 1.5, color: "var(--t2)", background: "var(--panel2)", borderRadius: 10, padding: "10px 14px", textAlign: "left" }}>
                 ⚠ Test modu — OAuth yapılandırılmamış. Giriş yalnızca &ldquo;test&rdquo; içeren e-posta
                 adresleriyle yapılabilir. Gerçek kimlik doğrulama için Google veya Microsoft OAuth kimlik
                 bilgileri edinip bu kurulumun ortam değişkenlerine ekleyin (GOOGLE_CLIENT_ID/SECRET veya
                 MICROSOFT_CLIENT_ID/SECRET).
               </div>
             )}
-          </>
-        ) : (
-          <div style={{ fontSize: 12, color: "var(--t3)", lineHeight: 1.5 }}>Toplantılarınız, notlarınız ve bağlantılarınız tek bir yerde. Devam etmek için giriş yapın.</div>
-        )}
-
-        {ldapEnabled && (
-          <form onSubmit={submitLdap} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            <div style={{ fontSize: 11, color: "var(--t3)", lineHeight: 1.4 }}>Kurum hesabınızla güvenli giriş yapın.</div>
-            <input
-              type="text"
-              autoComplete="username"
-              required
-              value={ldapUser}
-              onChange={(e) => setLdapUser(e.target.value)}
-              aria-label="Kullanıcı adı"
-              placeholder="Kullanıcı adı"
-              style={{
-                background: "var(--panel2)", border: "1px solid var(--line2)", borderRadius: 7,
-                padding: "9px 10px", color: "var(--t1)", fontSize: 13, outline: "none",
-              }}
-            />
-            <input
-              type="password"
-              autoComplete="current-password"
-              required
-              value={ldapPass}
-              onChange={(e) => setLdapPass(e.target.value)}
-              aria-label="Şifre"
-              placeholder="Şifre"
-              style={{
-                background: "var(--panel2)", border: "1px solid var(--line2)", borderRadius: 7,
-                padding: "9px 10px", color: "var(--t1)", fontSize: 13, outline: "none",
-              }}
-            />
-            {error && <div style={{ fontSize: 11, color: "var(--danger)", lineHeight: 1.4 }}>{error}</div>}
-            <button
-              type="submit"
-              disabled={!ldapUser.trim() || !ldapPass || ldapSubmitting}
-              style={{
-                background: ldapUser.trim() && ldapPass ? "var(--accent)" : "var(--panel2)",
-                color: ldapUser.trim() && ldapPass ? "var(--on-accent)" : "var(--t3)",
-                border: "none", borderRadius: 7, padding: "9px 10px", fontSize: 13, fontWeight: 600,
-                cursor: ldapUser.trim() && ldapPass && !ldapSubmitting ? "pointer" : "default",
-              }}
-            >
-              {ldapSubmitting ? "Giriş yapılıyor…" : "Kurum hesabıyla giriş yap"}
-            </button>
-          </form>
-        )}
-
-        {/* LDAP is the default path: when it is on, the other methods hide behind this toggle. */}
-        {ldapEnabled && (
-          <button
-            onClick={() => setShowOther((v) => !v)}
-            style={{ background: "none", border: "none", color: "var(--t3)", fontSize: 11, cursor: "pointer", padding: 0, alignSelf: "flex-start" }}
-          >
-            {showOther ? "Diğer giriş seçeneklerini gizle" : "Diğer giriş seçenekleri"}
-          </button>
-        )}
-
-        {ldapEnabled && showOther && (
-          <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "2px 0" }}>
-            <div style={{ flex: 1, height: 1, background: "var(--line2)" }} />
-            <span style={{ fontSize: 10.5, color: "var(--t3)" }}>veya</span>
-            <div style={{ flex: 1, height: 1, background: "var(--line2)" }} />
           </div>
         )}
 
-        {(!ldapEnabled || showOther) && providers.google && (
-          <button onClick={() => signIn("google", { callbackUrl: window.location.pathname + window.location.search })} style={oauthBtn}>
-            <GoogleMark /> Google ile devam et
-          </button>
-        )}
-        {(!ldapEnabled || showOther) && providers.microsoft && (
-          <button onClick={() => signIn("microsoft", { callbackUrl: window.location.pathname + window.location.search })} style={oauthBtn}>
-            <MicrosoftMark /> Microsoft ile devam et
-          </button>
-        )}
-
-        {(!ldapEnabled || showOther) && hasOAuth && (
-          <button
-            onClick={() => setShowDebug((v) => !v)}
-            style={{ background: "none", border: "none", color: "var(--t3)", fontSize: 11, cursor: "pointer", padding: 0, alignSelf: "flex-start" }}
-          >
-            {showDebug ? "Hata ayıklama girişini gizle" : "Hata ayıklama girişi"}
-          </button>
-        )}
-
-        {(!ldapEnabled || showOther) && (!hasOAuth || showDebug) && (
-          <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            <div style={{ fontSize: 11, color: "var(--t3)", lineHeight: 1.4 }}>
-              {claiming && !hasOAuth
-                ? "E-posta — “test” içermelidir (test modu)."
-                : "Hata ayıklama girişi — e-posta “test” içermelidir."}
+        {showLdap && (
+          <form onSubmit={submitLdap} style={{ display: "flex", flexDirection: "column", gap: 22 }}>
+            <div style={fieldStyle}>
+              <label htmlFor="auth-username" style={labelStyle}>Kullanıcı Adı</label>
+              <input
+                id="auth-username"
+                type="text"
+                autoComplete="username"
+                required
+                autoFocus
+                value={ldapUser}
+                onChange={(e) => setLdapUser(e.target.value)}
+                placeholder="Kullanıcı adınızı girin"
+                style={inputStyle}
+              />
             </div>
-            <input
-              type="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="siz-test@sirket.com"
-              style={{
-                background: "var(--panel2)", border: "1px solid var(--line2)", borderRadius: 7,
-                padding: "9px 10px", color: "var(--t1)", fontSize: 13, outline: "none",
-              }}
-            />
-            {error && <div style={{ fontSize: 11, color: "var(--danger)", lineHeight: 1.4 }}>{error}</div>}
-            <button
-              type="submit"
-              disabled={!email.trim() || submitting}
-              style={{
-                background: email.trim() ? "var(--accent)" : "var(--panel2)",
-                color: email.trim() ? "var(--on-accent)" : "var(--t3)",
-                border: "none", borderRadius: 7, padding: "9px 10px", fontSize: 13, fontWeight: 600,
-                cursor: email.trim() && !submitting ? "pointer" : "default",
-              }}
-            >
-              {submitting ? "Giriş yapılıyor…" : claiming ? "Yönetici olarak giriş yap" : "Giriş yap"}
+            <div style={fieldStyle}>
+              <label htmlFor="auth-password" style={labelStyle}>Şifre</label>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <input
+                  id="auth-password"
+                  type={showPass ? "text" : "password"}
+                  autoComplete="current-password"
+                  required
+                  value={ldapPass}
+                  onChange={(e) => setLdapPass(e.target.value)}
+                  placeholder="Şifrenizi girin"
+                  style={{ ...inputStyle, flex: 1 }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPass((v) => !v)}
+                  aria-label={showPass ? "Şifreyi gizle" : "Şifreyi göster"}
+                  aria-pressed={showPass}
+                  style={{ background: "none", border: "none", padding: 4, cursor: "pointer", color: "var(--t1)", display: "inline-flex" }}
+                >
+                  <EyeMark off={showPass} />
+                </button>
+              </div>
+            </div>
+            {error && <div style={errorStyle}>{error}</div>}
+            <button type="submit" disabled={!ldapUser.trim() || !ldapPass || ldapSubmitting} style={pillBtn(!!ldapUser.trim() && !!ldapPass && !ldapSubmitting)}>
+              {ldapSubmitting ? "Doğrulanıyor…" : claiming ? "Yönetici olarak doğrula" : "Kimlik Doğrula"}
+            </button>
+            <button type="button" onClick={() => switchMethod("email")} style={textLink}>
+              E-posta ile devam et
             </button>
           </form>
         )}
+
+        {!showLdap && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
+            {providers.google && (
+              <button onClick={() => signIn("google", { callbackUrl: window.location.pathname + window.location.search })} style={pillBtn(true)}>
+                <GoogleMark /> Google ile devam et
+              </button>
+            )}
+            {providers.microsoft && (
+              <button onClick={() => signIn("microsoft", { callbackUrl: window.location.pathname + window.location.search })} style={pillBtn(true)}>
+                <MicrosoftMark /> Microsoft ile devam et
+              </button>
+            )}
+
+            {hasOAuth && (
+              <button onClick={() => setShowDebug((v) => !v)} style={textLink}>
+                {showDebug ? "Hata ayıklama girişini gizle" : "Hata ayıklama girişi"}
+              </button>
+            )}
+
+            {(!hasOAuth || showDebug) && (
+              <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 22 }}>
+                <div style={fieldStyle}>
+                  <label htmlFor="auth-email" style={labelStyle}>E-posta</label>
+                  <input
+                    id="auth-email"
+                    type="email"
+                    required
+                    autoFocus={!hasOAuth}
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="E-posta adresinizi girin"
+                    style={inputStyle}
+                  />
+                  <span style={{ fontSize: 12.5, color: "var(--t3)", lineHeight: 1.4 }}>
+                    {claiming && !hasOAuth
+                      ? "Test modu — adres “test” içermelidir."
+                      : "Hata ayıklama girişi — adres “test” içermelidir."}
+                  </span>
+                </div>
+                {error && <div style={errorStyle}>{error}</div>}
+                <button type="submit" disabled={!email.trim() || submitting} style={pillBtn(!!email.trim() && !submitting)}>
+                  {submitting ? "Giriş yapılıyor…" : claiming ? "Yönetici olarak giriş yap" : "Giriş yap"}
+                </button>
+              </form>
+            )}
+
+            {ldapEnabled && (
+              <button type="button" onClick={() => switchMethod("ldap")} style={textLink}>
+                LDAP ile devam et
+              </button>
+            )}
+          </div>
+        )}
+
         {claiming && (
-          <div style={{ fontSize: 10.5, color: "var(--t3)", lineHeight: 1.4 }}>
+          <div style={{ fontSize: 12.5, color: "var(--t3)", lineHeight: 1.4, textAlign: "center" }}>
             Bu ekran, bir yönetici belirlendikten sonra bir daha görünmez.
           </div>
         )}
@@ -282,11 +262,38 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   );
 }
 
-const oauthBtn: React.CSSProperties = {
-  display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
-  background: "var(--panel2)", color: "var(--t1)", border: "1px solid var(--line2)",
-  borderRadius: 7, padding: "10px 10px", fontSize: 13, fontWeight: 600, cursor: "pointer",
+const fieldStyle: React.CSSProperties = { display: "flex", flexDirection: "column", gap: 6 };
+const labelStyle: React.CSSProperties = { fontSize: 18, fontWeight: 500, color: "var(--t1)" };
+const inputStyle: React.CSSProperties = {
+  background: "transparent", border: "none", borderRadius: 0, padding: "6px 0",
+  color: "var(--t1)", fontSize: 20, outline: "none", width: "100%",
 };
+const errorStyle: React.CSSProperties = { fontSize: 13, color: "var(--danger)", lineHeight: 1.4 };
+const textLink: React.CSSProperties = {
+  background: "none", border: "none", padding: 0, alignSelf: "center", cursor: "pointer",
+  color: "var(--t1)", fontSize: 16, textDecoration: "underline", textUnderlineOffset: 3,
+};
+/** Full-width pill. Enabled: primary accent. Idle (nothing typed yet): the quiet panel tone. */
+function pillBtn(enabled: boolean): React.CSSProperties {
+  return {
+    display: "flex", alignItems: "center", justifyContent: "center", gap: 10, width: "100%",
+    background: enabled ? "var(--accent)" : "var(--panel2)",
+    color: enabled ? "var(--on-accent)" : "var(--t2)",
+    border: "none", borderRadius: 999, padding: "16px 20px", fontSize: 18, fontWeight: 500,
+    cursor: enabled ? "pointer" : "default",
+  };
+}
+
+/** Eye (show password) / eye with a slash (hide password). */
+function EyeMark({ off }: { off: boolean }) {
+  return (
+    <svg width={22} height={22} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z" />
+      <circle cx={12} cy={12} r={3} />
+      {off && <path d="M4 4l16 16" />}
+    </svg>
+  );
+}
 
 /** Google's multicolor "G" brand mark. */
 function GoogleMark() {

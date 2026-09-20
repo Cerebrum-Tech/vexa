@@ -100,5 +100,7 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 .meeting-detail-heading { flex-wrap: wrap; }
 .meeting-detail-heading > div:first-child { flex-wrap: wrap; }
 .auth-screen input { min-height: 44px; }
+.auth-screen input::placeholder { color: var(--t3); }
+.auth-screen input:focus-visible { box-shadow: 0 1px 0 var(--t1); }
 .auth-screen button[type=submit] { min-height: 44px; }
 @media (max-width: 600px) { .workspace-settings { flex-direction: column; } .workspace-settings > div:first-child { width: 100% !important; border-right: 0 !important; border-bottom: 1px solid var(--line); display: flex; gap: 6px; flex-wrap: wrap; } .workspace-settings > div:first-child > div { width: 100%; } .workspace-settings > div:first-child > button { width: auto !important; } }
