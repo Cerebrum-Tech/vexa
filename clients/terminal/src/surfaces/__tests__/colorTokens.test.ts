@@ -14,7 +14,9 @@ const SCAN_DIRS = ["surfaces", "canvas", "workbench", "ui-kit", "app"];
 // Non-color or deliberate exceptions:
 //  - routines.tsx switch knob: a white knob is correct on both themes' green track.
 //  - AuthGate/App boxShadow rgba + icon assets are shadows/artwork, not palette colors.
-const HEX_ALLOWLIST = new Set(["surfaces/routines.tsx"]);
+//  - app/login.css is the İnnova brand sheet for the sign-in route, scoped under `.innova-login`:
+//    its colors are the brand's (red read from the logo SVG), the route is single-theme by design.
+const HEX_ALLOWLIST = new Set(["surfaces/routines.tsx", "app/login.css"]);
 const HEX_RE = /(?:color|background|border(?:Color|Bottom|Top|Left|Right)?)\s*:\s*[^,;}]*#[0-9a-fA-F]{3,8}\b/;
 
 function* sourceFiles(dir: string): Generator<string> {

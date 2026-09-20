@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "./workspace.css";
+@import "./login.css";
 
 /*
  * Terminal design tokens — ported verbatim from public/prototype.html so the React shell and the

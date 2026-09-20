@@ -1,20 +1,22 @@
 "use client";
 /** Login gate. Polls /api/auth/me on mount; if unauthenticated, renders the sign-in page.
  *
- *  Layout — the same page as the CereInsight /login: one centered column on the page background, a
- *  large heading naming the service, stacked "label over field" inputs with no box around them, a
- *  full-width neutral pill button and a small note under it. No card, no logo row.
+ *  Layout — the İnnova corporate sign-in (`login.css`, scoped under `.innova-login`): a white page
+ *  with two faint red radial gradients, a header carrying the white İnnova wordmark on its charcoal
+ *  backing next to the "Kurumsal uygulamalar" label, and one compact centered card. The card reads
+ *  app name · "Hoş geldiniz" · one-line intro · the form · a note · a divider · the alternate
+ *  sign-in link. The route is always light regardless of the app theme.
  *
- *  Method order: when the deploy carries LDAP_* config the domain form is the page; a small
- *  "Diğer giriş seçenekleri" link under it (kept for now so testers can still sign in) swaps to the
- *  other methods — OAuth buttons when configured, otherwise the direct email entry, a DEBUG path the
- *  server restricts to addresses containing "test" — and `?auth=email` opens them directly. Without
- *  LDAP the other methods are the page. Enabled OAuth providers are discovered from NextAuth's
- *  /api/auth/providers so a deploy with no OAuth creds simply hides the buttons.
+ *  Method order: when the deploy carries LDAP_* config the domain form is the card; the
+ *  "Diğer giriş seçenekleri" link under the divider swaps to the other methods — OAuth buttons when
+ *  configured, otherwise the direct email entry, a DEBUG path the server restricts to addresses
+ *  containing "test" — and `?auth=email` opens them directly. Without LDAP the other methods are the
+ *  card. Enabled OAuth providers are discovered from NextAuth's /api/auth/providers so a deploy with
+ *  no OAuth creds simply hides the buttons.
  *
- *  FIRST RUN: /api/auth/instance says whether an admin exists. On a fresh instance the page becomes
+ *  FIRST RUN: /api/auth/instance says whether an admin exists. On a fresh instance the card becomes
  *  the one-time "claim this instance" screen — first sign-in becomes the admin — through whatever
- *  auth the deploy actually has. Colors come from the globals.css tokens so both themes work. */
+ *  auth the deploy actually has. */
 import { useEffect, useState, type FormEvent } from "react";
 import { signIn } from "next-auth/react";
 
@@ -22,7 +24,8 @@ type Status = "checking" | "out" | "in";
 type Providers = { google: boolean; microsoft: boolean };
 type Method = "ldap" | "email";
 
-const SERVICE_NAME = "İnnova Toplantı Asistanı";
+const APP_NAME = "Toplantı Asistanı";
+const SUITE_LABEL = "Kurumsal uygulamalar";
 
 /** `?auth=email` opens the non-LDAP methods directly, without the link. */
 function methodFromUrl(): Method {
@@ -44,7 +47,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   const [ldapPass, setLdapPass] = useState("");
   const [showPass, setShowPass] = useState(false);
   const [ldapSubmitting, setLdapSubmitting] = useState(false);
-  // Which method the page shows. LDAP unless the URL asks for the others; the links swap between them.
+  // Which method the card shows. LDAP unless the URL asks for the others; the links swap between them.
   const [method, setMethod] = useState<Method>(methodFromUrl);
 
   useEffect(() => {
@@ -58,7 +61,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
       .then((p: Record<string, unknown>) =>
         active && setProviders({ google: !!p.google, microsoft: !!p.microsoft }))
       .catch(() => undefined);
-    // First-run probe — {admin_exists:false} flips the page into the admin-claim variant.
+    // First-run probe — {admin_exists:false} flips the card into the admin-claim variant.
     fetch("/api/auth/instance", { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : { admin_exists: true }))
       .then((d: { admin_exists?: boolean }) => active && setAdminExists(d.admin_exists !== false))
@@ -118,185 +121,174 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   };
 
   if (status === "in") return <>{children}</>;
-  if (status === "checking") return <div style={{ height: "100vh", background: "var(--bg)" }} />;
+  if (status === "checking") return <div className="innova-login" />; // the same white page, empty, until the probe answers
 
   const hasOAuth = providers.google || providers.microsoft;
   const claiming = !adminExists; // fresh instance → this sign-in claims the admin role
   const showLdap = ldapEnabled && method === "ldap";
   const switchMethod = (next: Method) => { setMethod(next); setError(null); };
+  const callbackUrl = () => window.location.pathname + window.location.search;
 
-  const heading = claiming
-    ? `${SERVICE_NAME} kurulumunu sahiplenin`
-    : `${SERVICE_NAME}'na giriş yapın`;
+  const errorBox = error && <p className="il-error" id="login-error" role="alert">{error}</p>;
+  const submitLabel = (busy: boolean) =>
+    busy ? "Giriş yapılıyor…" : claiming ? "Yönetici olarak giriş yap" : <>Giriş yap <span aria-hidden="true">→</span></>;
 
   return (
-    <div className="auth-screen" style={{ minHeight: "100dvh", background: "var(--bg)", display: "flex", alignItems: "center", justifyContent: "center", padding: "48px 24px" }}>
-      <div style={{ width: 560, maxWidth: "100%", display: "flex", flexDirection: "column", gap: 28 }}>
-        <h1 style={{ margin: 0, fontSize: "clamp(28px, 5vw, 40px)", lineHeight: 1.2, fontWeight: 500, letterSpacing: "-0.02em", color: "var(--t1)", textAlign: "center", textWrap: "balance" }}>
-          {heading}
-        </h1>
+    <div className="innova-login">
+      <header className="il-header">
+        <div className="il-logo"><img src="/innova-logo-beyaz.svg" alt="İnnova" width={826} height={157} /></div>
+        <span className="il-suite">{SUITE_LABEL}</span>
+      </header>
+      <main className="il-main">
+        <section className="il-card" aria-labelledby="login-title">
+          <p className="il-app"><span className="il-dot" aria-hidden="true" /><span>{APP_NAME}</span></p>
+          <h1 id="login-title">{claiming ? "Kurulumu sahiplenin" : "Hoş geldiniz"}</h1>
+          <p className="il-intro">
+            {claiming
+              ? "Bu kurulumda henüz yönetici yok. İlk giriş yapan kişi yönetici olur; modelleri, transkripsiyonu ve diğer kullanıcıları yapılandırabilir."
+              : "Devam etmek için hesabınıza giriş yapın."}
+          </p>
 
-        {claiming && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 12, textAlign: "center" }}>
-            <div style={{ fontSize: 14, color: "var(--t2)", lineHeight: 1.5 }}>
-              Bu kurulumda henüz yönetici yok. İlk giriş yapan kişi yönetici olur; modelleri,
-              transkripsiyonu ve diğer kullanıcıları yapılandırabilir.
-            </div>
-            {!hasOAuth && !ldapEnabled && (
-              <div style={{ fontSize: 12.5, lineHeight: 1.5, color: "var(--t2)", background: "var(--panel2)", borderRadius: 10, padding: "10px 14px", textAlign: "left" }}>
-                ⚠ Test modu — OAuth yapılandırılmamış. Giriş yalnızca &ldquo;test&rdquo; içeren e-posta
-                adresleriyle yapılabilir. Gerçek kimlik doğrulama için Google veya Microsoft OAuth kimlik
-                bilgileri edinip bu kurulumun ortam değişkenlerine ekleyin (GOOGLE_CLIENT_ID/SECRET veya
-                MICROSOFT_CLIENT_ID/SECRET).
-              </div>
-            )}
-          </div>
-        )}
+          {claiming && !hasOAuth && !ldapEnabled && (
+            <p className="il-notice">
+              ⚠ Test modu — OAuth yapılandırılmamış. Giriş yalnızca &ldquo;test&rdquo; içeren e-posta
+              adresleriyle yapılabilir. Gerçek kimlik doğrulama için Google veya Microsoft OAuth kimlik
+              bilgileri edinip bu kurulumun ortam değişkenlerine ekleyin (GOOGLE_CLIENT_ID/SECRET veya
+              MICROSOFT_CLIENT_ID/SECRET).
+            </p>
+          )}
 
-        {showLdap && (
-          <form onSubmit={submitLdap} style={{ display: "flex", flexDirection: "column", gap: 22 }}>
-            <div style={fieldStyle}>
-              <label htmlFor="auth-username" style={labelStyle}>Kullanıcı Adı</label>
-              <input
-                id="auth-username"
-                type="text"
-                autoComplete="username"
-                required
-                autoFocus
-                value={ldapUser}
-                onChange={(e) => setLdapUser(e.target.value)}
-                placeholder="Kullanıcı adınızı girin"
-                style={inputStyle}
-              />
-            </div>
-            <div style={fieldStyle}>
-              <label htmlFor="auth-password" style={labelStyle}>Şifre</label>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <input
-                  id="auth-password"
-                  type={showPass ? "text" : "password"}
-                  autoComplete="current-password"
-                  required
-                  value={ldapPass}
-                  onChange={(e) => setLdapPass(e.target.value)}
-                  placeholder="Şifrenizi girin"
-                  style={{ ...inputStyle, flex: 1 }}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPass((v) => !v)}
-                  aria-label={showPass ? "Şifreyi gizle" : "Şifreyi göster"}
-                  aria-pressed={showPass}
-                  style={{ background: "none", border: "none", padding: 4, cursor: "pointer", color: "var(--t1)", display: "inline-flex" }}
-                >
-                  <EyeMark off={showPass} />
-                </button>
-              </div>
-            </div>
-            {error && <div style={errorStyle}>{error}</div>}
-            <button type="submit" disabled={!ldapUser.trim() || !ldapPass || ldapSubmitting} style={pillBtn(!!ldapUser.trim() && !!ldapPass && !ldapSubmitting)}>
-              {ldapSubmitting ? "Giriş yapılıyor…" : claiming ? "Yönetici olarak giriş yap" : "Giriş yap"}
-            </button>
-            <div style={noteStyle}>* İnnova kullanıcınız ile giriş yapın</div>
-            <button type="button" onClick={() => switchMethod("email")} style={{ ...textLink, fontSize: 14, color: "var(--t2)" }}>
-              Diğer giriş seçenekleri
-            </button>
-          </form>
-        )}
-
-        {!showLdap && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
-            {providers.google && (
-              <button onClick={() => signIn("google", { callbackUrl: window.location.pathname + window.location.search })} style={pillBtn(true)}>
-                <GoogleMark /> Google ile devam et
-              </button>
-            )}
-            {providers.microsoft && (
-              <button onClick={() => signIn("microsoft", { callbackUrl: window.location.pathname + window.location.search })} style={pillBtn(true)}>
-                <MicrosoftMark /> Microsoft ile devam et
-              </button>
-            )}
-
-            {hasOAuth && (
-              <button onClick={() => setShowDebug((v) => !v)} style={textLink}>
-                {showDebug ? "Hata ayıklama girişini gizle" : "Hata ayıklama girişi"}
-              </button>
-            )}
-
-            {(!hasOAuth || showDebug) && (
-              <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 22 }}>
-                <div style={fieldStyle}>
-                  <label htmlFor="auth-email" style={labelStyle}>E-posta</label>
+          {showLdap && (
+            <>
+              <form onSubmit={submitLdap}>
+                <div className="il-field">
+                  <label htmlFor="auth-username">Kullanıcı adı</label>
                   <input
-                    id="auth-email"
-                    type="email"
+                    id="auth-username"
+                    name="username"
+                    type="text"
+                    autoComplete="username"
+                    autoCapitalize="none"
+                    spellCheck={false}
                     required
-                    autoFocus={!hasOAuth}
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="E-posta adresinizi girin"
-                    style={inputStyle}
+                    value={ldapUser}
+                    onChange={(e) => setLdapUser(e.target.value)}
+                    placeholder="Kullanıcı adınızı girin"
                   />
-                  <span style={{ fontSize: 12.5, color: "var(--t3)", lineHeight: 1.4 }}>
-                    {claiming && !hasOAuth
-                      ? "Test modu — adres “test” içermelidir."
-                      : "Hata ayıklama girişi — adres “test” içermelidir."}
-                  </span>
                 </div>
-                {error && <div style={errorStyle}>{error}</div>}
-                <button type="submit" disabled={!email.trim() || submitting} style={pillBtn(!!email.trim() && !submitting)}>
-                  {submitting ? "Giriş yapılıyor…" : claiming ? "Yönetici olarak giriş yap" : "Giriş yap"}
+                <div className="il-field">
+                  <label htmlFor="auth-password">Şifre</label>
+                  <div className="il-input-wrap">
+                    <input
+                      id="auth-password"
+                      name="password"
+                      type={showPass ? "text" : "password"}
+                      autoComplete="current-password"
+                      required
+                      value={ldapPass}
+                      onChange={(e) => setLdapPass(e.target.value)}
+                      placeholder="Şifrenizi girin"
+                    />
+                    <button
+                      className="il-eye"
+                      type="button"
+                      onClick={() => setShowPass((v) => !v)}
+                      aria-label={showPass ? "Şifreyi gizle" : "Şifreyi göster"}
+                      aria-pressed={showPass}
+                      aria-controls="auth-password"
+                    >
+                      <EyeMark off={showPass} />
+                    </button>
+                  </div>
+                </div>
+                {errorBox}
+                <button className="il-submit" type="submit" disabled={ldapSubmitting} aria-busy={ldapSubmitting || undefined}>
+                  {submitLabel(ldapSubmitting)}
                 </button>
+                <p className="il-note">İnnova kullanıcı bilgilerinizle giriş yapın.</p>
               </form>
-            )}
+              <div className="il-alternative">
+                <button className="il-link" type="button" onClick={() => switchMethod("email")}>Diğer giriş seçenekleri</button>
+              </div>
+            </>
+          )}
 
-            {ldapEnabled && (
-              <button type="button" onClick={() => switchMethod("ldap")} style={textLink}>
-                LDAP ile devam et
-              </button>
-            )}
-          </div>
-        )}
+          {!showLdap && (
+            <>
+              <div className="il-methods">
+                {providers.google && (
+                  <button type="button" className="il-provider" onClick={() => signIn("google", { callbackUrl: callbackUrl() })}>
+                    <GoogleMark /> Google ile devam et
+                  </button>
+                )}
+                {providers.microsoft && (
+                  <button type="button" className="il-provider" onClick={() => signIn("microsoft", { callbackUrl: callbackUrl() })}>
+                    <MicrosoftMark /> Microsoft ile devam et
+                  </button>
+                )}
 
-        {claiming && (
-          <div style={{ fontSize: 12.5, color: "var(--t3)", lineHeight: 1.4, textAlign: "center" }}>
-            Bu ekran, bir yönetici belirlendikten sonra bir daha görünmez.
-          </div>
-        )}
-      </div>
+                {hasOAuth && (
+                  <div className="il-center">
+                    <button type="button" className="il-link" onClick={() => setShowDebug((v) => !v)}>
+                      {showDebug ? "Hata ayıklama girişini gizle" : "Hata ayıklama girişi"}
+                    </button>
+                  </div>
+                )}
+
+                {(!hasOAuth || showDebug) && (
+                  <form onSubmit={submit}>
+                    <div className="il-field">
+                      <label htmlFor="auth-email">E-posta</label>
+                      <input
+                        id="auth-email"
+                        name="email"
+                        type="email"
+                        autoComplete="email"
+                        required
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        placeholder="E-posta adresinizi girin"
+                        aria-describedby="auth-email-hint"
+                      />
+                      <p className="il-hint" id="auth-email-hint">
+                        {claiming && !hasOAuth
+                          ? "Test modu — adres “test” içermelidir."
+                          : "Hata ayıklama girişi — adres “test” içermelidir."}
+                      </p>
+                    </div>
+                    {errorBox}
+                    <button className="il-submit" type="submit" disabled={submitting} aria-busy={submitting || undefined}>
+                      {submitLabel(submitting)}
+                    </button>
+                  </form>
+                )}
+              </div>
+
+              {ldapEnabled && (
+                <div className="il-alternative">
+                  <button className="il-link" type="button" onClick={() => switchMethod("ldap")}>LDAP ile devam et</button>
+                </div>
+              )}
+            </>
+          )}
+
+          {claiming && (
+            <p className="il-note">Bu ekran, bir yönetici belirlendikten sonra bir daha görünmez.</p>
+          )}
+        </section>
+      </main>
+      <footer className="il-footer">İnnova · {SUITE_LABEL}</footer>
     </div>
   );
-}
-
-const fieldStyle: React.CSSProperties = { display: "flex", flexDirection: "column", gap: 6 };
-const labelStyle: React.CSSProperties = { fontSize: 18, fontWeight: 500, color: "var(--t1)" };
-const inputStyle: React.CSSProperties = {
-  background: "transparent", border: "none", borderRadius: 0, padding: "6px 0",
-  color: "var(--t1)", fontSize: 20, outline: "none", width: "100%",
-};
-const errorStyle: React.CSSProperties = { fontSize: 13, color: "var(--danger)", lineHeight: 1.4 };
-const noteStyle: React.CSSProperties = { fontSize: 13, color: "var(--t2)", lineHeight: 1.4, textAlign: "center", marginTop: -8 };
-const textLink: React.CSSProperties = {
-  background: "none", border: "none", padding: 0, alignSelf: "center", cursor: "pointer",
-  color: "var(--t1)", fontSize: 16, textDecoration: "underline", textUnderlineOffset: 3,
-};
-/** Full-width neutral pill in the quiet panel tone, as on the CereInsight sign-in; disabled fades. */
-function pillBtn(enabled: boolean): React.CSSProperties {
-  return {
-    display: "flex", alignItems: "center", justifyContent: "center", gap: 10, width: "100%",
-    background: "var(--panel2)", color: "var(--t1)", opacity: enabled ? 1 : 0.6,
-    border: "none", borderRadius: 999, padding: "16px 20px", fontSize: 18, fontWeight: 500,
-    cursor: enabled ? "pointer" : "default",
-  };
 }
 
 /** Eye (show password) / eye with a slash (hide password). */
 function EyeMark({ off }: { off: boolean }) {
   return (
-    <svg width={22} height={22} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z" />
+    <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" />
       <circle cx={12} cy={12} r={3} />
-      {off && <path d="M4 4l16 16" />}
+      {off && <path d="m4 4 16 16" />}
     </svg>
   );
 }

@@ -1,0 +1,74 @@
+/* Shared unchanged across frameworks. All selectors are scoped. */
+.innova-login {
+  --il-brand: #e92231;
+  --il-action: #d51d2c; /* darker red for white text contrast */
+  --il-action-hover: #bc1725;
+  --il-ink: #242529;
+  --il-muted: #686970;
+  --il-border: #dedee3;
+  --il-error: #b01625;
+  box-sizing: border-box;
+  min-height: 100vh;
+  min-height: 100svh;
+  margin: 0;
+  color: var(--il-ink);
+  background: radial-gradient(ellipse at 96% 6%, rgba(233,34,49,.10), transparent 43%), radial-gradient(ellipse at 0% 100%, rgba(233,34,49,.07), transparent 42%), #fff;
+  font: 400 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+  display: flex;
+  flex-direction: column;
+}
+.innova-login *, .innova-login *::before, .innova-login *::after { box-sizing: border-box; }
+.innova-login .il-header { padding: 32px 48px; display: flex; align-items: center; gap: 20px; }
+.innova-login .il-logo { display: flex; align-items: center; justify-content: center; background: #242529; border-radius: 10px; padding: 16px 20px; flex: none; }
+.innova-login .il-logo img { display: block; width: 128px; height: auto; }
+.innova-login .il-suite { color: var(--il-muted); font-size: 13px; border-left: 1px solid var(--il-border); padding-left: 20px; }
+.innova-login .il-main { flex: 1; display: grid; place-items: center; padding: 36px 24px 64px; }
+.innova-login .il-card { width: 100%; max-width: 440px; padding: 40px; border: 1px solid #ebeaed; border-radius: 24px; background: #fff; box-shadow: 0 16px 64px rgba(46,25,29,.055), 0 2px 8px rgba(46,25,29,.025); }
+.innova-login .il-app { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 600; color: var(--il-muted); margin: 0 0 22px; }
+.innova-login .il-dot { width: 7px; height: 7px; background: var(--il-brand); border-radius: 50%; flex: none; }
+.innova-login h1 { margin: 0 0 8px; font-size: 30px; line-height: 1.2; letter-spacing: -.8px; font-weight: 650; }
+.innova-login .il-intro { color: var(--il-muted); margin: 0 0 30px; font-size: 14px; }
+.innova-login .il-field { margin-bottom: 20px; }
+.innova-login label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 8px; }
+.innova-login .il-input-wrap { position: relative; }
+.innova-login input { appearance: none; width: 100%; height: 50px; border: 1px solid var(--il-border); border-radius: 10px; background: #fff; color: var(--il-ink); padding: 0 14px; font: inherit; font-size: 16px; transition: border-color .15s, box-shadow .15s; }
+.innova-login input::placeholder { color: #74757d; }
+.innova-login input[type=password], .innova-login input[name=password] { padding-right: 52px; }
+.innova-login input:focus { outline: none; border-color: var(--il-brand); box-shadow: 0 0 0 3px rgba(233,34,49,.12); }
+.innova-login button { font: inherit; cursor: pointer; }
+.innova-login .il-eye { position: absolute; right: 3px; top: 3px; width: 44px; height: 44px; display: grid; place-items: center; color: var(--il-muted); border: 0; border-radius: 8px; background: transparent; }
+.innova-login .il-eye:hover { background: #f5f5f6; color: var(--il-ink); }
+.innova-login .il-submit { display: flex; justify-content: center; align-items: center; gap: 10px; width: 100%; min-height: 50px; border: 0; border-radius: 10px; color: #fff; background: var(--il-action); font-weight: 600; margin-top: 26px; transition: background .15s; }
+.innova-login .il-submit:hover { background: var(--il-action-hover); }
+.innova-login .il-submit:disabled { background: #e9e9ec; color: #6b6c73; cursor: not-allowed; }
+.innova-login .il-submit[aria-busy=true] { background: var(--il-action); color: #fff; cursor: wait; }
+.innova-login .il-note { font-size: 12px; text-align: center; color: var(--il-muted); margin: 16px 0 24px; }
+.innova-login .il-alternative { border-top: 1px solid #efeff1; padding-top: 22px; text-align: center; }
+.innova-login .il-link { font: inherit; color: #52535b; background: none; border: 0; padding: 8px 4px; min-height: 44px; text-decoration: underline; text-decoration-color: #b6b6bd; text-underline-offset: 4px; }
+.innova-login .il-link:hover { color: var(--il-action); }
+.innova-login button:focus-visible, .innova-login a:focus-visible { outline: 2px solid var(--il-action); outline-offset: 4px; }
+.innova-login .il-error { color: var(--il-error); background: #fff3f4; border: 1px solid #f6c8cd; border-radius: 8px; padding: 12px; font-size: 13px; margin: 16px 0 0; }
+.innova-login input[aria-invalid=true] { border-color: var(--il-error); }
+.innova-login [hidden] { display: none !important; }
+.innova-login .il-footer { padding: 0 24px 24px; text-align: center; color: var(--il-muted); font-size: 12px; }
+@media (max-width: 600px) {
+  .innova-login .il-header { padding: 24px; gap: 14px; }
+  .innova-login .il-logo { padding: 13px 16px; }
+  .innova-login .il-logo img { width: 106px; }
+  .innova-login .il-suite { padding-left: 14px; font-size: 12px; }
+  .innova-login .il-main { padding: 24px 20px 40px; }
+  .innova-login .il-card { padding: 30px 24px; border-radius: 20px; }
+  .innova-login h1 { font-size: 28px; }
+}
+@media (prefers-reduced-motion: reduce) { .innova-login * { transition: none !important; } }
+
+/* Vexa additions — the app's own shell is dark by default; the sign-in route is always light. */
+.innova-login { color-scheme: light; }
+.innova-login .il-notice { font-size: 12.5px; line-height: 1.5; color: var(--il-muted); background: #f5f5f6; border-radius: 10px; padding: 10px 14px; margin: 0 0 24px; }
+.innova-login .il-methods { margin-bottom: 24px; }
+.innova-login .il-provider { display: flex; justify-content: center; align-items: center; gap: 10px; width: 100%; min-height: 50px; border: 1px solid var(--il-border); border-radius: 10px; color: var(--il-ink); background: #fff; font-weight: 600; margin-bottom: 12px; transition: background .15s, border-color .15s; }
+.innova-login .il-provider:hover { background: #f5f5f6; border-color: #cfcfd5; }
+.innova-login .il-center { text-align: center; }
+.innova-login .il-center + form { margin-top: 8px; }
+.innova-login .il-hint { font-size: 12px; color: var(--il-muted); margin: 8px 0 0; }
+.innova-login .il-card > .il-note:last-child { margin-bottom: 0; }
