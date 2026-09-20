@@ -279,6 +279,26 @@ export function silenceRmsFrom(env: NodeJS.ProcessEnv = process.env): number {
   return value;
 }
 
+/** Teams-lane timing knobs, from the environment. A slow STT (seconds per window) needs longer
+ *  than Google Meet's defaults: a CSRC gap under `onsetGapMs` keeps the same turn (a jingle or a
+ *  breath must not close a turn while its reply is in flight), and a live draft is only promoted
+ *  to a durable row after `persistTimeoutMs` (shorter than the STT latency, every window is
+ *  promoted and then confirmed again under a new id — the same sentence twice). */
+export function teamsLaneTimingFrom(env: NodeJS.ProcessEnv = process.env): { onsetGapMs?: number; persistTimeoutMs?: number } {
+  const out: { onsetGapMs?: number; persistTimeoutMs?: number } = {};
+  for (const [key, prop] of [['BOT_TEAMS_ONSET_GAP_MS', 'onsetGapMs'], ['BOT_TEAMS_PERSIST_TIMEOUT_MS', 'persistTimeoutMs']] as const) {
+    const raw = (env[key] ?? '').trim();
+    if (!raw) continue;
+    const value = Number(raw);
+    if (!Number.isFinite(value) || value < 0 || value > 120_000) {
+      console.warn(`[bot] ${key}=${JSON.stringify(raw)} is not a usable duration (0–120000 ms) — keeping the lane default`);
+      continue;
+    }
+    out[prop] = value;
+  }
+  return out;
+}
+
 function createTeamsBotPipeline(
   transcribe: Transcribe,
   sink: TranscriptSink,
@@ -300,6 +320,7 @@ function createTeamsBotPipeline(
     // pinned to the module default. The RMS floor stays last — it has its own env var.
     buffer: { ...config, silenceRmsThreshold: silenceRmsFrom() },
     engine,
+    ...teamsLaneTimingFrom(),
     onNamerLog: (message) => {
       console.log(`[teams-track-namer] ${message}`);
       try { onObservation?.('teams-track-namer', { message }); } catch { /* diagnostics never break the lane */ }

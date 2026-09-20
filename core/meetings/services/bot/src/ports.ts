@@ -39,6 +39,11 @@ export interface JoinDriver {
    *  (awaiting_admission / needs_help / active). Resolves with the verdict — a bare `JoinOutcome`
    *  or a `JoinResult` that also carries the failure's human reason text (#926). */
   join(report: (s: BotStatus) => void | Promise<void>): Promise<JoinOutcome | JoinResult>;
+  /** The platform's subject as it reads RIGHT NOW, or undefined where the platform has none.
+   *  Teams renders the subject after the meeting UI settles, so the read taken at the moment of
+   *  admission returns nothing for a meeting that does have a name — the orchestrator asks again
+   *  while the meeting runs. */
+  readTitle?(): Promise<string | undefined>;
   /** Watch for being removed from the meeting while active; returns a stop fn. */
   onRemoval(cb: () => void): () => void;
   /** Leave the meeting (best-effort; never throws fatally). */

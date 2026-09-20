@@ -790,6 +790,12 @@ def test_turkish_meeting_doc_prompt_is_evidence_grounded(tmp_path):
     assert "## Özet" in prompt
     assert "## Alınan Kararlar" in prompt
     assert "## Aksiyon Maddeleri" in prompt
+    # The report a reader opens has to answer "what falls to me" without a follow-up question, and
+    # has to carry a commitment a speaker made about themselves — the two things a summary written
+    # only from third-person assignments drops.
+    assert "## Katılımcı Özetleri" in prompt
+    assert "ben ... bakacağım" in prompt
+    assert "verbatim quote" in prompt
     assert "Sorumlu belirtilmedi" in prompt
     assert "do not infer" in prompt.lower()
     assert "identity fields in YAML frontmatter" in prompt
@@ -932,6 +938,22 @@ def test_parse_notes_adds_segment_timestamp_when_available():
     assert notes[0]["t"] == 42.5
     assert notes[0]["pass"] == 2
     assert notes[0]["frozen"] is False
+
+
+def test_parse_notes_salvages_the_notes_that_closed_before_a_reply_cap_cut():
+    reply = (
+        '{"notes":[{"id":"a","speaker":"Jane","chapter":"Live Transcript","text":"First."},'
+        '{"id":"b","speaker":"Jane","chapter":"Live Transcript","text":"Second."},'
+        '{"id":"c","speaker":"Ja'
+    )
+    notes = parse_notes(reply, {"a": 1, "b": 1, "c": 1})
+    assert [n["id"] for n in notes] == ["a", "b"]
+    assert notes[1]["text"] == "Second."
+
+
+def test_parse_notes_salvage_never_invents_notes_from_prose():
+    assert parse_notes("Sorry, I could not process the transcript.", {"a": 1}) == []
+    assert parse_notes('{"cards":[]', {"a": 1}) == []
 
 
 def test_parse_notes_removes_third_person_speaker_boilerplate():

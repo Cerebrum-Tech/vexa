@@ -664,5 +664,51 @@ check('identity suffix normalization keeps its existing semantics without a back
     n.nameFor('414') === null && n.labelFor('414') === 'Speaker A', JSON.stringify(n.stats()));
 }
 
+// ── a name earned, then a silence ───────────────────────────────────────────────────────────────
+// Meeting 140 (2026-09-17): track 1053 earned "Mert Doğan" at 06:37:40 from 2603ms of unambiguous
+// evidence, published rows under it for twelve minutes, and at 06:49:40 the namer released it —
+// "evidence no longer supports it" — because the tile had simply stopped re-asserting while he
+// listened. Every one of those rows reverted to `Speaker` at once, in a transcript the reader was
+// already reading.
+{
+  const n = namer({ rosterSettleMs: 600_000 });
+  n.setTrackActive('1053', true, 0);
+  for (let t = 0; t < 3000; t += 1000) n.recordHint('Mert Doğan', t + 500);
+  n.setTrackActive('1053', false, 3000);
+  n.tick(4000);
+  check('the track earns its name from its own unambiguous evidence',
+    n.nameFor('1053') === 'Mert Doğan', String(n.nameFor('1053')));
+
+  // Twelve quiet minutes: he is in the meeting, listening. Nothing contradicts the name.
+  for (let t = 10_000; t < 730_000; t += 30_000) n.tick(t);
+  check('a silence does not take the name back — the published rows keep their speaker',
+    n.nameFor('1053') === 'Mert Doğan', String(n.nameFor('1053')));
+  check('and the label follows the name, not a letter',
+    n.labelFor('1053') === 'Mert Doğan', n.labelFor('1053'));
+}
+
+// The release path still exists — for the case it was written for: the track's OWN evidence coming
+// to lead with somebody else (the m26424 check above). A SECOND track claiming a name that is held
+// and uncontradicted does not take it: that claim is the tile-lag bleed this file's exclusivity rule
+// exists to refuse, and honouring it would erase a participant rather than name one.
+{
+  const n = namer({ rosterSettleMs: 600_000 });
+  n.setTrackActive('1053', true, 0);
+  for (let t = 0; t < 3000; t += 1000) n.recordHint('Mert Doğan', t + 500);
+  n.setTrackActive('1053', false, 3000);
+  n.tick(4000);
+  const earned = n.nameFor('1053') === 'Mert Doğan';
+
+  n.setTrackActive('2001', true, 20_000);
+  for (let t = 20_000; t < 30_000; t += 1000) n.recordHint('Mert Doğan', t + 500);
+  n.setTrackActive('2001', false, 30_000);
+  n.tick(31_000);
+  check('a second track claiming a held, uncontradicted name is refused — the holder keeps it',
+    earned && n.nameFor('1053') === 'Mert Doğan' && n.nameFor('2001') === null,
+    `1053=${n.nameFor('1053')} 2001=${n.nameFor('2001')}`);
+  check('and the refused track stays an honest letter',
+    n.labelFor('2001').startsWith('Speaker'), n.labelFor('2001'));
+}
+
 if (failed) { console.error(`\n❌ track-namer: ${failed} check(s) FAILED.`); process.exit(1); }
 console.log('\n✅ track-namer: a track is named only from unambiguous, corroborated, exclusively-held evidence — and otherwise keeps a stable letter.');

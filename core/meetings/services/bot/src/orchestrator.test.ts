@@ -95,6 +95,43 @@ async function main(): Promise<void> {
     check('platform title rides the first and only active callback', active.length === 1 && (active[0] as any).meeting_title === 'Haftalık Planlama');
     check('platform title event conforms to lifecycle.v1', allConform(lc.events));
   }
+  // A subject Teams had not rendered yet at admission still reaches the row: the bot keeps asking
+  // while the meeting runs and carries what it found on its terminal event.
+  {
+    const lc = recordingSink();
+    let asked = 0;
+    const join: JoinDriver = {
+      ...mockJoin('admitted'),
+      async join(report) { await report('awaiting_admission'); return { outcome: 'admitted' }; },
+      async readTitle() { asked += 1; return asked > 1 ? 'Geç Gelen Konu' : undefined; },
+    };
+    const o = createOrchestrator(inv({ platform: 'teams' }), {
+      lifecycle: lc, join, pipeline: noopPipeline(), acts: noopActs(), aloneness: noopAloneness(),
+    });
+    await o.run({ maxActiveMs: 12_000 });
+    const active = lc.events.filter((event) => event.status === 'active');
+    const terminal = lc.events.filter((event) => event.status === 'completed');
+    check('a subject missing at admission is absent from the active callback',
+          active.length === 1 && (active[0] as any).meeting_title === undefined);
+    check('the late subject rides the terminal callback',
+          terminal.length === 1 && (terminal[0] as any).meeting_title === 'Geç Gelen Konu');
+    check('the late-title event conforms to lifecycle.v1', allConform(lc.events));
+  }
+  // A driver that never finds a subject says nothing — an absent name is never invented.
+  {
+    const lc = recordingSink();
+    const join: JoinDriver = {
+      ...mockJoin('admitted'),
+      async join(report) { await report('awaiting_admission'); return { outcome: 'admitted' }; },
+      async readTitle() { return undefined; },
+    };
+    const o = createOrchestrator(inv({ platform: 'teams' }), {
+      lifecycle: lc, join, pipeline: noopPipeline(), acts: noopActs(), aloneness: noopAloneness(),
+    });
+    await o.run({ maxActiveMs: 12_000 });
+    check('no subject found → no meeting_title on any callback',
+          lc.events.every((event) => (event as any).meeting_title === undefined));
+  }
   // ── happy: admitted → `leave` act → completed(stopped) ──
   {
     const lc = recordingSink();

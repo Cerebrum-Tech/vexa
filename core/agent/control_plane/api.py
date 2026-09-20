@@ -309,6 +309,16 @@ class SummaryEditBody(BaseModel):
     summary: str
 
 
+class EntityEditBody(BaseModel):
+    """A directory card the OWNER wrote. ``path`` names an existing card; its absence creates one."""
+    workspace: str
+    kind: str
+    title: str
+    body: str = ""
+    path: Optional[str] = None
+    entity_id: Optional[str] = None
+
+
 class ResetBody(BaseModel):
     """Body for POST /api/chat/reset — the docs (api/agent.mdx) say it's just ``{session?}``. reset only
     needs the session; ``prompt``/``subject``/``active`` are accepted-and-ignored so a client reusing the
@@ -1439,6 +1449,50 @@ def create_app(
                 return Path(m.path)
         raise HTTPException(status_code=403, detail="not authorized for this workspace")
 
+    @app.get("/api/meeting/{meeting_id}/report")
+    def read_meeting_report(meeting_id: str, request: Request):
+        """Serve ONE meeting's report to whoever meeting-api authorizes for that meeting.
+
+        The report is written into the OWNER's workspace, so a share recipient's own mounts can never
+        hold it and a mount-scoped read leaves them waiting on a report that will never arrive. Access
+        is decided upstream by meeting-api — owner, member of the bound workspace, or the redeemer of a
+        transcript share — and the path is DERIVED from the row, never taken from the caller, so exactly
+        one meeting's report is reachable here. The frontmatter must bind back to this row before a byte
+        leaves the owner's workspace."""
+        from shared.reports import ReportEditError, parse_report
+
+        subject = subject_of(request)
+        record = _meeting_owner_lookup(subject, meeting_id)
+        if not isinstance(record, dict) or str(record.get("id")) != str(meeting_id):
+            raise HTTPException(404, "Toplantı bulunamadı.")
+        owner = str(record.get("user_id") or "").strip()
+        native = str(record.get("native_meeting_id") or "").strip()
+        if not owner or not re.fullmatch(r"[\w.@:+-]{1,200}", native):
+            raise HTTPException(404, "Toplantı özeti bulunamadı.")
+        candidates = (f"kg/entities/meeting/{native}.run-{meeting_id}.md",
+                      f"kg/entities/meeting/{native}.md")
+        try:
+            mounts = active_workspaces(wsr.root, owner)
+        except ValueError:
+            mounts = []
+        for mount in mounts:
+            if mount.role in ("system", "global"):
+                continue
+            for path in candidates:
+                try:
+                    content = wsr.read_at(Path(mount.path), path)
+                except ValueError:
+                    continue
+                if not content:
+                    continue
+                try:
+                    metadata, _ = parse_report(content, meeting_id=str(meeting_id), workspace=mount.slug)
+                except ReportEditError:
+                    continue  # a report bound to another row or workspace is not this meeting's
+                return {"meeting_id": str(meeting_id), "workspace": mount.slug, "path": path,
+                        "revision": metadata["report_revision"], "content": content}
+        raise HTTPException(404, "Toplantı özeti henüz hazır değil.")
+
     @app.patch("/api/meeting/{meeting_id}/summary")
     def edit_meeting_summary(meeting_id: str, body: SummaryEditBody, request: Request):
         from uuid import uuid4
@@ -1504,6 +1558,78 @@ def create_app(
             raise HTTPException(error.status, str(error)) from error
         except ValueError as error:
             raise HTTPException(403, "Özet yolu bu çalışma alanında doğrulanamadı.") from error
+
+    @app.post("/api/workspace/entity", status_code=201)
+    def write_workspace_entity(body: EntityEditBody, request: Request):
+        """Create or update ONE directory card (person / company / note) from the owner's own words.
+
+        No model runs. A person filling in a title and a note has already written the card; sending
+        that through a language turn spends inference to reproduce the input, and — as the live
+        workspaces showed — sometimes reproduces something else instead, or nothing at all. The
+        bytes are rendered here, written by the same deterministic worker the summary edit uses, and
+        compared against what landed before the card is reported as saved."""
+        from uuid import uuid4
+        from shared.entities import EntityEditError, entity_path, render_entity, validate_entity_path
+
+        subject = subject_of(request)
+
+        def authorized_mount() -> Path:
+            mounts = active_workspaces(wsr.root, subject)
+            mounts += shared_active_mounts(wsr.root, subject, mindex.list(subject))
+            mount = next((m for m in mounts if m.slug == body.workspace and m.write
+                          and m.role not in ("system", "global")), None)
+            if mount is None:
+                raise HTTPException(403, "Bu çalışma alanına yazma yetkiniz yok.")
+            return Path(mount.path)
+
+        try:
+            target = authorized_mount()
+            create = not body.path
+            # The id is the file's own stable tail, so an update keeps the one already on disk and a
+            # create mints one here — the client never names the path it writes to.
+            entity_id = (body.entity_id or "").strip() or uuid4().hex[:12]
+            if create:
+                path = entity_path(body.kind, body.title, suffix=entity_id)
+            else:
+                path = validate_entity_path(body.path, body.kind)
+                entity_id = Path(path).stem
+            expected = render_entity(kind=body.kind, title=body.title, body=body.body,
+                                     entity_id=entity_id)
+            if stream_reader is None or dispatcher is None:
+                raise HTTPException(503, "Kayıt hizmeti kullanılamıyor.")
+            job = {"workspace": body.workspace, "kind": body.kind, "title": body.title,
+                   "body": body.body, "path": path, "entity_id": entity_id, "create": create}
+            email = (request.headers.get("x-user-email") or "").strip()
+            invocation = units.make_dispatch(
+                subject=subject, trigger="message", runner="entity-edit",
+                start=units.entrypoint(inline=json.dumps(job, ensure_ascii=False)),
+                context={"kind": "none", "session": f"entity-edit-{uuid4().hex}"},
+                workspaces=[{"id": body.workspace, "mode": "rw"}],
+                principal={"name": email} if email else None,
+            )
+            unit_id = dispatcher.dispatch(invocation)
+            deadline = time.monotonic() + 60
+            for item in stream_reader.read(unit_id, resume="0-0"):
+                event = item[0] if isinstance(item, tuple) else item
+                if time.monotonic() > deadline:
+                    break
+                if not isinstance(event, dict) or event.get("type") != "done":
+                    continue
+                if event.get("ok") is not True:
+                    status = event.get("status")
+                    raise HTTPException(status if status in (403, 404, 409, 422, 503) else 503,
+                                        event.get("error") or "Kayıt kaydedilemedi.")
+                # Re-authorize before handing back private workspace content.
+                content = wsr.read_at(authorized_mount(), path)
+                if content != expected:
+                    raise HTTPException(409, "Kayıt beklenenden farklı kaydedildi. Sayfayı yenileyin.")
+                return {"workspace": body.workspace, "kind": body.kind, "path": path,
+                        "content": content}
+            raise HTTPException(503, "Kaydetme sonucu doğrulanamadı. Sayfayı yenileyip yeniden deneyin.")
+        except EntityEditError as error:
+            raise HTTPException(error.status, str(error)) from error
+        except ValueError as error:
+            raise HTTPException(403, "Kayıt yolu bu çalışma alanında doğrulanamadı.") from error
 
     def _manage_dir(subject: str, slug: Optional[str]) -> Path:
         """Resolve a workspace dir for a MANAGEMENT op (git sync, purpose) — unlike ``_read_target`` this
@@ -1670,6 +1796,69 @@ def create_app(
         }
 
     # ── the additive mount set (WP-A2.1): ACTIVE-SET membership over swap's park/restore machinery ──────
+    #: An entity page is small (a name, a few lines); the cap exists so one pathological workspace
+    #: cannot turn a directory read into a multi-megabyte response, not to ration ordinary use.
+    ENTITY_LIST_MAX_FILES = 2000
+    ENTITY_LIST_MAX_BYTES = 8 * 1024 * 1024
+
+    @app.get("/api/workspace/entities")
+    def ws_entities(request: Request):
+        """Every directory card across the subject's mounted workspaces, in ONE request.
+
+        The terminal used to build a directory by listing each workspace and then reading every
+        candidate document over its own HTTP call — hundreds of requests per refresh, per open
+        directory, every 30 s, which is what met the gateway's 600/min guard as a 429 and read to the
+        user as "istek sınırına ulaşıldı". The files are on this process's own disk, so the walk
+        belongs here: the same authorized mount set the active-set read returns, `kg/entities/`
+        without the meeting folder (those are never directory cards), each file with its content.
+        Classification stays in the client — one classifier, in one language."""
+        subject = subject_of(request)
+        try:
+            mounts = active_workspaces(wsr.root, subject)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="invalid subject")
+        try:
+            mounts = mounts + shared_active_mounts(wsr.root, subject, mindex.list(subject))
+        except Exception:  # noqa: BLE001 — a shared-mount hiccup costs the shared cards, never the own ones
+            logger.warning("shared-mount resolution failed for subject=%s — own mounts only", subject)
+        files: list[dict] = []
+        unreadable: list[str] = []
+        budget = ENTITY_LIST_MAX_BYTES
+        for mount in mounts:
+            root = Path(mount.path) / "kg" / "entities"
+            if not root.is_dir():
+                continue
+            try:
+                candidates = sorted(
+                    path for path in root.glob("*/*.md")
+                    if path.parent.name != "meeting"
+                    and path.name.lower() not in ("index.md", "readme.md", "log.md")
+                    and not path.is_symlink() and path.is_file()
+                )
+            except OSError:
+                unreadable.append(mount.slug)
+                continue
+            for path in candidates:
+                if len(files) >= ENTITY_LIST_MAX_FILES or budget <= 0:
+                    break
+                try:
+                    content = path.read_text(encoding="utf-8")
+                except (OSError, UnicodeError):
+                    continue  # one unreadable card costs its own row, never the directory
+                budget -= len(content)
+                files.append({"slug": mount.slug,
+                              "path": path.relative_to(Path(mount.path)).as_posix(),
+                              "content": content})
+        return {
+            "subject": subject,
+            "mounts": [{"slug": m.slug, "repo": m.repo, "ref": m.ref, "role": m.role,
+                        "path": m.path, "write": m.write, "primary": m.primary, "name": m.name}
+                       for m in mounts],
+            "files": files,
+            "unreadable": unreadable,
+            "truncated": len(files) >= ENTITY_LIST_MAX_FILES or budget <= 0,
+        }
+
     @app.get("/api/workspace/active")
     def ws_active(request: Request):
         """The subject's ordered ACTIVE SET — the workspaces the next dispatch mounts (the private baseline

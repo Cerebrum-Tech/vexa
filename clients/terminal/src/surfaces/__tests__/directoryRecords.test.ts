@@ -8,6 +8,11 @@ describe("workspace directory records", () => {
     expect(isDirectoryCandidate("agents/meeting.md")).toBe(false);
     expect(isDirectoryCandidate("kg/entities/person/ayse.md")).toBe(true);
   });
+  it("leaves the meeting documents out of the crawl a directory pays for", () => {
+    expect(isDirectoryCandidate("kg/entities/meeting/218140144714297.md")).toBe(false);
+    expect(isDirectoryCandidate("kg/entities/meeting/218140144714297.run-134.md")).toBe(false);
+    expect(isDirectoryCandidate("kg/entities/note/asd-mu446jtr.md")).toBe(true);
+  });
   it("uses friendly titles and preserves read-only workspace identity", () => {
     const r = directoryRecord("kg/entities/person/ayse.md", "---\ntype: person\ntitle: Ayşe Yılmaz\ncompany: '[[Innova]]'\n---\n# Ayşe\nMerhaba", mount);
     expect(r).toMatchObject({ title: "Ayşe Yılmaz", kind: "person", organization: "Innova", slug: "team", path: "kg/entities/person/ayse.md", writable: false });

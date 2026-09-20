@@ -11,6 +11,7 @@ import {
   AdmissionError,
   leaveGoogleMeet, leaveMicrosoftTeams, leaveZoomMeeting, leaveJitsiMeeting,
   startGoogleRemovalMonitor, startTeamsRemovalMonitor, startZoomRemovalMonitor, startJitsiRemovalMonitor,
+  readTeamsMeetingTitle,
   type JoinState, type Platform as JoinPlatform, type AdmissionOutcome,
 } from '@vexa/join';
 import type { BotStatus } from './contracts.js';
@@ -85,6 +86,10 @@ export function createBrowserJoinDriver(page: Page, inv: Invocation): JoinDriver
       if (r.admitted) return { outcome: 'admitted', ...(r.meetingTitle ? { meetingTitle: r.meetingTitle } : {}) };
       const outcome: JoinOutcome = (r.state === 'blocked' || r.state === 'needs_human_help') ? 'blocked' : 'rejected';
       return { outcome, reason: `join ended in state '${r.state}' without admission` };
+    },
+    async readTitle() {
+      if (platform !== 'teams') return undefined;
+      return readTeamsMeetingTitle(page).catch(() => undefined);
     },
     onRemoval(cb) {
       if (platform === 'teams') return startTeamsRemovalMonitor(page, cb);

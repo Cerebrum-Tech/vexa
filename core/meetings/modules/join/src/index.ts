@@ -146,6 +146,10 @@ export { joinGoogleMeeting, waitForGoogleMeetingAdmission, checkForGoogleAdmissi
 // JoinOutcome so a host DENIAL is recorded as a permanent `rejected` — and a signed-out profile
 // (AuthSessionError, an AdmissionError subclass) as the permanent `auth_session_missing` — never
 // collapsed into a transient (retried) `join_failure` (G1).
+// The platform subject is read again DURING the meeting, not only at admission: Teams renders the
+// subject after the meeting UI settles, so the one read taken the moment the bot is admitted comes
+// back empty for a meeting that has a perfectly good name.
+export { readTeamsMeetingTitle } from "./msteams/title";
 export { AdmissionError } from "./shared/admission";
 export type { AdmissionOutcome } from "./shared/admission";
 export { AuthSessionError } from "./googlemeet/join";

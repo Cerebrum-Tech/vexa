@@ -66,3 +66,8 @@ Beni takip etmeyi unutmayın
 İzlediğiniz için teşekkürler
 Bir sonraki videoda görüşmek üzere
 Kanalıma abone olmayı unutmayın
+re:^abone ol[.!…]*$
+re:kanal[ıi]m[ıi]za abone
+re:abone olmay[ıi] (ve |unutmay)
+re:videoyu be[ğg]enmeyi
+re:izledi[ğg]iniz i[çc]in te[şs]ekk

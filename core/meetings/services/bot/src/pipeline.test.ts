@@ -17,7 +17,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createBotPipeline, createTranscribe,
-  DEFAULT_SILENCE_RMS, silenceRmsFrom, createStreamingEngine,
+  DEFAULT_SILENCE_RMS, silenceRmsFrom, createStreamingEngine, teamsLaneTimingFrom,
 } from './pipeline.js';
 import type { Invocation } from './config.js';
 import type { TranscriptSegment } from './contracts.js';
@@ -383,6 +383,29 @@ async function main(): Promise<void> {
       }; }) as never,
     });
     check('an injected engine is handed to the Teams lane', (seen as { marker?: string })?.marker === 'engine', JSON.stringify(seen));
+  }
+
+  // ── BOT_TEAMS_ONSET_GAP_MS / BOT_TEAMS_PERSIST_TIMEOUT_MS: the slow-STT dials ─────────────────
+  for (const [env, want, why] of [
+    [{}, {}, 'unset keeps the lane defaults'],
+    [{ BOT_TEAMS_ONSET_GAP_MS: '3000' }, { onsetGapMs: 3000 }, 'a usable onset gap is honoured'],
+    [{ BOT_TEAMS_PERSIST_TIMEOUT_MS: '10000' }, { persistTimeoutMs: 10000 }, 'a usable persist timeout is honoured'],
+    [{ BOT_TEAMS_ONSET_GAP_MS: 'soon' }, {}, 'garbage keeps the default'],
+    [{ BOT_TEAMS_ONSET_GAP_MS: '-5' }, {}, 'a negative gap keeps the default'],
+    [{ BOT_TEAMS_PERSIST_TIMEOUT_MS: '999999' }, {}, 'an absurd timeout keeps the default'],
+  ] as Array<[NodeJS.ProcessEnv, Record<string, number>, string]>) {
+    check(`teams lane timing: ${why}`, JSON.stringify(teamsLaneTimingFrom(env)) === JSON.stringify(want), JSON.stringify(teamsLaneTimingFrom(env)));
+  }
+  {
+    let seen: { onsetGapMs?: number; persistTimeoutMs?: number } | undefined;
+    process.env.BOT_TEAMS_ONSET_GAP_MS = '3000'; process.env.BOT_TEAMS_PERSIST_TIMEOUT_MS = '10000';
+    createBotPipeline(baseInv({ platform: 'teams' }), captureSink(), {
+      createTeamsTranscriber: ((options: { onsetGapMs?: number; persistTimeoutMs?: number }) => { seen = options; return {
+        feedMixedAudio() {}, recordTransportEvent() {}, recordHint() {}, recordCaption() {}, recordRosterName() {}, recordRosterCoverage() {}, async dispose() {},
+      }; }) as never,
+    });
+    delete process.env.BOT_TEAMS_ONSET_GAP_MS; delete process.env.BOT_TEAMS_PERSIST_TIMEOUT_MS;
+    check('teams lane timing reaches the Teams pipeline options', seen?.onsetGapMs === 3000 && seen?.persistTimeoutMs === 10000, JSON.stringify(seen));
   }
 
   // ── VEXA_STT_SILENCE_RMS: the operator's dial for a noisy room ──────────────────────────────

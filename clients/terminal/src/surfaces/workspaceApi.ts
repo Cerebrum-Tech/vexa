@@ -25,6 +25,19 @@ export async function readWorkspaceFile(path: string, opts?: { slug?: string }):
   }
 }
 
+/** The meeting's OWN report, served by the meeting it belongs to rather than by workspace mount.
+ *  A meeting shared with you lives in its owner's workspace, which is not in your mount set — this is
+ *  the only way a share recipient ever reaches its summary. 404 = not authorized, or not written yet. */
+export interface MeetingReport { meeting_id: string; workspace: string; path: string; revision: string; content: string }
+export async function readMeetingReport(meetingId: string): Promise<MeetingReport | null> {
+  try {
+    return await getJson<MeetingReport>(`/api/meeting/${encodeURIComponent(meetingId)}/report`);
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 404) return null;
+    throw e;
+  }
+}
+
 /** Materialize the user's workspace from the seed template — POST /api/workspace/init (idempotent: an
  *  existing workspace is returned untouched, `seeded:false`). `seeded` is true only on first creation. */
 export async function initWorkspace(): Promise<{ workspace: string; seeded: boolean; already_initialized: boolean }> {
@@ -308,6 +321,35 @@ export async function writeWorkspacePurpose(purpose: string, opts?: { slug?: str
     body: JSON.stringify({ slug: opts?.slug ?? null, purpose }),
   });
   return data.purpose ?? "";
+}
+
+// ── directories, in ONE request ──────────────────────────────────────────────────────────────────
+/** Every directory card across the caller's mounted workspaces, with the mount list that describes
+ *  them. One call: building a directory out of a tree listing plus a read per document meant hundreds
+ *  of requests per refresh, which the gateway's per-user guard answered with 429s. */
+export interface WorkspaceEntities {
+  mounts: ActiveMount[];
+  files: { slug: string; path: string; content: string }[];
+  /** slugs whose entity folder could not be listed — their cards are missing, the rest are not. */
+  unreadable: string[];
+  truncated: boolean;
+}
+export async function readWorkspaceEntities(): Promise<WorkspaceEntities> {
+  const data = await getJson<Partial<WorkspaceEntities>>(`/api/workspace/entities`);
+  return { mounts: data.mounts ?? [], files: data.files ?? [],
+           unreadable: data.unreadable ?? [], truncated: data.truncated ?? false };
+}
+
+// ── directory cards the OWNER writes (no model turn) ─────────────────────────────────────────────
+/** Create or update ONE person/company/note card. `path` omitted → a new card, whose path the
+ *  backend mints. The write is deterministic end to end: what the form holds is what the file gets,
+ *  and the response carries the bytes that actually landed. */
+export async function saveWorkspaceEntity(body: {
+  workspace: string; kind: "person" | "company" | "note"; title: string; body: string; path?: string;
+}): Promise<{ workspace: string; kind: string; path: string; content: string }> {
+  return getJson(`/api/workspace/entity`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+  });
 }
 
 // ── participants (shared workspace membership) — list · role · remove · leave · invites ───────────

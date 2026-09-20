@@ -142,12 +142,13 @@ def test_report_prompts_keep_identity_headings_and_request_verified_mentions():
                if isinstance(node,ast.Assign) and isinstance(node.targets[0],ast.Name)
                and node.targets[0].id in {'MEETING_DOC_PROMPT','TURKISH_MEETING_DOC_PROMPT'}}
     for prompt in constants.values():
-        text=prompt.format(native='call',title='Title',meeting_id='42',session_uid='session',platform='google_meet',date='2026-09-10',cards='[]',evidence='Evidence')
+        text=prompt.format(native='call',title='Title',meeting_id='42',session_uid='session',platform='google_meet',date='2026-09-10',cards='[]',evidence='Evidence',participants='Participants')
         assert 'meeting_id: 42' in text and 'session_uid: session' in text
         assert 'entity_mentions:' in text and 'FINAL REPORT BODY' in text
         assert 'Do not invent' in text
     turkish=constants['TURKISH_MEETING_DOC_PROMPT']
-    assert turkish.index('## Özet') < turkish.index('## Alınan Kararlar') < turkish.index('## Aksiyon Maddeleri')
+    assert (turkish.index('## Özet') < turkish.index('## Alınan Kararlar')
+            < turkish.index('## Aksiyon Maddeleri') < turkish.index('## Katılımcı Özetleri'))
 
 
 def _produce_entities(tmp_path, monkeypatch, *, commit_mode='normal'):

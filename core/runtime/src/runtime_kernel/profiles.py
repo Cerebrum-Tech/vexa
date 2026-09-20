@@ -109,6 +109,10 @@ def default_registry() -> ProfileRegistry:
             # list for the same reason as the window knobs: it is read inside the BOT container, so
             # a deployment that sets it anywhere else is setting nothing.
             "VEXA_STT_SILENCE_RMS",
+            # Teams-lane timing for a slow STT: the CSRC gap that closes a turn, and how long a
+            # live draft waits before it is promoted to a durable row.
+            "BOT_TEAMS_ONSET_GAP_MS",
+            "BOT_TEAMS_PERSIST_TIMEOUT_MS",
         )
         if os.environ.get(key, "").strip()
     }

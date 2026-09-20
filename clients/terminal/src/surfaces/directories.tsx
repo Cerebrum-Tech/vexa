@@ -7,11 +7,10 @@ import { LayoutServiceId } from "../workbench/layout";
 import { Icon } from "../ui-kit";
 import { Modal } from "../ui-kit/Modal";
 import { MdxDoc, DocMetaContext } from "../ui-kit/MdxDoc";
-import { ASK_CHAT_EVENT } from "../canvas/actions";
-import type { ChatAskDetail, ChatDispatchResult } from "./chat";
 import { meetingsOnly } from "../app/mode";
-import { readActiveSet, listWorkspaceTree, readWorkspaceFile, type ActiveMount } from "./workspaceApi";
-import { directoryRecord, isDirectoryCandidate, type DirectoryKind, type DirectoryRecord } from "./directoryRecords";
+import { ApiError, presentError } from "./apiClient";
+import { readActiveSet, readWorkspaceEntities, readWorkspaceFile, saveWorkspaceEntity, type ActiveMount } from "./workspaceApi";
+import { directoryRecord, type DirectoryKind, type DirectoryRecord } from "./directoryRecords";
 
 const labels = {
   person: { title: "Kişiler", singular: "Kişi", intro: "İlişkilerinizi hatırlayın, her görüşmeye bir adım önde başlayın.", icon: "user", folder: "person" },
@@ -21,71 +20,53 @@ const labels = {
 const opts = (slug?: string) => slug ? { slug } : undefined;
 const initialLetters = (s: string) => s.split(/\s+/).slice(0, 2).map((w) => w[0]).join("").toLocaleUpperCase("tr");
 
-function EntityEditor({ kind, mounts, record, onClose, onSaved }: { kind: DirectoryKind; mounts: ActiveMount[]; record?: DirectoryRecord; onClose: () => void; onSaved: () => void }) {
-  const layout = useService(LayoutServiceId);
+/** A refusal from the workspace is a sentence the backend already wrote for the reader — a 403 here
+ *  means "you cannot write to this workspace", never the API-key fault the shared presenter assumes.
+ *  Prose from the server wins; anything else falls back to the presenter's vocabulary. */
+function saveError(e: unknown): string {
+  const detail = e instanceof ApiError ? e.detail.trim() : "";
+  return detail && detail.length <= 300 && detail.includes(" ") && !/^[{[<]/.test(detail)
+    ? detail : presentError(e).headline;
+}
+
+export function EntityEditor({ kind, mounts, record, onClose, onSaved }: { kind: DirectoryKind; mounts: ActiveMount[]; record?: DirectoryRecord; onClose: () => void; onSaved: () => void }) {
   const writable = mounts.filter((m) => m.write && (!record || m.slug === record.slug));
   const [name, setName] = useState(record?.title ?? "");
-  const [notes, setNotes] = useState("");
+  const [notes, setNotes] = useState(record ? record.body.replace(/^#\s+[^\n]+\n/, "").trim() : "");
   const [slug, setSlug] = useState(writable[0]?.slug ?? "");
-  const [submitting, setSubmitting] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const mounted = useRef(true);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
-  const [pending, setPending] = useState<{ path: string; slug?: string; before: string | null; started: number } | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    if (!pending) return;
-    let active = true;
-    const check = async () => {
-      try {
-        const current = await readWorkspaceFile(pending.path, opts(pending.slug));
-        if (!active) return;
-        if (current && current !== pending.before) { setPending(null); onSaved(); onClose(); }
-        else if (Date.now() - pending.started > 180_000) { setPending(null); setError("Değişiklik henüz kaydedilmedi. Asistanın yanıtını kontrol edin."); }
-      } catch { if (active) { setPending(null); setError("Kaydın sonucu doğrulanamadı. Erişiminizi kontrol edip yeniden deneyin."); } }
-    };
-    const timer = setInterval(() => void check(), 3000);
-    return () => { active = false; clearInterval(timer); };
-  }, [pending, onClose, onSaved]);
   const submit = async () => {
-    if (submitting || pending) return;
+    if (saving) return;
     setError(null);
     const mount = writable.find((m) => m.slug === slug);
     if (!mount || !name.trim()) return;
-    const safeName = name.toLocaleLowerCase("tr").normalize("NFKD").replace(/[\u0300-\u036f]/g, "").replace(/ı/g, "i").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "not";
-    const path = record?.path ?? `kg/entities/${labels[kind].folder}/${safeName}-${Date.now().toString(36)}.md`;
-    const workspaceSlug = mount.slug;
-    setSubmitting(true);
+    setSaving(true);
     try {
-      const current = await readWorkspaceFile(path, opts(workspaceSlug));
+      // The card is the form: title and text go to the file as typed. An edit keeps its own path,
+      // so re-saving a card updates it in place instead of leaving a second copy behind.
+      await saveWorkspaceEntity({
+        workspace: mount.slug, kind: kind === "partner" ? "note" : kind,
+        title: name.trim(), body: notes, ...(record ? { path: record.path } : {}),
+      });
       if (!mounted.current) return;
-      const prompt = [
-        `${record ? "Mevcut kaydı güncelle" : "Yeni kayıt oluştur"}: ${JSON.stringify(name.trim())}.`,
-        `Çalışma alanı: ${JSON.stringify(mount.slug)}. Hedef belge: ${JSON.stringify(path)}.`,
-        `Belge türü ${kind === "partner" ? "note" : kind}. Türkçe yaz, başlık ve tür alanlarını koru. Var olan bilgileri silme, desteklenmeyen bilgi uydurma.`,
-        `İstenen içerik/değişiklik: ${JSON.stringify(notes.trim())}.`,
-        "Değişikliği belirtilen belgeye kaydet. Yalnızca istenen çalışma alanına yaz; yazamıyorsan açıkla.",
-      ].join("\n");
-      const displayText = `${name.trim()} için ${labels[kind].singular.toLocaleLowerCase("tr")} kaydını ${record ? "güncelle" : "oluştur"}.\n${notes.trim()}`;
-      const dispatch: { result: ChatDispatchResult | "unavailable" } = { result: "unavailable" };
-      layout.showRight();
-      window.dispatchEvent(new CustomEvent<ChatAskDetail>(ASK_CHAT_EVENT, { detail: {
-        prompt, displayText, ground: false, onDispatch: (result) => { dispatch.result = result; },
-      } }));
-      if (dispatch.result === "accepted") setPending({ path, slug: workspaceSlug, before: current, started: Date.now() });
-      else setError(dispatch.result === "busy"
-        ? "Asistan önceki yanıtı hazırlıyor. Yanıt tamamlanınca yeniden deneyin. İstek gönderilmedi."
-        : "Asistan bağlantısı henüz hazır değil. Biraz sonra yeniden deneyin. İstek gönderilmedi.");
-    } catch { if (mounted.current) setError("Çalışma alanı okunamadı. İstek gönderilmedi."); }
-    finally { if (mounted.current) setSubmitting(false); }
+      onSaved();
+      onClose();
+    } catch (e) {
+      if (mounted.current) setError(saveError(e));
+    } finally {
+      if (mounted.current) setSaving(false);
+    }
   };
   return <Modal title={`${labels[kind].singular} ${record ? "düzenle" : "ekle"}`} onClose={onClose} width={480}>
     <form className="entity-form" onSubmit={(e) => { e.preventDefault(); void submit(); }}>
-      <label>{kind === "person" ? "Ad soyad" : "Başlık"} <span className="req" aria-hidden="true">*</span><input required aria-required="true" value={name} disabled={submitting || !!pending} onChange={(e) => setName(e.target.value)} autoFocus /></label>
-      <label>{record ? "Neyi değiştirmek istersiniz?" : "Eklemek istediğiniz bilgiler"} <span className="req" aria-hidden="true">*</span><textarea value={notes} required aria-required="true" disabled={submitting || !!pending} onChange={(e) => setNotes(e.target.value)} placeholder="Bildiğiniz ayrıntıları kendi cümlelerinizle yazın." /><span className="hint">* işaretli alanlar zorunludur; ikisi de dolunca <b>Asistanla kaydet</b> etkinleşir.</span></label>
-      <label>Çalışma alanı<select value={slug} disabled={submitting || !!pending || !!record} onChange={(e) => setSlug(e.target.value)}>{writable.map((m) => <option key={m.slug} value={m.slug}>{m.name || (m.primary ? "Kişisel alanım" : "Paylaşılan alan")}</option>)}</select></label>
-      {pending && <div className="notice pending" role="status">Asistan değişikliğinizi hazırlıyor. Belgeye kaydedilmesi bekleniyor…</div>}
+      <label>{kind === "person" ? "Ad soyad" : "Başlık"} <span className="req" aria-hidden="true">*</span><input required aria-required="true" value={name} disabled={saving} onChange={(e) => setName(e.target.value)} autoFocus /></label>
+      <label>Notlar<textarea value={notes} disabled={saving} onChange={(e) => setNotes(e.target.value)} placeholder="Bildiğiniz ayrıntıları kendi cümlelerinizle yazın." /><span className="hint">Yazdığınız metin olduğu gibi kaydedilir.</span></label>
+      <label>Çalışma alanı<select value={slug} disabled={saving || !!record} onChange={(e) => setSlug(e.target.value)}>{writable.map((m) => <option key={m.slug} value={m.slug}>{m.name || (m.primary ? "Kişisel alanım" : "Paylaşılan alan")}</option>)}</select></label>
       {error && <div className="notice error" role="alert">{error}</div>}
-      <div className="entity-form-actions"><button type="button" className="secondary-button" onClick={onClose}>Kapat</button><button className="primary-button" disabled={submitting || !!pending || !writable.length || !name.trim() || !notes.trim()}><Icon name="spark" size={16} />Asistanla kaydet</button></div>
+      <div className="entity-form-actions"><button type="button" className="secondary-button" onClick={onClose}>Kapat</button><button className="primary-button" disabled={saving || !writable.length || !name.trim()}>{saving ? "Kaydediliyor…" : "Kaydet"}</button></div>
     </form>
   </Modal>;
 }
@@ -104,30 +85,33 @@ export function DirectoryView({ params }: TabProps) {
   const hasLoaded = useRef(false);
   const load = useCallback(async () => {
     const current = ++generation.current;
-    // Records stay on screen while a refresh runs: a refresh that wiped the list first made every
-    // 30 s tick (and every return from the meeting window) read as "0 kayıt, yükleniyor…".
-    const progressive = !hasLoaded.current;
     setLoading(true); setError(null);
     try {
-      const set = await readActiveSet();
+      // ONE request for the whole directory. Listing each workspace and then reading every document
+      // over its own call put hundreds of requests on every 30 s refresh of every open directory —
+      // which is what the gateway's per-user guard answered with 429 "istek sınırına ulaşıldı".
+      const { mounts: active, files, unreadable, truncated } = await readWorkspaceEntities();
       if (current !== generation.current) return;
-      setMounts(set.active);
+      const bySlug = new Map(active.map((m) => [m.slug, m]));
       const all: DirectoryRecord[] = [];
-      for (const mount of set.active) {
-        const readOpts = opts(mount.slug);
-        const paths = (await listWorkspaceTree(readOpts)).filter(isDirectoryCandidate);
-        for (let i = 0; i < paths.length; i += 8) {
-          const batch = await Promise.all(paths.slice(i, i + 8).map(async (path) => {
-            const body = await readWorkspaceFile(path, readOpts);
-            return body == null ? null : directoryRecord(path, body, mount);
-          }));
-          if (current !== generation.current) return;
-          all.push(...batch.filter((r): r is DirectoryRecord => r !== null));
-          if (progressive) setRecords([...all]);
-        }
+      for (const file of files) {
+        const mount = bySlug.get(file.slug);
+        const record = mount ? directoryRecord(file.path, file.content, mount) : null;
+        if (record) all.push(record);
       }
-      setRecords(all); hasLoaded.current = true;
-    } catch { if (current === generation.current) { setRecords([]); setMounts([]); setError("Bilgiler yüklenemedi. Bağlantınızı ve çalışma alanı erişiminizi kontrol edin."); } }
+      setMounts(active); setRecords(all); hasLoaded.current = true;
+      setError(truncated ? "Çok fazla kayıt var; listenin tamamı gösterilemiyor."
+        : unreadable.length ? `${unreadable.length} çalışma alanı okunamadı; aşağıdakiler diğerlerinden geliyor.`
+        : null);
+    } catch {
+      // A failed refresh leaves what is already on screen ALONE — a restarting backend or one dropped
+      // request used to blank a populated page, and made a card that HAD been written read as a failure.
+      if (current !== generation.current) return;
+      setError(hasLoaded.current
+        ? "Liste yenilenemedi; görünen kayıtlar son başarılı okumadan."
+        : "Bilgiler yüklenemedi. Bağlantınızı ve çalışma alanı erişiminizi kontrol edin.");
+      if (!hasLoaded.current) { setRecords([]); setMounts([]); }
+    }
     finally { if (current === generation.current) setLoading(false); }
   }, []);
   useEffect(() => {
@@ -177,7 +161,10 @@ function EntityDetail({ params }: TabProps) {
 }
 if (!meetingsOnly()) {
   registerTab("directory", DirectoryView); registerTab("entity", EntityDetail);
-  for (const [id, kind, order] of [["people", "person", 31], ["companies", "company", 32], ["partners", "partner", 33]] as const) {
+  // Partner notes have no list of their own: the directory was a third sidebar entry for a card
+  // type people were not filing by hand. Notes the meeting agent writes are still readable through
+  // their own entity pages and through search.
+  for (const [id, kind, order] of [["people", "person", 31], ["companies", "company", 32]] as const) {
     registerList({ id, label: labels[kind].title, icon: labels[kind].icon, order,
       component: () => <DirectoryView id={id} params={{ directory: kind }} active />,
       centerTab: { id, title: labels[kind].title, kind: "directory", params: { directory: kind } } });

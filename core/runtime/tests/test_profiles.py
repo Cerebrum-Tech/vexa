@@ -87,6 +87,18 @@ def test_meeting_bot_forwards_the_stt_silence_floor(monkeypatch):
     assert default_registry().get("meeting-bot").base_env == {}
 
 
+def test_meeting_bot_forwards_the_teams_lane_timing(monkeypatch):
+    """The Teams lane's onset gap and draft-promotion timeout are read inside the bot container;
+    a slow STT deployment tunes them, so the profile has to carry them."""
+    for key in ("BOT_ALONE_SILENCE_WINDOW_MS", "BOT_SPEAKER_MIN_AUDIO_SEC", "BOT_SPEAKER_SUBMIT_INTERVAL_SEC",
+                "BOT_SPEAKER_CONFIRM_THRESHOLD", "BOT_SPEAKER_MAX_BUFFER_SEC", "BOT_SPEAKER_IDLE_TIMEOUT_SEC",
+                "VEXA_STT_SILENCE_RMS"):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("BOT_TEAMS_ONSET_GAP_MS", "3000")
+    monkeypatch.setenv("BOT_TEAMS_PERSIST_TIMEOUT_MS", "10000")
+    assert default_registry().get("meeting-bot").base_env == {"BOT_TEAMS_ONSET_GAP_MS": "3000", "BOT_TEAMS_PERSIST_TIMEOUT_MS": "10000"}
+
+
 def test_meeting_bot_env_is_a_valid_invocation():
     """The bot's whole config is delivered as VEXA_BOT_CONFIG — a JSON-encoded Invocation. Build the
     env the control plane would hand the profile and prove the payload conforms to invocation.v1."""

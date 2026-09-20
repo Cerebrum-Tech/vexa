@@ -542,6 +542,14 @@ def main() -> None:  # pragma: no cover — the container entrypoint (wired in t
     model = os.environ.get("VEXA_AGENT_MODEL") or None
     client = redis.from_url(os.environ["REDIS_URL"], decode_responses=True)
     out_topic = os.environ["VEXA_UNIT_OUT_TOPIC"]
+    if os.environ.get("VEXA_RUNNER") == "entity-edit":
+        from worker.entity_edit import run_entity_edit
+        run_entity_edit(
+            client, start=json.loads(os.environ["VEXA_START"]), out_topic=out_topic,
+            mounts=active_mounts(), grants=json.loads(os.environ.get("VEXA_WORKSPACES", "[]")),
+            author=_principal_author(),
+        )
+        return
     if os.environ.get("VEXA_RUNNER") == "report-edit":
         from worker.report_edit import run_report_edit
         run_report_edit(

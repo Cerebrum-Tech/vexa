@@ -151,6 +151,36 @@ def _extract_json_value(reply: str | None):
     return None
 
 
+def _salvage_truncated_notes(reply: str | None) -> list:
+    """The note objects that closed before a reply was cut off mid-array.
+
+    A reply cap (``VEXA_LLM_MAX_TOKENS``) smaller than one window's JSON ends the text inside a
+    note; the whole-document parse then fails and every note in the window — the dozens that
+    arrived intact included — would be thrown away for the one that did not. Measured on meeting
+    126: a 43-note window needs ~2600 reply tokens; a 2048 cap left 0 notes. Cards are not
+    salvaged — they come after the notes and are the part the cut removed."""
+    if not reply:
+        return []
+    opened = re.search(r'"notes"\s*:\s*\[', reply)
+    if not opened:
+        return []
+    decoder = json.JSONDecoder()
+    position = opened.end()
+    out: list = []
+    while True:
+        while position < len(reply) and reply[position] in " \t\r\n,":
+            position += 1
+        if position >= len(reply) or reply[position] != "{":
+            break
+        try:
+            item, position = decoder.raw_decode(reply, position)
+        except ValueError:
+            break
+        if isinstance(item, dict):
+            out.append(item)
+    return out
+
+
 def parse_cards(reply: str | None, card_kinds: list[str] | None = None) -> list[dict]:
     """Tolerantly pull the JSON card array out of the agent's reply (it may wrap it in prose/fences).
     When ``card_kinds`` is given, only cards of those kinds are kept."""
@@ -180,7 +210,10 @@ def parse_notes(
     """Pull processed transcript notes from the copilot JSON object."""
     value = _extract_json_value(reply)
     if not isinstance(value, dict):
-        return []
+        salvaged = _salvage_truncated_notes(reply)
+        if not salvaged:
+            return []
+        value = {"notes": salvaged}
     arr = value.get("notes") or []
     if not isinstance(arr, list):
         return []
@@ -546,6 +579,22 @@ def serve_meeting(
                 existing.update(note)
             mirror_dirty[nid] = notes_by_id[nid]
 
+    def _publish_baseline(item: dict) -> None:
+        """Publish the segment's CURRENT text as its 1:1 cleaned note — on first sight AND every time
+        a later draft changes it. A note is keyed by ``segment_id``, so a republish UPDATES the line
+        it already owns rather than adding one. Publishing only once leaves the processed stream
+        holding the FIRST draft of an utterance while the durable transcript holds the last, and the
+        report is then authored on a transcript whose sentences stop early — which in a verb-final
+        language is precisely where the commitment sits."""
+        text = item.get("text")
+        if text == item.get("_published"):
+            return
+        note = _proc_note(item)
+        if note is None:
+            return
+        _emit_proc_note(note)
+        item["_published"] = text
+
     def _flush_mirror() -> None:
         """Flush the DERIVED views (per beat + session_end): upsert each dirty note into the
         per-meeting workspace file (Auth-B/#3a — a chat agent can Read the meeting mid-flight) and
@@ -571,7 +620,11 @@ def serve_meeting(
                 # (baseline already emitted at ingest; this is the richer pass, still 1:1 by segment_id).
                 # Notes ride ONLY processed-notes.v1 — the out-stream is cards + agent activity, per
                 # its name (ADR 0027 carrier collapse; the SSE tails the proc stream directly).
-                _emit_proc_note(ev.get("note") or {})
+                note = ev.get("note") or {}
+                _emit_proc_note(note)
+                published = window_by_id.get(str(note.get("id") or "").strip())
+                if published is not None:
+                    published["_published"] = published.get("text")
                 continue
             stream.xadd(out_topic, {"event": json.dumps({**ev, "turn_id": tid})})
         stream.xadd(out_topic, {"event": json.dumps({"type": "turn-complete", "turn_id": tid})})
@@ -605,6 +658,8 @@ def serve_meeting(
         if mutable and (enabled() if callable(enabled) else enabled):
             n += 1
             _run_beat(mutable, n)
+        for seg in processing_window:
+            _publish_baseline(seg)  # the report reads FINAL text, never a draft a beat froze early
         _flush_mirror()      # ingest-only notes (no beat ran) reach the mirrors too
         _persist_envelope()  # final durable render source (notes + accumulated cards)
         # processed-notes.v1 ``view_end`` (ADR 0027): the stream is COMPLETE at this entry — the final
@@ -646,6 +701,7 @@ def serve_meeting(
                         # Identity is preserved, so the rewrite-pass bookkeeping still holds.
                         existing["text"] = seg.get("text", existing.get("text"))
                         existing["completed"] = seg.get("completed", True)
+                        _publish_baseline(existing)
                         continue
                     item = dict(seg)
                     item["segment_id"] = sid
@@ -655,9 +711,7 @@ def serve_meeting(
                     processing_window.append(item)
                     # Baseline 1:1 cleaned note onto the processed stream — ALWAYS present per segment,
                     # so the cleaned channel never has a gap even before/without an LLM upgrade beat.
-                    base = _proc_note(item)
-                    if base is not None:
-                        _emit_proc_note(base)
+                    _publish_baseline(item)
                     sp = seg.get("speaker")
                     if sp and sp not in seen_speakers:
                         seen_speakers.add(sp)
@@ -727,10 +781,12 @@ MEETING_DOC_PROMPT = (
     "biographies, roles, affiliations or unnamed identities. Do not add unsupported names to the "
     "body just to fill this field. Use [] when no entity qualifies. Write only the meeting file; "
     "the runtime creates any person/company pages from validated mentions.\n\n"
+    "A line whose speaker is `?` came from a lane that was never named. Use what it says, but never attribute it to anyone, never invent a name for it, and never write `?` or `Speaker` into the report as if it were a person.\n\n"
     "After the frontmatter, write a 2-4 line plain-English SUMMARY of the meeting (no transcript — a "
     "distilled summary), then the surfaced entities grouped under `## Attendees`, `## Companies`, "
     "`## Topics`, `## Decisions`, `## Actions` headings, each entry a `[[wikilink]]` (omit a heading if "
     "it has no entries). Here are the entities surfaced during the meeting (JSON):\n\n{cards}\n\n"
+    "{participants}"
     "## The meeting\n\n{evidence}\n\n"
     "Do NOT copy the raw transcript, and do not read any other file — the evidence above is all of "
     "it. When done, write ONLY that one file."
@@ -773,14 +829,38 @@ TURKISH_MEETING_DOC_PROMPT = (
     "## Özet\n\n"
     "## Alınan Kararlar\n\n"
     "## Aksiyon Maddeleri\n\n"
-    "Write a concise summary grounded only in the transcript. Include a decision only when the "
-    "transcript explicitly records agreement, approval, rejection, or another commitment. If no "
-    "decision was recorded, state that briefly in Turkish. For each action, preserve the explicit "
-    "participant owner and deadline when present. Write `Sorumlu belirtilmedi` when no owner is "
-    "assigned; do not infer an owner or deadline from topic, role, speaking order, or the surfaced "
-    "cards. If no action was recorded, state that briefly in Turkish.\n\n"
+    "Then add one more section, after those three:\n"
+    "## Katılımcı Özetleri\n\n"
+    "The summary covers the WHOLE meeting: every subject that was raised gets at least one sentence, "
+    "in the order the meeting took them, and the specifics travel with it — names, numbers, dates, "
+    "versions, system and product names, exactly as spoken. Length follows the meeting: a short "
+    "meeting yields a short summary, a meeting that moved through eight subjects yields a paragraph "
+    "that covers eight subjects. Never drop a subject because it was brief. Summarize; do not "
+    "editorialize, and add nothing the transcript does not state.\n\n"
+    "Include a decision only when the transcript explicitly records agreement, approval, rejection, "
+    "or another commitment. If no decision was recorded, state that briefly in Turkish.\n\n"
+    "An action is a task someone took on or was given — INCLUDING one a speaker takes on in their own "
+    "words (`ben ... bakacağım`, `ben yapacağım`, `ben hallederim`), which is the most common shape a "
+    "real commitment has and the easiest one to lose. The owner is the speaker whose own line carries "
+    "the commitment, or the person another participant names for it — nobody else. A first-person "
+    "line belongs to the speaker whose label carries it: in `Ozan abi ben sunucuya bakacağım` the "
+    "owner is the SPEAKER, and `Ozan abi` is who they are talking TO. Turkish addresses the listener "
+    "by name constantly (`abi`, `Bey`, `Hanım`), so a name inside a line is the addressee until the "
+    "line says otherwise. Do not infer an "
+    "owner or a deadline from the topic, the role, the speaking order or the surfaced cards; write "
+    "`Sorumlu belirtilmedi` when no owner is stated. Close every action with the line that evidences it, as "
+    "`— \"<verbatim quote>\" (<speaker>)`, so a reader can check the attribution against what was "
+    "actually said. Keep the deadline only when it was stated. If no action was recorded, state that "
+    "briefly in Turkish.\n\n"
+    "Under `## Katılımcı Özetleri`, give each participant who spoke their own `### <Ad Soyad>` "
+    "sub-heading, in the order they first speak, holding what THEY reported (status, problems, "
+    "numbers) and what THEY took on. A participant who took nothing on gets the line `Üstlendiği bir "
+    "aksiyon yok.` — this section is how a reader finds what falls to them without asking, so it "
+    "names every speaker, including the ones with nothing assigned.\n\n"
+    "A line whose speaker is `?` came from a lane that was never named. Use what it says, but never attribute it to anyone, never invent a name for it, and never write `?` or `Speaker` into the report as if it were a person.\n\n"
     "The surfaced cards below may supplement entity links, but they are not evidence for decisions, "
     "actions, owners, or deadlines (JSON):\n\n{cards}\n\n"
+    "{participants}"
     "## The meeting\n\n{evidence}\n\n"
     "Write EVERY sentence of the body in Turkish — the summary, each decision and each action. Only the "
     "YAML frontmatter, the three headings above, and participant/product names are copied verbatim; no "
@@ -804,8 +884,11 @@ _DIGEST_PROMPT_TR = (
     "KONULAR: what was discussed.\n"
     "KARARLAR: an explicit agreement, approval, rejection or other commitment. If the lines record "
     "none, omit this label entirely — do not invent one.\n"
-    "AKSIYONLAR: a task someone took on. Keep the owner and the deadline ONLY when the lines state "
-    "them; write `Sorumlu belirtilmedi` when no owner is named.\n\n"
+    "AKSIYONLAR: a task someone took on — including one a speaker takes on in their own words "
+    "(`ben ... bakacağım`), whose owner is that speaker. Keep the owner and the deadline ONLY when "
+    "the lines state them; write `Sorumlu belirtilmedi` when no owner is named.\n\n"
+    "A line whose speaker is `?` was never attributed to anyone — keep what it says, but do not "
+    "give it an owner or a name.\n\n"
     "Keep every participant, company and product name verbatim. This digest is the only record of "
     "this part of the meeting that the final report will see, so preserve specifics — names, "
     "numbers, dates — over smoothness.\n\n{lines}"
@@ -815,7 +898,10 @@ _DIGEST_PROMPT_EN = (
     "never infer, never continue the conversation, never write a preamble.\n\n"
     "Write compact bullet points under exactly these three labels, omitting a label that has no "
     "entries:\nTOPICS:\nDECISIONS: an explicit agreement, approval, rejection or other commitment.\n"
-    "ACTIONS: a task someone took on, with owner and deadline only when stated.\n\n"
+    "ACTIONS: a task someone took on — including one a speaker takes on in their own words, whose "
+    "owner is that speaker — with owner and deadline only when stated.\n\n"
+    "A line whose speaker is `?` was never attributed to anyone — keep what it says, but do not "
+    "give it an owner or a name.\n\n"
     "Keep every participant, company and product name verbatim. This digest is the only record of "
     "this part of the meeting that the final report will see, so preserve specifics — names, "
     "numbers, dates — over smoothness.\n\n{lines}"
@@ -827,22 +913,125 @@ _DIGEST_PROMPT_EN = (
 _DIGEST_MAX_ROUNDS = 2
 
 
+#: The label a line carries when its lane was never named. It is deliberately not a word: rendered
+#: as the placeholder "Speaker", an unnamed line reads as a participant called Speaker, and the
+#: report says so — naming a person who was never in the meeting, in a transcript where every
+#: durable row does carry a real name.
+UNKNOWN_SPEAKER = "?"
+
+#: Placeholders the lanes emit before a name is resolved. A note still carrying one of these names
+#: nobody.
+_PLACEHOLDER_SPEAKERS = {"speaker", "unknown", "unknown speaker", "konuşmacı", "konusmaci"}
+
+
+def speaker_of(note: dict) -> str:
+    """The note's speaker, or ``UNKNOWN_SPEAKER`` when the lane was never named."""
+    speaker = str(note.get("speaker") or "").strip()
+    return UNKNOWN_SPEAKER if not speaker or speaker.lower() in _PLACEHOLDER_SPEAKERS else speaker
+
+
 def note_lines(notes: list[dict]) -> str:
     """The notes as speaker-attributed transcript lines — the report's evidence, in its densest
     honest form. The id prefix the mirror file carries is dropped: it is addressing, not content,
     and it costs a third of the budget to say nothing the report can use."""
     out = []
     for n in notes:
-        speaker = str(n.get("speaker") or "Speaker").strip() or "Speaker"
         text = " ".join(str(n.get("text") or "").split())
         if text:
-            out.append(f"{speaker}: {text}")
+            out.append(f"{speaker_of(n)}: {text}")
     return "\n".join(out)
 
 
 def build_digest_prompt(lines: str, *, part: int, total: int, report_language: str = "en") -> str:
     template = _DIGEST_PROMPT_TR if report_language.strip().lower() == "tr" else _DIGEST_PROMPT_EN
     return template.format(part=part, total=total, lines=lines)
+
+
+# ── the report's PER-PARTICIPANT pass (map by speaker → reduce in the report) ────────────────────
+# One request over a whole meeting attends to the meeting; asked what ONE person reported and took
+# on, a model attends to that person. So each speaker gets their own call, and the report writes
+# from those extracts alongside the transcript. It is the same map→reduce as `summarize_notes`, cut
+# along speakers instead of time — and it is what makes "what falls to me" answerable from the
+# report itself rather than from a follow-up question to the assistant.
+_PARTICIPANT_PROMPT_TR = (
+    "Below is a meeting transcript, every line labelled with its speaker. Report ONLY on "
+    "{speaker}.\n\n"
+    "A line is {speaker}'s ONLY when it is the label in front of it. A person's name INSIDE a line "
+    "is who the speaker is talking to, not the speaker: in `Ozan abi ben sunucuya bakacağım` the "
+    "commitment is the SPEAKER'S, not Ozan's. Turkish names the listener constantly (`abi`, `Bey`, "
+    "`Hanım`) — read those as the addressee.\n\n"
+    "Write compact Turkish bullets under exactly these two labels, omitting one with no entries:\n"
+    "RAPORLADIKLARI: what {speaker} said about their own work — status, numbers, blockers.\n"
+    "ÜSTLENDİKLERİ: what {speaker} took on, in their own words or because another participant named "
+    "them for it. Keep the deadline only when stated. Close each with the verbatim line that "
+    "evidences it, in quotes.\n\n"
+    "Extract only what the lines state — never infer, never continue the conversation, never write a "
+    "preamble. If {speaker} reported nothing and took nothing on, answer exactly `YOK`.\n\n{lines}"
+)
+_PARTICIPANT_PROMPT_EN = (
+    "Below is a meeting transcript, every line labelled with its speaker. Report ONLY on "
+    "{speaker}.\n\n"
+    "A line is {speaker}'s ONLY when it is the label in front of it — a name INSIDE a line is the "
+    "person being addressed, not the speaker.\n\n"
+    "Write compact bullets under exactly these two labels, omitting one with no entries:\n"
+    "REPORTED: what {speaker} said about their own work — status, numbers, blockers.\n"
+    "TOOK ON: what {speaker} took on, in their own words or because another participant named them "
+    "for it, each closed with the verbatim line that evidences it, in quotes.\n\n"
+    "Extract only what the lines state — never infer, never write a preamble. If {speaker} reported "
+    "nothing and took nothing on, answer exactly `NONE`.\n\n{lines}"
+)
+
+#: Speakers that get their own call, most-spoken first. The tail of a long attendee list is people
+#: who said "günaydın" once; they still reach the report through the transcript itself.
+_PARTICIPANT_MAX = 12
+
+
+def build_participant_prompt(lines: str, *, speaker: str, report_language: str = "en") -> str:
+    template = _PARTICIPANT_PROMPT_TR if report_language.strip().lower() == "tr" else _PARTICIPANT_PROMPT_EN
+    return template.format(speaker=speaker, lines=lines)
+
+
+def participant_digests(
+    notes: list[dict], *, budget_tokens: int, completion=None, model: str | None = None,
+    report_language: str = "en", log_fn: Callable[[str], None] | None = None,
+) -> str:
+    """What each speaker reported and took on, one model call per speaker, or ``""``.
+
+    The pass costs one call per speaker over the whole transcript, so it runs only when the
+    transcript FITS ``budget_tokens`` — a meeting that already needed digesting would pay that
+    multiplied, and its report is fed digests the per-speaker pass could not improve on. A speaker
+    whose call fails is simply absent from the block: the report still has the transcript, which is
+    the same evidence this pass was reading."""
+    text = note_lines(notes)
+    if not text or estimate_tokens(text) > budget_tokens:
+        return ""
+    order: list[str] = []
+    counts: dict[str, int] = {}
+    for note in notes:
+        speaker = speaker_of(note)
+        if speaker == UNKNOWN_SPEAKER or not str(note.get("text") or "").strip():
+            continue
+        if speaker not in counts:
+            order.append(speaker)
+        counts[speaker] = counts.get(speaker, 0) + 1
+    if len(counts) < 2:
+        return ""
+    speakers = sorted(order, key=lambda s: (-counts[s], order.index(s)))[:_PARTICIPANT_MAX]
+    if completion is None:
+        import worker.worker as _w
+        completion = getattr(_w, "completion_factory", completion_from_env)()
+    blocks: list[str] = []
+    for speaker in sorted(speakers, key=order.index):
+        prompt = build_participant_prompt(text, speaker=speaker, report_language=report_language)
+        try:
+            extract = completion.complete(prompt, model=model).text.strip()
+        except Exception as exc:  # noqa: BLE001 — one speaker's failed call costs that block only
+            if log_fn:
+                log_fn(f"participant pass failed for {speaker} ({type(exc).__name__}: {exc})")
+            continue
+        if extract and extract.strip().upper() not in {"YOK", "NONE"}:
+            blocks.append(f"### {speaker}\n{extract}")
+    return fit("\n\n".join(blocks), budget_tokens)
 
 
 def summarize_notes(
@@ -890,7 +1079,7 @@ def summarize_notes(
 def build_meeting_doc_prompt(
     cards: list[dict], *, native: str, meeting_id: str, session_uid: str,
     platform: str, date: str, title: str, report_language: str = "en",
-    evidence: str = "",
+    evidence: str = "", participants: str = "",
 ) -> str:
     """Compose the post-meeting doc prompt. ``report_language`` is the ONE selector between the Turkish
     and the English report; it is workspace-governed (``agents/meeting.md`` frontmatter → ``MeetingConfig
@@ -901,6 +1090,13 @@ def build_meeting_doc_prompt(
         native=native, title=title, meeting_id=meeting_id, session_uid=session_uid,
         platform=platform, date=date, cards=json.dumps(cards, ensure_ascii=False),
         evidence=evidence or "(no transcript evidence was captured for this meeting)",
+        # The per-speaker extracts are READ ALONGSIDE the transcript, never instead of it: they are
+        # this model's own earlier reading, so a claim only they carry is a claim to check against
+        # the lines below, not evidence in its own right.
+        participants=(
+            "## Katılımcı bazlı çıkarımlar (doğrulanacak — asıl kanıt aşağıdaki transkripttir)\n\n"
+            f"{participants}\n\n" if participants else ""
+        ),
     )
 
 
@@ -1102,17 +1298,27 @@ def _meeting_doc_turn_locked(
         cards, native=native, title=title, meeting_id=meeting_id, session_uid=session_uid,
         platform=platform, date=date, report_language=report_language, evidence="",
     )
+    evidence_budget = max(1, budget - estimate_tokens(frame))
     evidence = summarize_notes(
-        notes or [], budget_tokens=max(1, budget - estimate_tokens(frame)),
+        notes or [], budget_tokens=evidence_budget,
+        completion=completion, model=model, report_language=report_language,
+        log_fn=lambda msg: log.warning("meeting_doc_turn: %s", msg),
+    )
+    # The per-speaker pass reads the same transcript once per speaker, so it is affordable only when
+    # that transcript fits; it holds itself to HALF the evidence budget so its own block can never
+    # crowd out the lines it was read from.
+    participants = participant_digests(
+        notes or [], budget_tokens=evidence_budget // 2,
         completion=completion, model=model, report_language=report_language,
         log_fn=lambda msg: log.warning("meeting_doc_turn: %s", msg),
     )
     prompt = build_meeting_doc_prompt(
         cards, native=native, title=title, meeting_id=meeting_id, session_uid=session_uid,
         platform=platform, date=date, report_language=report_language, evidence=evidence,
+        participants=participants,
     )
-    log.info("meeting_doc_turn: report prompt ~%d tokens (budget %d, %d note(s))",
-             estimate_tokens(prompt), budget, len(notes or []))
+    log.info("meeting_doc_turn: report prompt ~%d tokens (budget %d, %d note(s), %d participant block(s))",
+             estimate_tokens(prompt), budget, len(notes or []), participants.count("### "))
     target = work / "kg" / "entities" / "meeting" / f"{native}.md"
     previous = target.read_bytes() if target.exists() else None
     run_target = target.with_name(f"{target.stem}.run-{meeting_id}.md")

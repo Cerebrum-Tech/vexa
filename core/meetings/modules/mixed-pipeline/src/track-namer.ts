@@ -563,6 +563,13 @@ export class TrackNamer {
   /** The name this track earned, or null. NEVER a guess. */
   nameFor(trackId: string): string | null { return this.named.get(trackId)?.name ?? null; }
 
+  /** The name a track's own evidence currently clears the bar for, or null. */
+  private verdictName(trackId: string): string | null {
+    const byName = this.evidence.get(trackId);
+    const verdict = byName ? this.verdict(trackId, byName) : null;
+    return verdict ? this.canonicalCase(verdict.lead.name) : null;
+  }
+
   /**
    * The name whose tile was RE-ASSERTED most often around this instant, or null when nothing leads.
    *
@@ -860,9 +867,9 @@ export class TrackNamer {
    * Re-derive a name that was earned against an unsettled roster, and freeze it once the roster is.
    *
    * Three outcomes: the evidence still says the same person (keep it, and freeze if the roster has
-   * settled); it now says someone else (repaint to them); or it no longer clears the bar at all
-   * (withdraw — the track goes back to Speaker A/B/C, which is the honest state, and the name is
-   * released so the track that genuinely owns it can earn it).
+   * settled); it now says someone else (repaint to them); or it has gone quiet — in which case the
+   * name STAYS, because a participant who has stopped talking is not evidence that the name was
+   * wrong. Quiet releases the name only to another track that has earned a verdict for it.
    */
   private reconsider(trackId: string, existing: TrackNaming, atMs: number): void {
     const byName = this.evidence.get(trackId);
@@ -877,10 +884,37 @@ export class TrackNamer {
       }
       return;
     }
-    this.withdraw(trackId, verdict
-      ? `evidence now names "${verdict.lead.name}"`
-      : `evidence no longer supports it (roster was still filling when it was accepted)`);
-    if (verdict) {
+    if (!verdict) {
+      // SILENCE IS NOT COUNTER-EVIDENCE. The name was earned from positive evidence; that the tile
+      // has stopped re-asserting it usually means the person stopped talking, which is the normal
+      // state of a participant. Withdrawing on quiet rewrote a transcript the reader had already
+      // been reading: on a 20-minute call one track published as its real speaker for twelve
+      // minutes and then every one of those rows reverted to `Speaker` at once.
+      //
+      // The one thing quiet must not do is strand the name: it is released only when ANOTHER
+      // unnamed track has earned a verdict for that same person, which is the case the release was
+      // written for.
+      // What the track's OWN evidence now leads with, whether or not it clears the verdict bar. A
+      // premature acceptance shows up here as a different, better-supported name — that is the case
+      // the release was written for (m26424: the track held "Matt" on 4 s while carrying 18 s for
+      // its real speaker), and it is released so the name can go to the track that owns it.
+      const leader = [...(byName?.values() ?? [])].reduce<TrackEvidence | null>(
+        (best, e) => (!best || e.supportMs > best.supportMs ? e : best), null);
+      const contradicted = leader !== null
+        && this.canonicalCase(leader.name) !== existing.name && leader.name !== existing.name;
+      if (!contradicted) {
+        if (settled) {
+          this.provisional.delete(trackId);
+          this.log(`track ${trackId} → "${existing.name}" settled (roster stable, evidence quiet)`);
+        }
+        return;
+      }
+      this.withdraw(trackId, `its own evidence now leads with "${leader!.name}"`);
+      for (const other of this.order) if (other !== trackId && !this.named.has(other)) this.evaluate(other, atMs);
+      return;
+    }
+    this.withdraw(trackId, `evidence now names "${verdict.lead.name}"`);
+    {
       this.bind(trackId, verdict.lead.name, 'evidence', verdict.share, verdict.ranked, atMs,
         `${Math.round(verdict.lead.supportMs)}ms over ${verdict.lead.episodes} episode(s), share ${verdict.share.toFixed(2)}`);
       return;

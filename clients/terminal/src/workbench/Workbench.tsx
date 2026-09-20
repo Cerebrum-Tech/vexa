@@ -25,7 +25,6 @@ const navigation = [
   { id: "meetings", title: "Toplantılar", icon: "cal", page: library },
   { id: "people", title: "Kişiler", icon: "user", page: { id: "people", title: "Kişiler", kind: "directory", params: { directory: "person" } } },
   { id: "companies", title: "Şirketler", icon: "building", page: { id: "companies", title: "Şirketler", kind: "directory", params: { directory: "company" } } },
-  { id: "partners", title: "İş Ortağı Notları", icon: "file", page: { id: "partners", title: "İş Ortağı Notları", kind: "directory", params: { directory: "partner" } } },
 ];
 
 export function Workbench() {

@@ -105,6 +105,12 @@ export interface RunOptions {
 /** Required ports — missing any of these used to surface as a raw TypeError deep in `run()`. */
 const REQUIRED_PORTS = ['lifecycle', 'join', 'pipeline', 'acts', 'aloneness'] as const;
 
+/** How the platform subject is chased after admission. Teams settles its meeting UI within seconds;
+ *  the window is generous because the cost of one more DOM read is nothing and the cost of missing
+ *  the name is a meeting that lives in the list as a number. */
+const TITLE_POLL_MS = 5_000;
+const TITLE_HUNT_MS = 120_000;
+
 function assertRequiredPorts(deps: OrchestratorDeps): void {
   for (const name of REQUIRED_PORTS) {
     if (deps[name] == null) {
@@ -292,6 +298,21 @@ export function createOrchestrator(inv: Invocation, deps: OrchestratorDeps) {
     }
     if (cur !== 'active') await emit('active', meetingTitle ? { meeting_title: meetingTitle } : {});   // the join driver may already have reported active
 
+    // The subject is read at admission, when Teams has often not rendered it yet — and that ONE read
+    // is the meeting's only chance at its name, so a meeting the host named arrives in the list as a
+    // bare number. Keep asking while the meeting runs and carry the answer on the terminal event;
+    // meeting-api takes a platform title only while the row has none, so this never overwrites a
+    // name the user typed.
+    let lateTitle: string | undefined;
+    const titleHunt = !meetingTitle && deps.join.readTitle
+      ? setInterval(() => {
+          void deps.join.readTitle!().then((found) => {
+            if (found && !lateTitle) { lateTitle = found; clearInterval(titleHunt!); }
+          }).catch(() => { /* best-effort metadata: never touches the meeting */ });
+        }, TITLE_POLL_MS)
+      : null;
+    if (titleHunt) setTimeout(() => clearInterval(titleHunt), TITLE_HUNT_MS).unref?.();
+
     // ── active: start the engine, wire removal + aloneness + the optional time cap (acts already subscribed) ──
     try {
       await deps.pipeline.start();
@@ -314,6 +335,7 @@ export function createOrchestrator(inv: Invocation, deps: OrchestratorDeps) {
 
     // ── graceful teardown (best-effort; never masks the completion reason) ──
     if (cap) clearTimeout(cap);
+    if (titleHunt) clearInterval(titleHunt);
     unsubscribe();
     stopAloneness();
     stopRemoval();
@@ -329,7 +351,10 @@ export function createOrchestrator(inv: Invocation, deps: OrchestratorDeps) {
 
     console.error(`[bot] orchestrator: emitting completed (reason=${reason}, from=${cur})`);
     try {
-      await emit('completed', { completion_reason: reason, exit_code: 0 });
+      await emit('completed', {
+        completion_reason: reason, exit_code: 0,
+        ...(lateTitle && !meetingTitle ? { meeting_title: lateTitle } : {}),
+      });
       console.error('[bot] orchestrator: completed emitted + flushed');
     } catch (e) {
       console.error(`[bot] orchestrator: completed emit THREW: ${String(e)}`);

@@ -6,7 +6,10 @@ import { registry } from "../contributions";
 
 const LS_DOCK = "vexa.terminal.dock.v3";
 const LS_LIST = "vexa.terminal.activeList.v1";
-const LS_SESSION = "vexa.terminal.activeSession.v1";
+/** A NEW conversation for every visit. The rail used to reopen whatever was last said — so the
+ *  first thing the main screen showed was an old exchange, with no obvious way to start clean. The
+ *  earlier chats are not lost: they live server-side and the rail's own header lists them. */
+const newChatSession = () => `chat-${Date.now().toString(36)}`;
 
 export interface RightContext { kind: string; params?: Record<string, unknown>; }
 export interface ActiveTab { kind: string; params: Record<string, unknown>; }
@@ -84,7 +87,7 @@ export function createLayoutService(defaultList: string): LayoutService {
     rightCollapsed: false,
     context: null,
     activeTab: null,
-    activeSession: readLS(LS_SESSION) || "main",
+    activeSession: newChatSession(),
   });
   let api: DockviewApi | null = null;
   let pages = false;
@@ -168,7 +171,7 @@ export function createLayoutService(defaultList: string): LayoutService {
     detach(dvApi) { if (api === dvApi) { api = null; forgetPreview(); } },
     setContext(ctx) { store.set((st) => ({ ...st, context: ctx })); },
     setActiveTab(tab) { store.set((st) => ({ ...st, activeTab: tab })); },
-    setActiveSession(id) { store.set((st) => ({ ...st, activeSession: id })); writeLS(LS_SESSION, id); },
+    setActiveSession(id) { store.set((st) => ({ ...st, activeSession: id })); },
     goBack() {
       if (pages) {
         const previous = pageHistory.pop();

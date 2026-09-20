@@ -1,5 +1,5 @@
 /** Report readiness is a producer-stamped artifact, scoped to an authorized workspace and exact run. */
-import { listWorkspaceTree, readActiveSet, readWorkspaceFile, type ActiveMount } from "../surfaces/workspaceApi";
+import { listWorkspaceTree, readActiveSet, readMeetingReport, readWorkspaceFile, type ActiveMount } from "../surfaces/workspaceApi";
 import type { MeetingMock } from "../surfaces/meetingModel";
 
 export interface ReportTarget { meetingId: string; path: string; workspace?: string }
@@ -85,7 +85,8 @@ function reportPaths(target: ReportTarget): string[] {
   return target.path.endsWith(suffix) ? [target.path, target.path.slice(0, -suffix.length) + ".md"] : [target.path];
 }
 
-/** Missing provenance is discovered only inside the caller's current authorized mount set. */
+/** The caller's own mount set first; then the meeting itself, which is the only route to the report of
+ *  a meeting SHARED with them — it lives in its owner's workspace and no mount of theirs can reach it. */
 export async function readReadyReport(target: ReportTarget): Promise<ReadyReport | null> {
   if (!target.meetingId || !target.path) return null;
   const set = await readActiveSet();
@@ -97,7 +98,9 @@ export async function readReadyReport(target: ReportTarget): Promise<ReadyReport
       if (report) return report;
     }
   }
-  return null;
+  const shared = await readMeetingReport(target.meetingId);
+  if (!shared || String(shared.meeting_id) !== target.meetingId) return null;
+  return parseReadyReport(shared.content, { meetingId: target.meetingId, path: shared.path, workspace: shared.workspace });
 }
 
 /** One file read per authorized workspace/path, even for repeated meetings on the same native link. */

@@ -24,6 +24,7 @@ from worker.meeting import (
     build_digest_prompt,
     build_meeting_doc_prompt,
     note_lines,
+    participant_digests,
     summarize_notes,
 )
 
@@ -128,6 +129,74 @@ def test_a_long_meeting_is_digested_in_chunks_that_fit():
     assert all("PART" in p for p in completion.prompts)
     parts = {p.split("PART ")[1].split(" of ")[0] for p in completion.prompts}
     assert parts == {str(i) for i in range(1, len(completion.prompts) + 1)}
+
+
+# ── an unnamed lane is nobody ────────────────────────────────────────────────────────────────────
+def test_an_unnamed_lane_is_never_rendered_as_a_person():
+    """Rows the lanes never named reached the report labelled `Speaker`, and the report duly wrote
+    about a participant called Speaker — in meetings whose every durable row carries a real name."""
+    from worker.meeting import UNKNOWN_SPEAKER
+    lines = note_lines([{"speaker": "Speaker", "text": "bir"}, {"speaker": "Alp Eren", "text": "iki"},
+                        {"speaker": "  ", "text": "üç"}, {"speaker": "unknown", "text": "dört"}])
+    assert lines.splitlines() == [f"{UNKNOWN_SPEAKER}: bir", "Alp Eren: iki",
+                                  f"{UNKNOWN_SPEAKER}: üç", f"{UNKNOWN_SPEAKER}: dört"]
+    assert "Speaker" not in lines
+    # and the prompt that reads them is told what the marker means
+    prompt = build_meeting_doc_prompt([], native="n", title="t", meeting_id="1", session_uid="s",
+                                      platform="teams", date="d", report_language="tr", evidence=lines)
+    assert "never attribute it to anyone" in prompt
+
+
+def test_the_per_speaker_pass_skips_the_lanes_that_were_never_named():
+    completion = FakeCompletion(reply="RAPORLADIKLARI:\n- bir şey")
+    block = participant_digests(
+        [{"speaker": "Speaker", "text": "bir"}, {"speaker": "Alp Eren", "text": "iki"},
+         {"speaker": "Büşra", "text": "üç"}],
+        budget_tokens=8000, completion=completion, report_language="tr")
+    assert len(completion.prompts) == 2                 # the two real speakers, not the placeholder
+    assert "### Speaker" not in block
+
+
+# ── the report's evidence: map by SPEAKER ────────────────────────────────────────────────────────
+def test_every_speaker_gets_their_own_reading_of_the_meeting():
+    """The claim the per-speaker pass makes: what one participant took on is asked about ALONE, so a
+    quiet participant's commitment is not competing with the meeting's loud subjects for attention."""
+    completion = FakeCompletion(reply="RAPORLADIKLARI:\n- bir şey")
+    block = participant_digests(notes(9), budget_tokens=8000, completion=completion,
+                                report_language="tr")
+    assert len(completion.prompts) == 3                       # Konuşmacı 0, 1, 2 — one call each
+    for who in ("Konuşmacı 0", "Konuşmacı 1", "Konuşmacı 2"):
+        assert any(f"Report ONLY on {who}." in p for p in completion.prompts)
+        assert f"### {who}" in block
+    # Every call reads the WHOLE meeting: a speaker's commitment is often in someone else's line.
+    assert all("cümle0 " in p and "cümle8" in p for p in completion.prompts)
+
+
+def test_the_per_speaker_pass_stands_down_when_it_cannot_be_afforded():
+    """It costs one whole-transcript call per speaker. A meeting that already needs digesting would
+    pay that multiplied — and its report reads digests this pass cannot improve on."""
+    completion = FakeCompletion()
+    assert participant_digests(notes(400), budget_tokens=1500, completion=completion,
+                               report_language="tr") == ""
+    assert completion.prompts == []
+    # A meeting with one voice has nothing to separate, so it spends nothing either.
+    solo = [{"id": "s0", "speaker": "Ayşe", "text": "tek kişi konuştu"}]
+    assert participant_digests(solo, budget_tokens=8000, completion=completion) == ""
+    assert completion.prompts == []
+
+
+def test_one_speaker_costs_only_their_own_block():
+    """A failed call or an empty answer removes that speaker from the block and nothing else — the
+    report still holds the transcript those calls were reading."""
+    failing = FakeCompletion(reply="RAPORLADIKLARI:\n- bir şey", fail_on={2})
+    block = participant_digests(notes(9), budget_tokens=8000, completion=failing,
+                                report_language="tr")
+    assert "### Konuşmacı 0" in block and "### Konuşmacı 2" in block
+    assert "### Konuşmacı 1" not in block
+
+    silent = FakeCompletion(reply="YOK")
+    assert participant_digests(notes(9), budget_tokens=8000, completion=silent,
+                               report_language="tr") == ""
 
 
 def test_every_part_of_the_meeting_reaches_the_map_step():

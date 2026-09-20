@@ -35,6 +35,11 @@ const HALLUC = [
   'Thanks for watching!',
   'ご視聴ありがとうございました',
   'Abone olmayı unutmayın',
+  // meeting 122 (a quiet screen-share, real STT): whisper's Turkish YouTube outro, in full and in fragments
+  'Merhaba, kendinize iyi bakın, kanalımıza abone olmayı ve videoyu beğenmeyi unutmayın.',
+  'Kanalımıza abone olmayı unutmayın.',
+  'abone ol',
+  'İzlediğiniz için teşekkürler.',
 ];
 /** Real rows the lane published on the m24 Teams tape. None may be suppressed. */
 const REAL = [
@@ -43,6 +48,10 @@ const REAL = [
   'We might just have to deal with that on Teams. Teams is just going to be a hard platform to work with.',
   'is it using the method that I set up for Zoom and Meet?',
   "The latency isn't great though.",
+  // Turkish business speech that shares words with the outro family and must survive it
+  'Servise abone olmayı düşünüyoruz.',
+  'Kanalımızı genişletmek istiyoruz.',
+  'Videoyu izledikten sonra karar veririz.',
 ];
 
 for (const t of HALLUC) check(`suppressed: ${JSON.stringify(t)}`, hallucinationRule(t) !== null);

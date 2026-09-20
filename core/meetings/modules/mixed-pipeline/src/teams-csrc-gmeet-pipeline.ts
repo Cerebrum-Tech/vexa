@@ -12,6 +12,7 @@ import {
   type TeamsRoutedSpan,
   type TeamsWordContest,
   resolveTeamsWordContest,
+  resolveTeamsTextEcho,
 } from './teams-contested-word-marker.js';
 import {
   TeamsCsrcChannelizer,
@@ -92,6 +93,8 @@ export interface TeamsCsrcGmeetPipelineHealth extends TeamsCsrcChannelizerHealth
   contestedPairs: number;
   /** Contested pairs settled by retracting the bleed copy (see resolveTeamsWordContest). */
   resolvedContests: number;
+  /** Rows retracted as one utterance heard twice under two lanes (resolveTeamsTextEcho). */
+  resolvedEchoes: number;
 }
 
 export interface CsrcOwnershipInterval { startMs: number; endMs?: number }
@@ -187,6 +190,10 @@ export class TeamsCsrcGmeetPipeline {
   private rejectedOwnership = 0;
   private timeoutPromotions = 0;
   private resolvedContests = 0;
+  private resolvedEchoes = 0;
+  /** Rows retracted as a bleed copy, keyed by the row they lost to. A keeper that later loses itself
+   *  hands its victims back: the words must live somewhere, and a retracted keeper is nowhere. */
+  private readonly retractedBy = new Map<string, TeamsCsrcTranscriptSegment[]>();
 
   constructor(private readonly options: TeamsCsrcGmeetPipelineOptions) {
     this.onsetGapMs = Math.max(0, options.onsetGapMs ?? 1000);
@@ -379,6 +386,7 @@ export class TeamsCsrcGmeetPipeline {
       timeoutPromotions: this.timeoutPromotions,
       contestedPairs: this.contests.size,
       resolvedContests: this.resolvedContests,
+      resolvedEchoes: this.resolvedEchoes,
     };
   }
 
@@ -578,6 +586,28 @@ export class TeamsCsrcGmeetPipeline {
       if (contest) this.contests.set(this.contestKey(row.segmentId, rival.segmentId), contest);
     }
     this.settleContests();
+    this.settleEchoes(segmentId);
+  }
+
+  /** The text-plus-time twin of the word contest, for the bleed copies the contest cannot see (no word
+   *  times, no timestamp overlap, no routed trace). Retracts the echo the same way — empty text under
+   *  its id — and never rewrites the keeper. */
+  private settleEchoes(segmentId: string): void {
+    const row = this.rawPublished.get(segmentId);
+    if (!row?.completed || !row.text.trim()) return;
+    for (const rival of [...this.rawPublished.values()]) {
+      if (rival.segmentId === segmentId || !rival.completed || !rival.text.trim()) continue;
+      const echo = resolveTeamsTextEcho(row, rival, {
+        leftNamed: isAttributedSpeaker(row.speaker),
+        rightNamed: isAttributedSpeaker(rival.speaker),
+      });
+      if (!echo) continue;
+      const loser = this.rawPublished.get(echo.loserSegmentId);
+      if (!loser) continue;
+      this.resolvedEchoes++;
+      this.retractBleed(loser, echo.keeperSegmentId);
+      if (loser.segmentId === segmentId) return;
+    }
   }
 
   /** Every active CSRC lane is handed the same mixed frame during overlap, so a phrase one person
@@ -599,7 +629,24 @@ export class TeamsCsrcGmeetPipeline {
       const loser = this.rawPublished.get(resolution.loserSegmentId);
       if (!loser) continue;
       this.resolvedContests++;
-      this.emit({ ...loser, text: '', endMs: loser.startMs, completed: false });
+      this.retractBleed(loser, resolution.keeperSegmentId);
+    }
+  }
+
+  /** Retract a bleed copy under its own id, remembering whom it lost to. If the keeper is itself being
+   *  retracted now, every row it had beaten is published again: on meeting 126 a room mic's
+   *  "Teşekkür ediyoruz. Bir soru olursa Büşra." beat the speaker's own "Teşekkür ediyoruz." and then lost
+   *  to the speaker's next row — without this, those two words were in no row at all. */
+  private retractBleed(loser: TeamsCsrcTranscriptSegment, keeperSegmentId: string): void {
+    const victims = this.retractedBy.get(keeperSegmentId) ?? [];
+    victims.push({ ...loser });
+    this.retractedBy.set(keeperSegmentId, victims);
+    const restored = this.retractedBy.get(loser.segmentId);
+    this.retractedBy.delete(loser.segmentId);
+    this.emit({ ...loser, text: '', endMs: loser.startMs, completed: false });
+    for (const victim of restored ?? []) {
+      if (this.rawPublished.has(victim.segmentId)) continue;
+      this.emit(victim);
     }
   }
 

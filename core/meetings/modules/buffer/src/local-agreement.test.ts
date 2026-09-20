@@ -120,7 +120,60 @@ async function continuousSpeechTextOnly(): Promise<void> {
     kept >= 2, `cap log: ${capLog.length} line(s), kept ${kept}`);
 }
 
-void continuousSpeechTextOnly().then(() => {
+// ── a turn that closes while STT is still thinking must still publish that reply ──────────────
+// A Teams turn closes on a ≥1 s CSRC gap; a slow STT (4–10 s on a busy GPU) means the window's
+// reply is still in flight at that moment. The close used to discard that reply and resubmit the
+// same audio, and the resubmit's reply landed after the turn key was released — never published:
+// one ~25-word hole per such close. The in-flight reply covers exactly the owned audio, so it IS
+// the final text.
+async function closeWhileInFlight(): Promise<void> {
+  const SR = 16000;
+  let now = 5_000_000;
+  const confirmed: string[] = [];
+  let resolveReply: ((text: string) => void) | null = null;
+  const manager = new GmeetCompatibleBuffer({
+    minAudioDuration: 1, submitInterval: 1, confirmThreshold: 2, maxBufferDuration: 30, idleTimeoutSec: 15,
+    sampleRate: SR, silenceRmsThreshold: 0, scheduleSubmissions: false, flushOnInputGap: false, now: () => now,
+  });
+  manager.addSpeaker("t", "T");
+  manager.onSegmentConfirmed = (_i, _n, text) => { confirmed.push(text); };
+  let submissions = 0;
+  manager.onSegmentReady = (_i, _n, audio) => {
+    submissions++;
+    // the reply for this window arrives later, when the test decides
+    resolveReply = (text: string) => manager.handleTranscriptionResult("t", text, audio.length / SR, [{ text, start: 0, end: audio.length / SR }], "tr");
+  };
+  manager.feedAudio("t", new Float32Array(SR * 3).fill(0.1), now);
+  await manager.requestTranscription("t", true);          // request in flight over 3 s of audio
+  check("close-while-in-flight: the request went out", submissions === 1 && resolveReply !== null);
+  const close = manager.flushSpeaker("t", true);           // the turn closes (CSRC gap) — no trim
+  check("close-while-in-flight: the close does not resubmit the same audio", submissions === 1, `${submissions}`);
+  resolveReply!("kentteki çeşitli hastanelere kaldırıldı.");
+  await close;
+  check("close-while-in-flight: the in-flight reply is published as the turn's final row",
+    confirmed.length === 1 && confirmed[0] === "kentteki çeşitli hastanelere kaldırıldı.", JSON.stringify(confirmed));
+  check("close-while-in-flight: the buffer is retired (no second emit on a later flush)",
+    (await manager.flushSpeaker("t", true), confirmed.length === 1));
+
+  // Meet's trimmed close still resubmits the owned audio — and THAT reply is published too.
+  const confirmed2: string[] = [];
+  manager.addSpeaker("m", "M");
+  manager.onSegmentConfirmed = (_i, _n, text) => { confirmed2.push(text); };
+  let replies: Array<(t: string) => void> = [];
+  manager.onSegmentReady = (_i, _n, audio) => { replies.push((text) => manager.handleTranscriptionResult("m", text, audio.length / SR, [{ text, start: 0, end: audio.length / SR }], "tr")); };
+  manager.feedAudio("m", new Float32Array(SR * 3).fill(0.1), now);
+  await manager.requestTranscription("m", true);
+  const close2 = manager.flushSpeaker("m", true, now + 2000);   // trimmed close: keep the first 2 s
+  replies[0]("stale pre-trim text");                             // discarded, owned audio resubmitted
+  await new Promise((r) => setTimeout(r, 0));
+  check("trimmed close: the pre-trim reply is discarded and the owned audio resubmitted", replies.length === 2 && confirmed2.length === 0, `${replies.length} ${JSON.stringify(confirmed2)}`);
+  replies[1]("owned audio final");
+  await close2;
+  check("trimmed close: the resubmit's reply is published as the final row (it used to be dropped)",
+    confirmed2.length === 1 && confirmed2[0] === "owned audio final", JSON.stringify(confirmed2));
+}
+
+void continuousSpeechTextOnly().then(closeWhileInFlight).then(() => {
   if (failed) { console.error(`\n❌ local-agreement: ${failed} checks FAILED.`); process.exit(1); }
   console.log(`\n✅ local-agreement: all checks pass — LocalAgreement-N confirms only whole, window-bounded, N-stable prefixes.`);
 });

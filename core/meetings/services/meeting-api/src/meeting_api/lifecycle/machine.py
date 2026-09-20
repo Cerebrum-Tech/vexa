@@ -475,7 +475,12 @@ class LifecycleSink:
 
         frm = rec.status
 
-        if to is BotStatus.ACTIVE:
+        # The platform subject rides ANY event, not only the ACTIVE one. Teams renders a meeting's
+        # subject after its UI settles, so the read the bot takes the moment it is admitted comes
+        # back empty for a meeting that has a name — and the bot then carries what it found later on
+        # its terminal event. The first title recorded wins, so a late read can never displace the
+        # one admission already established.
+        if rec.platform_title is None:
             title = event.get("meeting_title")
             if isinstance(title, str):
                 title = " ".join(title.split())

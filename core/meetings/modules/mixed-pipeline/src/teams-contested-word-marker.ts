@@ -359,3 +359,100 @@ export function resolveTeamsWordContest(
   if (Math.abs(leftRouted - rightRouted) < minLeadMs) return null;
   return leftRouted < rightRouted ? decide(left, right, 'routing') : decide(right, left, 'routing');
 }
+
+export interface TeamsTextEchoOptions {
+  /** Largest silence between the two rows' spans (or between the fragment and where the phrase sits in the
+   *  longer row) for them to be one utterance. Default 3000 ms — a lane opens on a CSRC edge with up to
+   *  ~1.2 s of onset lookback and closes on a 1–3 s onset gap, so the same words land in two rows up to a
+   *  few seconds apart. */
+  maxGapMs?: number;
+  /** Share of a row's tokens the shared phrase must cover for that row to be "nothing but the phrase". Default 0.6. */
+  minFragmentCoverage?: number;
+  leftNamed?: boolean;
+  rightNamed?: boolean;
+}
+
+export interface TeamsTextEchoResolution {
+  loserSegmentId: string;
+  keeperSegmentId: string;
+  reason: 'echo-fragment' | 'echo-identical';
+}
+
+/** Where a token range of a row sits in time when the backend gave no word times: spread evenly over the row. */
+function tokenRangeSpan(row: TeamsContestRow, tokenCount: number, start: number, length: number): { startMs: number; endMs: number } {
+  const per = (row.endMs - row.startMs) / Math.max(1, tokenCount);
+  return { startMs: row.startMs + per * start, endMs: row.startMs + per * (start + length) };
+}
+
+const gapBetween = (a: { startMs: number; endMs: number }, b: { startMs: number; endMs: number }): number =>
+  Math.max(a.startMs, b.startMs) - Math.min(a.endMs, b.endMs);
+
+/** The same words under two lanes at the same moment are ONE utterance transcribed twice.
+ *
+ *  Every active CSRC lane is handed the same mixed frame, and a lane opens with an onset lookback, so a
+ *  speaker's last words routinely land twice: once closing their own row, once opening the next lane's
+ *  ("robot bakımından. Orada" under Birkan 0.9 s after it closed Murat's row — meeting 126, 7 of 200 rows).
+ *  The word contest above needs word times the backend may not give, a timestamp overlap the rows may not
+ *  have, and a routed-audio trace the lookback may not leave; on that meeting it missed every one of these.
+ *  What it does not need is any of that: the Teams lane transcribes a SINGLE mixed stream, so two people
+ *  can never produce identical text at one moment — unison speech is one garbled signal, not two clean
+ *  copies. Text plus time is the whole evidence.
+ *
+ *  Two shapes, resolved; everything else abstains:
+ *  1. `echo-fragment` — one row is (almost) nothing but a phrase the other row carries, and the phrase's
+ *     place in the longer row is within `maxGapMs` of the fragment. The fragment loses.
+ *  2. `echo-identical` — the very same words on both sides, three or more, within `maxGapMs`. An
+ *     unnamed lane loses to a named one; otherwise the later row loses (same start: the right-hand,
+ *     later-published one). Two words or fewer stay: "Sağ olun." is something two people genuinely
+ *     trade at a meeting's end.
+ *  Two rows that each add their own words around a shared phrase are a partial overlap and stay —
+ *  both may be real speech (the word contest's abstention rule, kept). */
+export function resolveTeamsTextEcho(
+  left: TeamsContestRow,
+  right: TeamsContestRow,
+  options: TeamsTextEchoOptions = {},
+): TeamsTextEchoResolution | null {
+  if (!left.completed || !right.completed || left.csrc === right.csrc) return null;
+  const maxGapMs = options.maxGapMs ?? 3000;
+  if (gapBetween(left, right) > maxGapMs) return null;
+  const leftTokens = tokenizeTeamsContestText(left.text);
+  const rightTokens = tokenizeTeamsContestText(right.text);
+  if (!leftTokens.length || !rightTokens.length) return null;
+  const match = longestCommonContiguous(leftTokens, rightTokens);
+  const matchedCharacters = leftTokens.slice(match.leftStart, match.leftStart + match.length)
+    .reduce((total, token) => total + token.normalized.length, 0);
+  if (match.length < 2 || matchedCharacters < 10) return null;
+  const minCoverage = options.minFragmentCoverage ?? 0.6;
+  const leftCoverage = match.length / leftTokens.length;
+  const rightCoverage = match.length / rightTokens.length;
+  const decide = (loser: TeamsContestRow, keeper: TeamsContestRow, reason: TeamsTextEchoResolution['reason']) =>
+    ({ loserSegmentId: loser.segmentId, keeperSegmentId: keeper.segmentId, reason });
+
+  // A fragment: a row that is (almost) nothing but the phrase, against a row that carries more than it —
+  // either substantially more (the 0.6 rule the word contest uses) or, when the fragment is the phrase
+  // ENTIRELY, any longer row at all ("Tamamdır. O halde..." against "Tamamdır. O halde biz").
+  const leftIsFragment = leftCoverage >= minCoverage && (rightCoverage < minCoverage
+    || (leftCoverage === 1 && rightTokens.length > leftTokens.length));
+  const rightIsFragment = rightCoverage >= minCoverage && (leftCoverage < minCoverage
+    || (rightCoverage === 1 && leftTokens.length > rightTokens.length));
+  if (leftIsFragment !== rightIsFragment) {
+    const fragment = leftIsFragment ? left : right;
+    const whole = leftIsFragment ? right : left;
+    const phrase = leftIsFragment
+      ? tokenRangeSpan(right, rightTokens.length, match.rightStart, match.length)
+      : tokenRangeSpan(left, leftTokens.length, match.leftStart, match.length);
+    if (gapBetween(fragment, phrase) > maxGapMs) return null;
+    return decide(fragment, whole, 'echo-fragment');
+  }
+  // Identical: the very same words on both sides, three or more. Two rows that each add their own words
+  // around a shared phrase are a partial overlap and stay — both may be real speech.
+  const identical = leftCoverage === 1 && rightCoverage === 1 && leftTokens.length === rightTokens.length;
+  if (!identical || match.length < 3) return null;
+  const leftNamed = options.leftNamed ?? true;
+  const rightNamed = options.rightNamed ?? true;
+  if (leftNamed !== rightNamed) return leftNamed ? decide(right, left, 'echo-identical') : decide(left, right, 'echo-identical');
+  if (left.startMs !== right.startMs) {
+    return left.startMs < right.startMs ? decide(right, left, 'echo-identical') : decide(left, right, 'echo-identical');
+  }
+  return decide(right, left, 'echo-identical');
+}

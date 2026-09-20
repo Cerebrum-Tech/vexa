@@ -74,7 +74,10 @@ measured or capped, and that is what made a budget unenforceable before.
 
 <Note>
 `VEXA_LLM_MAX_TOKENS` caps the *reply*, not the request. Leave it unset to let the backend decide —
-a truncated report is worse than a long one.
+a truncated report is worse than a long one. The live-note beats answer with one JSON object per
+transcript row, about 60 reply tokens each (Turkish, measured on a six-speaker Teams meeting), so a window
+of 40 rows needs ~2,600 tokens: a cap of 2048 cut that reply mid-object and, before the salvage, cost the
+whole window. Size the cap for your window — 8192 is comfortable — or leave it unset.
 </Note>
 
 For a one-GPU local test with Ollama, bind the server to the Docker bridge gateway instead of a LAN

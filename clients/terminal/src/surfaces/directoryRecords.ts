@@ -6,7 +6,13 @@ export interface DirectoryRecord {
   kind: DirectoryKind; title: string; description: string; organization: string; body: string; source: string;
 }
 export function isDirectoryCandidate(path: string): boolean {
-  return path.startsWith("kg/") && /\.md$/i.test(path) && !/(^|\/)(index|readme|log)\.md$/i.test(path);
+  // A directory reads every candidate's body to classify it, so a folder that can never produce a
+  // record is not a candidate: `kg/entities/meeting/` holds the meeting documents and their per-run
+  // copies, which `directoryRecord` rejects on `type` anyway. In a working workspace they outnumber
+  // the people, companies and notes put together, and reading them delays the list they never join.
+  return path.startsWith("kg/") && /\.md$/i.test(path)
+    && !/(^|\/)(index|readme|log)\.md$/i.test(path)
+    && !path.startsWith("kg/entities/meeting/");
 }
 const text = (s: string) => s.trim().replace(/^["']|["']$/g, "").replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, "$1");
 export function directoryRecord(path: string, source: string, mount: DirectoryMount): DirectoryRecord | null {

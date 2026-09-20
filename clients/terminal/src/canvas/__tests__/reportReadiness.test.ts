@@ -4,7 +4,7 @@ import { parseReadyReport, readReadyReport, scanReadyReports } from "../reportRe
 import type { MeetingMock } from "../../surfaces/meetingModel";
 import * as workspaceApi from "../../surfaces/workspaceApi";
 
-vi.mock("../../surfaces/workspaceApi", () => ({ readActiveSet: vi.fn(), listWorkspaceTree: vi.fn(), readWorkspaceFile: vi.fn() }));
+vi.mock("../../surfaces/workspaceApi", () => ({ readActiveSet: vi.fn(), listWorkspaceTree: vi.fn(), readWorkspaceFile: vi.fn(), readMeetingReport: vi.fn() }));
 const body = "## Özet\nPlan görüşüldü.\n\n## Alınan Kararlar\nKarar yok.\n\n## Aksiyon Maddeleri\nAksiyon yok.";
 const revision = createHash("sha256").update(body).digest("hex");
 const content = (fields = "") => `---\ntype: meeting\nmeeting_row_id: '42'\nreport_workspace: team\nreport_status: completed\nreport_language: tr\nreport_revision: ${revision}\n${fields}---\n\n${body}\n`;
@@ -16,6 +16,8 @@ beforeEach(() => {
   vi.mocked(workspaceApi.readActiveSet).mockResolvedValue({ subject: "alice", active: [{ slug: "team", path: "/work/team", role: "reader", write: false, primary: false, repo: null, ref: null }] });
   vi.mocked(workspaceApi.listWorkspaceTree).mockResolvedValue([target.path]);
   vi.mocked(workspaceApi.readWorkspaceFile).mockReset().mockResolvedValue(content());
+  // The meeting itself serves a report only to a share recipient; these cases are all own-mount reads.
+  vi.mocked(workspaceApi.readMeetingReport).mockReset().mockResolvedValue(null);
 });
 
 describe("report provenance", () => {

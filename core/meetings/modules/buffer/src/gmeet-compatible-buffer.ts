@@ -67,6 +67,10 @@ interface SpeakerBuffer {
    *  that response's text covers the pre-trim window — discard it and
    *  resubmit the owned (trimmed) audio as the final window. */
   pendingFinal: boolean;
+  /** The next response is the turn's FINAL text: emit it on arrival and reset. Set when a turn
+   *  closes with a request in flight over exactly the owned audio (no trim), and for the deferred
+   *  resubmit above — whose reply used to land after the turn's key was released, unpublished. */
+  finalOnArrival: boolean;
   /** Samples inherited from a previous speaker via carry-forward */
   carryForwardSamples: number;
   /** totalSamples at the moment of the most recent submission — everything fed after it has never
@@ -222,6 +226,7 @@ export class GmeetCompatibleBuffer {
       lastAudioTimestamp: now,
       idleSubmitted: false,
       pendingFinal: false,
+      finalOnArrival: false,
       carryForwardSamples: 0,
       lastSubmitTotalSamples: 0,
       generation: 0,
@@ -328,9 +333,22 @@ export class GmeetCompatibleBuffer {
     // now — before any emit path below — so the very confirm this result triggers carries it.
     if (language) buffer.lastLanguage = language;
 
+    // The turn closed while this request was in flight over exactly the audio it still owns:
+    // this reply IS the turn's final text. Publish it now and retire the buffer — nothing else
+    // will ever run for this key (the pipeline releases it right after the close settles).
+    if (buffer.finalOnArrival) {
+      buffer.finalOnArrival = false;
+      buffer.pendingFinal = false;
+      const finalText = (transcript ?? '').trim();
+      if (finalText) this.emitSegment(buffer, finalText);
+      else this.finalizePendingDraft(buffer);
+      this.fullReset(buffer);
+      return true;
+    }
+
     // Segmentation closed this buffer while this request was in flight: the
     // text covers the pre-trim window (may include the next segment's audio).
-    // Discard it and submit the owned audio as the final window.
+    // Discard it and submit the owned audio as the final window — whose reply is final.
     if (buffer.pendingFinal) {
       buffer.pendingFinal = false;
       if (this.unconfirmedSamples(buffer) === 0) {
@@ -338,6 +356,7 @@ export class GmeetCompatibleBuffer {
         return false;
       }
       buffer.idleSubmitted = true;
+      buffer.finalOnArrival = true;
       this.log(`[SpeakerStreams] Final resubmit for "${buffer.speakerName}" after deferred close (${(this.unconfirmedSamples(buffer) / this.sampleRate).toFixed(1)}s audio)`);
       void this.submitBuffer(buffer, 'deferred-final');
       return false;
@@ -597,6 +616,15 @@ export class GmeetCompatibleBuffer {
     // Have audio but no transcript — final Whisper submit
     if (this.unconfirmedSamples(buffer) > 0) {
       if (buffer.inFlight) {
+        if (trimAtMs === undefined) {
+          // The request in flight covers exactly the audio this turn owns (nothing was trimmed
+          // off its tail), so its reply is the turn's final text: publish it when it lands. A
+          // resubmit here would only pay a second STT round trip for the same audio — and with
+          // a slow STT that reply landed after the key was released and was never published.
+          buffer.finalOnArrival = true;
+          this.log(`[SpeakerStreams] Close while in-flight for "${buffer.speakerName}" — the in-flight reply is final (${unconfirmedSec.toFixed(1)}s audio)`);
+          return;
+        }
         // A draft request is in flight for the PRE-TRIM window. Discarding
         // the buffer here loses the whole segment's audio (multi-second
         // transcript holes). Instead: when the response lands, its text is
@@ -955,6 +983,7 @@ export class GmeetCompatibleBuffer {
     buffer.lastWords = [];
     buffer.idleSubmitted = false;
     buffer.pendingFinal = false;
+    buffer.finalOnArrival = false;
     buffer.pendingDraftText = '';
     buffer.lastSubmitTotalSamples = 0;
     buffer.generation++;
@@ -977,6 +1006,7 @@ export class GmeetCompatibleBuffer {
     buffer.lastAudioTimestamp = this.now();
     buffer.idleSubmitted = false;
     buffer.pendingFinal = false;
+    buffer.finalOnArrival = false;
     buffer.carryForwardSamples = 0;
     buffer.lastSubmitTotalSamples = 0;
     buffer.generation++;

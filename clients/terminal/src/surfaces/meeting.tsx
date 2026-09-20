@@ -31,7 +31,7 @@ import { UploadRecordingButton } from "./uploadRecording";
 function platformSlug(display: string): string {
   return display === "Google Meet" ? "google_meet" : display.toLowerCase().replace(/\s+/g, "_");
 }
-function ShareSessionButton({ platform, native }: { platform: string; native: string }) {
+export function ShareSessionButton({ platform, native }: { platform: string; native: string }) {
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState("open");
   const [emails, setEmails] = useState("");
@@ -66,16 +66,18 @@ function ShareSessionButton({ platform, native }: { platform: string; native: st
   };
   const fieldStyle = { fontSize: 12, padding: "4px 6px", background: "var(--panel)", border: "1px solid var(--line)", borderRadius: 6, color: "var(--t1)" } as const;
   return (
-    <div ref={ref} style={{ position: "relative", flex: "none" }}>
+    <div ref={ref} style={{ position: "relative", flex: "none", minWidth: 0 }}>
       <button onClick={() => { setOpen((v) => !v); setLink(null); }} title="Bu toplantının canlı yayınını (ve isterseniz bir çalışma alanını) paylaşın"
         style={{ display: "inline-flex", alignItems: "center", gap: 5, background: "transparent", border: "1px solid var(--line2)", color: "var(--t2)", borderRadius: 6, padding: "2px 8px", fontSize: 12, cursor: "pointer" }}>
         <Icon name="upload" size={12} /> Oturumu paylaş
       </button>
       {open && (
-        <div style={{ position: "absolute", top: "100%", right: 0, marginTop: 6, width: 280, background: "var(--panel)", border: "1px solid var(--line2)", borderRadius: 10, boxShadow: "0 8px 28px rgba(0,0,0,.32)", padding: 12, zIndex: 50, display: "flex", flexDirection: "column", gap: 8 }}>
+        // Anchored to the button's LEFT edge and clamped to the viewport: anchored right, a 280px panel
+        // opens leftwards and on a narrow window runs off the content area and under the sidebar.
+        <div style={{ position: "absolute", top: "100%", left: 0, marginTop: 6, width: 280, maxWidth: "calc(100vw - 24px)", boxSizing: "border-box", background: "var(--panel)", border: "1px solid var(--line2)", borderRadius: 10, boxShadow: "0 8px 28px rgba(0,0,0,.32)", padding: 12, zIndex: 50, display: "flex", flexDirection: "column", gap: 8 }}>
           <div style={{ fontSize: 11, color: "var(--t3)", textTransform: "uppercase", letterSpacing: ".04em" }}>Oturumu paylaş</div>
-          <div style={{ display: "flex", gap: 6 }}>
-            <select value={mode} disabled={busy} onChange={(e) => { setMode(e.target.value); setLink(null); }} style={{ ...fieldStyle, flex: 1 }}>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            <select value={mode} disabled={busy} onChange={(e) => { setMode(e.target.value); setLink(null); }} style={{ ...fieldStyle, flex: "1 1 140px", minWidth: 0 }}>
               <option value="open">bağlantıya sahip herkes</option>
               <option value="restricted">kısıtlı (e-posta ile)</option>
             </select>
@@ -848,7 +850,7 @@ function MeetingTitle({ m }: { m: MeetingMock | undefined }) {
   </span>;
 }
 
-function BotControls({ m, connected = true }: { m: MeetingMock; connected?: boolean }) {
+export function BotControls({ m, connected = true }: { m: MeetingMock; connected?: boolean }) {
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const acts = actionsFor(m).filter((a) => a.id === "stop" || a.id === "resend" || a.id === "send");

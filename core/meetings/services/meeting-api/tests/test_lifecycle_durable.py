@@ -256,6 +256,49 @@ def test_platform_title_is_persisted_without_overwriting_manual_title():
         assert repo._meetings[m["id"]]["data"]["title"] == "Elle düzenlendi"
 
 
+def test_a_platform_title_that_arrives_after_active_still_names_the_meeting():
+    """Teams renders a meeting's subject after its UI settles, so the read taken the moment the bot
+    is admitted comes back empty for a meeting that has a perfectly good name. The bot keeps looking
+    and carries what it finds on its terminal event — and the row takes it, or the meeting lives in
+    the list as a bare number for good."""
+    import asyncio
+
+    repo = InMemoryMeetingRepo()
+    m = asyncio.run(repo.create_meeting(user_id=1, platform="teams", native_meeting_id="218140144714297", data={}))
+    asyncio.run(repo.create_session(meeting_id=m["id"], session_uid="late-title"))
+    repo.set_status(m["id"], "joining")
+    client = TestClient(create_app(meeting_repo=repo))
+
+    assert client.post(ENDPOINT, json={"connection_id": "late-title", "status": "active"}).status_code == 200
+    assert "title" not in repo._meetings[m["id"]]["data"]
+
+    response = client.post(ENDPOINT, json={
+        "connection_id": "late-title", "status": "completed", "completion_reason": "stopped",
+        "meeting_title": "  16.09  Deneme  ",
+    })
+    assert response.status_code == 200, response.text
+    saved = repo._meetings[m["id"]]["data"]
+    assert saved["platform_title"] == "16.09 Deneme"
+    assert saved["title"] == "16.09 Deneme"
+
+
+def test_the_first_platform_title_wins_over_a_later_one():
+    """Admission's own read is the better evidence — it was taken while the meeting was live and is
+    never displaced by a later, weaker one."""
+    import asyncio
+
+    repo = InMemoryMeetingRepo()
+    m = asyncio.run(repo.create_meeting(user_id=1, platform="teams", native_meeting_id="218140144714297", data={}))
+    asyncio.run(repo.create_session(meeting_id=m["id"], session_uid="two-titles"))
+    repo.set_status(m["id"], "joining")
+    client = TestClient(create_app(meeting_repo=repo))
+
+    client.post(ENDPOINT, json={"connection_id": "two-titles", "status": "active", "meeting_title": "İlk Ad"})
+    client.post(ENDPOINT, json={"connection_id": "two-titles", "status": "completed",
+                                "completion_reason": "stopped", "meeting_title": "Sonraki Ad"})
+    assert repo._meetings[m["id"]]["data"]["platform_title"] == "İlk Ad"
+
+
 def test_invalid_platform_title_is_not_persisted():
     import asyncio
 
