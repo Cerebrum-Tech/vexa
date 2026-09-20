@@ -16,6 +16,7 @@ import { registry } from "../contributions";
 import { AuthGate } from "./AuthGate";
 import { OnboardingGate } from "./OnboardingGate";
 import { SetupGate } from "./SetupGate";
+import { BrowserSupportNotice } from "./BrowserSupportNotice";
 import { acceptInvite, acceptTranscriptShare, previewInvite, type InvitePreview } from "../surfaces/workspaceApi";
 import "../surfaces";
 
@@ -146,18 +147,22 @@ export function App() {
   // InviteGate then shows the consent screen for any ?invite= INSIDE the authed subtree, so its preview /
   // redeem calls carry the user's real API key (the fail-closed gateway rejects anonymous calls).
   return (
-    <AuthGate>
-      <InviteGate>
-        {/* SetupGate: the bootstrap-claimed admin's first-run wizard (models + transcription,
-            smoke-tested). Non-admins and completed instances fall straight through. */}
-        <SetupGate>
-          <OnboardingGate>
-            <ServicesProvider container={container}>
-              <Workbench />
-            </ServicesProvider>
-          </OnboardingGate>
-        </SetupGate>
-      </InviteGate>
-    </AuthGate>
+    <>
+      {/* Safari is unsupported: say so once, above the sign-in page, before anything else misbehaves. */}
+      <BrowserSupportNotice />
+      <AuthGate>
+        <InviteGate>
+          {/* SetupGate: the bootstrap-claimed admin's first-run wizard (models + transcription,
+              smoke-tested). Non-admins and completed instances fall straight through. */}
+          <SetupGate>
+            <OnboardingGate>
+              <ServicesProvider container={container}>
+                <Workbench />
+              </ServicesProvider>
+            </OnboardingGate>
+          </SetupGate>
+        </InviteGate>
+      </AuthGate>
+    </>
   );
 }
