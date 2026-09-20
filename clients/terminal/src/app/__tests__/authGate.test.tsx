@@ -1,7 +1,7 @@
 /** AuthGate — the sign-in page's shape and method switch. With LDAP configured the page is the
- *  domain form (heading naming the service, label-over-field inputs, one pill, a note under it) and
- *  links nowhere; the other methods open only through `?auth=email` and link back. Without LDAP the
- *  other methods are the page. */
+ *  domain form (heading naming the service, label-over-field inputs, one pill, a note under it) with a
+ *  small "Diğer giriş seçenekleri" link; the other methods also open through `?auth=email` and link
+ *  back. Without LDAP the other methods are the page. */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import React from "react";
@@ -32,7 +32,7 @@ function stubProbes(opts: { ldap: boolean; providers?: Record<string, unknown>; 
 }
 
 describe("AuthGate", () => {
-  it("LDAP deploy: heading, label-over-field inputs, pill, the note, and no method link", async () => {
+  it("LDAP deploy: heading, label-over-field inputs, pill, the note, and the other-options link", async () => {
     stubProbes({ ldap: true });
     render(<AuthGate><div data-testid="workbench" /></AuthGate>);
     await waitFor(() => expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("İnnova Toplantı Asistanı'na giriş yapın"));
@@ -43,9 +43,19 @@ describe("AuthGate", () => {
     expect(screen.getByText("* İnnova kullanıcınız ile giriş yapın")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "E-posta ile devam et" })).toBeNull();
     expect(screen.queryByText(/LDAP/)).toBeNull();
+    expect(screen.getByRole("button", { name: "Diğer giriş seçenekleri" })).toBeTruthy();
     // the old card chrome is gone
     expect(screen.queryByAltText("Innova")).toBeNull();
-    expect(screen.queryByText("Diğer giriş seçenekleri")).toBeNull();
+  });
+
+  it("the other-options link swaps LDAP for the other methods and back", async () => {
+    stubProbes({ ldap: true, providers: { google: {} } });
+    render(<AuthGate><div /></AuthGate>);
+    fireEvent.click(await screen.findByRole("button", { name: "Diğer giriş seçenekleri" }));
+    expect(screen.getByRole("button", { name: /Google ile devam et/ })).toBeTruthy();
+    expect(screen.queryByLabelText("Kullanıcı Adı")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "LDAP ile devam et" }));
+    expect(screen.getByLabelText("Kullanıcı Adı")).toBeTruthy();
   });
 
   it("the eye toggles the password field between hidden and shown", async () => {
@@ -68,7 +78,6 @@ describe("AuthGate", () => {
     expect(screen.queryByLabelText("Kullanıcı Adı")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "LDAP ile devam et" }));
     expect(screen.getByLabelText("Kullanıcı Adı")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "E-posta ile devam et" })).toBeNull();
   });
 
   it("no LDAP and no OAuth: the e-posta form is the page, with no method link", async () => {

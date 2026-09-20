@@ -5,10 +5,10 @@
  *  large heading naming the service, stacked "label over field" inputs with no box around them, a
  *  full-width neutral pill button and a small note under it. No card, no logo row.
  *
- *  Method order: when the deploy carries LDAP_* config the domain form is the page, and nothing on it
- *  links elsewhere. The other methods (OAuth buttons when configured, otherwise the direct email
- *  entry — a DEBUG path the server restricts to addresses containing "test") stay reachable by URL
- *  only, with `?auth=email`, just as CereInsight keeps /login/noldap off its sign-in page. Without
+ *  Method order: when the deploy carries LDAP_* config the domain form is the page; a small
+ *  "Diğer giriş seçenekleri" link under it (kept for now so testers can still sign in) swaps to the
+ *  other methods — OAuth buttons when configured, otherwise the direct email entry, a DEBUG path the
+ *  server restricts to addresses containing "test" — and `?auth=email` opens them directly. Without
  *  LDAP the other methods are the page. Enabled OAuth providers are discovered from NextAuth's
  *  /api/auth/providers so a deploy with no OAuth creds simply hides the buttons.
  *
@@ -24,7 +24,7 @@ type Method = "ldap" | "email";
 
 const SERVICE_NAME = "İnnova Toplantı Asistanı";
 
-/** `?auth=email` opens the non-LDAP methods; there is no link to them on the LDAP page. */
+/** `?auth=email` opens the non-LDAP methods directly, without the link. */
 function methodFromUrl(): Method {
   if (typeof window === "undefined") return "ldap";
   return new URLSearchParams(window.location.search).get("auth") === "email" ? "email" : "ldap";
@@ -44,7 +44,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   const [ldapPass, setLdapPass] = useState("");
   const [showPass, setShowPass] = useState(false);
   const [ldapSubmitting, setLdapSubmitting] = useState(false);
-  // Which method the page shows. LDAP unless the URL asks for the others; the email page links back.
+  // Which method the page shows. LDAP unless the URL asks for the others; the links swap between them.
   const [method, setMethod] = useState<Method>(methodFromUrl);
 
   useEffect(() => {
@@ -198,6 +198,9 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
               {ldapSubmitting ? "Giriş yapılıyor…" : claiming ? "Yönetici olarak giriş yap" : "Giriş yap"}
             </button>
             <div style={noteStyle}>* İnnova kullanıcınız ile giriş yapın</div>
+            <button type="button" onClick={() => switchMethod("email")} style={{ ...textLink, fontSize: 14, color: "var(--t2)" }}>
+              Diğer giriş seçenekleri
+            </button>
           </form>
         )}
 
