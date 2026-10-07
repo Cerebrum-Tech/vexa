@@ -13,6 +13,7 @@ import { prepareForRecording, leaveGoogleMeet } from "./googlemeet/leave";
 import { startGoogleRemovalMonitor } from "./googlemeet/removal";
 import { joinMicrosoftTeams } from "./msteams/join";
 import { waitForTeamsMeetingAdmission, checkForTeamsAdmissionSilent } from "./msteams/admission";
+import { guardAgainstPageCrash } from "./shared/page-crash";
 import { prepareForRecording as prepareForTeamsRecording, leaveMicrosoftTeams } from "./msteams/leave";
 import { startTeamsRemovalMonitor } from "./msteams/removal";
 import { readTeamsMeetingTitle } from "./msteams/title";
@@ -106,26 +107,32 @@ export async function joinMeeting(page: Page, opts: JoinOptions): Promise<JoinRe
     setHooks({}); // ensure default state-logger is installed if none supplied
   }
 
+  // Every platform drive runs under the page-crash guard: a renderer the kernel kills mid-lobby
+  // otherwise leaves the admission poll hung on a read that never settles (see shared/page-crash).
+  const drive = (join: () => Promise<unknown>, wait: () => Promise<boolean>) =>
+    guardAgainstPageCrash(page, async () => { await join(); return wait(); });
+  const lobbyTimeout = botConfig.automaticLeave!.waitingRoomTimeout;
+
   let admitted: boolean;
   if (platform === "teams") {
-    await joinMicrosoftTeams(page, opts.meetingUrl, botConfig.botName!, botConfig);
-    admitted = await waitForTeamsMeetingAdmission(
-      page, botConfig.automaticLeave!.waitingRoomTimeout, botConfig,
+    admitted = await drive(
+      () => joinMicrosoftTeams(page, opts.meetingUrl, botConfig.botName!, botConfig),
+      () => waitForTeamsMeetingAdmission(page, lobbyTimeout, botConfig),
     );
   } else if (platform === "zoom") {
-    await joinZoomMeeting(page, opts.meetingUrl, botConfig.botName!, botConfig);
-    admitted = await waitForZoomMeetingAdmission(
-      page, botConfig.automaticLeave!.waitingRoomTimeout, botConfig,
+    admitted = await drive(
+      () => joinZoomMeeting(page, opts.meetingUrl, botConfig.botName!, botConfig),
+      () => waitForZoomMeetingAdmission(page, lobbyTimeout, botConfig),
     );
   } else if (platform === "jitsi") {
-    await joinJitsiMeeting(page, opts.meetingUrl, botConfig.botName!, botConfig);
-    admitted = await waitForJitsiMeetingAdmission(
-      page, botConfig.automaticLeave!.waitingRoomTimeout, botConfig,
+    admitted = await drive(
+      () => joinJitsiMeeting(page, opts.meetingUrl, botConfig.botName!, botConfig),
+      () => waitForJitsiMeetingAdmission(page, lobbyTimeout, botConfig),
     );
   } else if (platform === "google_meet") {
-    await joinGoogleMeeting(page, opts.meetingUrl, botConfig.botName!, botConfig);
-    admitted = await waitForGoogleMeetingAdmission(
-      page, botConfig.automaticLeave!.waitingRoomTimeout, botConfig,
+    admitted = await drive(
+      () => joinGoogleMeeting(page, opts.meetingUrl, botConfig.botName!, botConfig),
+      () => waitForGoogleMeetingAdmission(page, lobbyTimeout, botConfig),
     );
   } else {
     // Explicit refusal, never a fallthrough: an unknown platform used to silently run the GOOGLE
