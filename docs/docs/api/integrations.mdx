@@ -1,0 +1,69 @@
+---
+title: "Integrations API"
+description: "Read one account's meeting summaries from another system, with a deployment key instead of a user's API key."
+---
+
+Some systems need meeting summaries without a user signing in, such as an HR portal, a CRM or a
+reporting job. They call the integrations API with a **fixed deployment key** and name the account by
+its email address.
+
+## Configure the key
+
+Set `VEXA_SUMMARY_API_KEY` on agent-api (compose: `SUMMARY_API_KEY` in `.env`) to a long random
+value, for example `openssl rand -hex 32`. While it is unset the route answers `503` for every caller.
+The key reads **any** account's summaries, so give it only to systems that are allowed to.
+
+## List an account's summaries
+
+```bash
+curl -s "https://<your-host>/api/integrations/summaries?email=ayse.yilmaz@example.com&since=2026-10-01&limit=20" \
+  -H "X-Summary-Api-Key: $SUMMARY_API_KEY"
+```
+
+The same route is served at the gateway as `GET /integrations/summaries`. The terminal's
+`/api/integrations/summaries` forwards to it.
+
+| Query parameter | Required | Meaning |
+|---|---|---|
+| `email` | yes | The account's email, matched case-insensitively. For directory (LDAP) sign-in this is the address the account was created with. |
+| `since` | no | ISO-8601 date or datetime. Only meetings that started at or after it. A value without a timezone is read as UTC. |
+| `until` | no | ISO-8601 date or datetime. Only meetings that started before it. |
+| `limit` | no | 1–200, default 50. |
+
+Only meetings with a **completed** summary are returned, newest first. The list includes meetings
+another user shared with the account; those rows have `shared: true`.
+
+```json
+{
+  "user": { "user_id": 7, "email": "ayse.yilmaz@example.com", "name": "Ayşe Yılmaz" },
+  "count": 1,
+  "summaries": [
+    {
+      "meeting_id": "101",
+      "title": "Bütçe toplantısı",
+      "platform": "teams",
+      "native_meeting_id": "19:meeting_…",
+      "status": "completed",
+      "start_time": "2026-10-02T09:00:00",
+      "end_time": "2026-10-02T09:45:00",
+      "shared": false,
+      "language": "tr",
+      "revision": "3f1c…",
+      "summary": "Bütçe onaylandı.",
+      "content": "## Özet\nBütçe onaylandı.\n\n## Alınan Kararlar\n…"
+    }
+  ]
+}
+```
+
+`summary` is the short summary paragraph. `content` is the full report body (summary, decisions and
+actions) as markdown, without its frontmatter.
+
+## Errors
+
+| Status | When |
+|---|---|
+| `401` | `X-Summary-Api-Key` is missing or wrong. |
+| `404` | No account has this email. |
+| `422` | `email` is missing or malformed, `since`/`until` is not ISO-8601, or `limit` is out of range. |
+| `503` | `VEXA_SUMMARY_API_KEY` is not set, or the account lookup or meeting list is unavailable. |

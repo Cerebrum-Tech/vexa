@@ -353,6 +353,16 @@
       ]
     },
     {
+      "key": "VEXA_SUMMARY_API_KEY",
+      "class": "defaulted",
+      "default": "(unset)",
+      "secret": true,
+      "description": "the fixed key an integrating system presents as X-Summary-Api-Key to read one account's meeting summaries (GET /api/integrations/summaries); unset disables that route (503)",
+      "targets": [
+        "compose"
+      ]
+    },
+    {
       "key": "VEXA_REQUIRE_GATEWAY_IDENTITY",
       "class": "defaulted",
       "default": "false",

@@ -1004,6 +1004,20 @@ def create_app() -> FastAPI:
         await db.commit()
         return {"claimed": True, "admin_exists": True}
 
+    # --- internal tier: resolve an account by email for a service-to-service reader (agent-api's
+    #     summaries integration). Case-insensitive: directory logins key accounts by a lowercased
+    #     email, while an integrating system may send the address as its own records spell it. ---
+    @app.get("/internal/users/by-email/{email}", include_in_schema=False)
+    async def internal_user_by_email(email: str, request: Request, db: AsyncSession = Depends(get_db)):
+        _check_internal(request)
+        wanted = email.strip().lower()
+        user = (await db.execute(
+            select(User).where(func.lower(User.email) == wanted).order_by(User.id).limit(1)
+        )).scalars().first()
+        if user is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Unknown user")
+        return {"user_id": user.id, "email": user.email, "name": user.name}
+
     @app.get("/internal/users/{user_id}/memberships", include_in_schema=False)
     async def list_memberships(user_id: str, request: Request, db: AsyncSession = Depends(get_db)):
         _check_internal(request)

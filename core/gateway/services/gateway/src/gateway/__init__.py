@@ -8,7 +8,7 @@ Public surface (the front door):
   - ``create_app(authorizer, downstream, redis, ...)`` — the FastAPI gateway (REST proxy,
     fail-closed auth + deny-by-default scope 403, verbatim body passthrough; the ``/ws``
     multiplex; ``/health``). Raises if any route it registers declares no scope.
-  - ``ROUTE_SCOPES`` / ``UNSCOPED_ROUTES`` / ``undeclared_routes(app)`` — the scope model and
+  - ``ROUTE_SCOPES`` / ``UNSCOPED_ROUTES`` / ``SERVICE_KEY_ROUTES`` / ``undeclared_routes(app)`` — the scope model and
     the executable form of the deny-by-default invariant.
   - ``run_multiplex(ws, authorizer, redis)`` — the ``/ws`` control loop + fan-in, exposed so the
     conformance ws-harness drives the SHIPPED multiplex without reaching for a private.
@@ -21,7 +21,7 @@ shipped app; this package imports nothing from conformance.
 """
 from __future__ import annotations
 
-from .app import ROUTE_SCOPES, UNSCOPED_ROUTES, create_app, run_multiplex, undeclared_routes
+from .app import ROUTE_SCOPES, SERVICE_KEY_ROUTES, UNSCOPED_ROUTES, create_app, run_multiplex, undeclared_routes
 from .ports import Authorizer, DownstreamClient, PubSub, RedisBus
 
 __all__ = [
@@ -29,6 +29,7 @@ __all__ = [
     "run_multiplex",
     "ROUTE_SCOPES",
     "UNSCOPED_ROUTES",
+    "SERVICE_KEY_ROUTES",
     "undeclared_routes",
     "Authorizer",
     "DownstreamClient",

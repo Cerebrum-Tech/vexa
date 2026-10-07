@@ -109,6 +109,9 @@ class Settings(BaseSettings):
     dispatch_signing_key: SecretStr = SecretStr("dev-dispatch-signing-key")
     # Internal-tier shared secret for the admin-api membership-index edge (Lane M).
     internal_api_secret: SecretStr = SecretStr("")
+    # The fixed key an integrating system presents (X-Summary-Api-Key) to read one account's meeting
+    # summaries over GET /api/integrations/summaries. Unset = that route is disabled (503).
+    summary_api_key: SecretStr = SecretStr("")
 
     def is_secret_present(self) -> bool:
         """True when a scoped identity token has been provided (without revealing it)."""

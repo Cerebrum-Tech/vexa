@@ -92,6 +92,7 @@
           "api/calendar",
           "api/settings",
           "api/agent",
+          "api/integrations",
           "api/errors"
         ]
       },

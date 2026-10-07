@@ -193,9 +193,18 @@ UNSCOPED_ROUTES: FrozenSet[Tuple[str, str]] = frozenset({
     ("GET", "/auth/me"),
 })
 
+# The routes a SERVICE calls with a deployment key instead of a user's API key. The gateway resolves
+# no user for them: it forwards the route's own key header and nothing that could carry an identity,
+# and the downstream checks the key itself (fail-closed when unset). The header each route carries is
+# the value here.
+SERVICE_KEY_ROUTES: Dict[Tuple[str, str], str] = {
+    ("GET", "/integrations/summaries"): "x-summary-api-key",
+}
+
 
 def undeclared_routes(app: FastAPI) -> List[Tuple[str, str]]:
-    """Every (method, route-template) on ``app`` with no entry in ROUTE_SCOPES or UNSCOPED_ROUTES.
+    """Every (method, route-template) on ``app`` with no entry in ROUTE_SCOPES, UNSCOPED_ROUTES or
+    SERVICE_KEY_ROUTES.
 
     The executable form of the deny-by-default invariant, used by ``create_app``'s build-time
     assertion and by the guard test. WebSocket routes are out of frame: ``/ws`` is not an
@@ -210,7 +219,7 @@ def undeclared_routes(app: FastAPI) -> List[Tuple[str, str]]:
             if method == "HEAD":
                 continue  # never registered by FastAPI itself; mirrors its GET sibling if it is
             key = (method, route.path)
-            if key not in ROUTE_SCOPES and key not in UNSCOPED_ROUTES:
+            if key not in ROUTE_SCOPES and key not in UNSCOPED_ROUTES and key not in SERVICE_KEY_ROUTES:
                 missing.append(key)
     return missing
 
@@ -917,6 +926,36 @@ def create_app(
     async def agent_proxy(path: str, request: Request):
         return await _forward(request.method, _agent(path), request)
 
+    # ---- service-key routes: an integrating system, not a user. No key -> user resolution; only the
+    # route's own key header, the query and the trace id travel downstream, so no identity header a
+    # caller sends can reach agent-api. agent-api checks the key (and refuses when it is unset).
+    async def _forward_service(method: str, url: str, key_header: str, request: Request) -> Response:
+        headers = {TRACE_HEADER: get_trace_id() or ""}
+        provided = request.headers.get(key_header)
+        if provided:
+            headers[key_header] = provided
+        try:
+            resp = await downstream.request(method, url, headers=headers,
+                                            params=dict(request.query_params) or None, content=b"")
+        except httpx.TimeoutException:
+            return Response(content=json.dumps({"detail": "upstream timeout"}),
+                            status_code=504, media_type="application/json")
+        except httpx.RequestError as e:
+            return Response(content=json.dumps({"detail": f"upstream unreachable: {type(e).__name__}"}),
+                            status_code=502, media_type="application/json")
+        log_event(
+            "downstream_forwarded", audience="system", level="debug", span="proxy",
+            fields={"method": method, "path": url, "downstream_status": resp.status_code},
+        )
+        return Response(content=resp.content, status_code=resp.status_code,
+                        media_type=resp.headers.get("content-type", "application/json"))
+
+    @app.get("/integrations/summaries")
+    async def integration_summaries(request: Request):
+        return await _forward_service(
+            "GET", _agent("integrations/summaries"),
+            SERVICE_KEY_ROUTES[("GET", "/integrations/summaries")], request)
+
     # ---- the MCP front door (#795): the streamable-HTTP transport, fronted at the edge ----
     # MCP streamable-HTTP is ONE endpoint driven by two methods with opposite lifetimes:
     #   POST /mcp — a message. Short request/response JSON → the buffered forward, verbatim.
@@ -986,7 +1025,7 @@ def create_app(
             "gateway routes with no scope declaration: "
             + ", ".join(f"{m} {p}" for m, p in missing)
             + " — add each to gateway.app.ROUTE_SCOPES (or, for an identity-only route that needs "
-            "no scope, to UNSCOPED_ROUTES)."
+            "no scope, to UNSCOPED_ROUTES; for a service-key route, to SERVICE_KEY_ROUTES)."
         )
 
     return app

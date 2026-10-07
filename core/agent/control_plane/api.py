@@ -65,6 +65,7 @@ from control_plane.workspace_purpose import read_purpose, write_purpose
 from control_plane import workspace_membership as membership_mod
 from control_plane import git_credentials as git_creds
 from control_plane import system_mounts
+from control_plane import summaries_integration as summaries_mod
 from control_plane.workspace_membership import MembershipError, MembershipIndex, InMemoryMembershipIndex
 from control_plane.dispatch import Dispatcher
 from control_plane.events import event_to_invocation
@@ -931,6 +932,8 @@ def create_app(
     membership_index: Optional[MembershipIndex] = None,
     meeting_owner_lookup: "Optional[object]" = None,
     schedule_source: "Optional[Callable[[str], list]]" = None,
+    user_by_email: "Optional[Callable[[str], Optional[dict]]]" = None,
+    meeting_page: "Optional[Callable[[str, int, int], list]]" = None,
 ) -> FastAPI:
     if sessions is not None:
         sess = sessions
@@ -951,6 +954,13 @@ def create_app(
     settings = dispatcher.settings if dispatcher is not None else None
     # The SSE ownership gate's owner-lookup (P0): default = HTTP to meeting-api; injectable for L2 tests.
     _meeting_owner_lookup = meeting_owner_lookup or _http_meeting_owner_lookup(
+        settings.meeting_api_url if settings is not None else "")
+    # The summaries integration's upstreams (account by email · the account's meeting list):
+    # default = HTTP to admin-api's internal edge and meeting-api; injectable for L2 tests.
+    _user_by_email = user_by_email or summaries_mod.http_user_by_email(
+        settings.admin_api_url if settings is not None else "",
+        settings.internal_api_secret.get_secret_value() if settings is not None else "")
+    _meeting_page = meeting_page or summaries_mod.http_meeting_page(
         settings.meeting_api_url if settings is not None else "")
     # The ambient schedule digest's rows source (context bundle): TTL-cached meeting-api fetch;
     # injectable for L2 tests, same seam style as meeting_owner_lookup.
@@ -1459,16 +1469,28 @@ def create_app(
         transcript share — and the path is DERIVED from the row, never taken from the caller, so exactly
         one meeting's report is reachable here. The frontmatter must bind back to this row before a byte
         leaves the owner's workspace."""
-        from shared.reports import ReportEditError, parse_report
-
         subject = subject_of(request)
         record = _meeting_owner_lookup(subject, meeting_id)
         if not isinstance(record, dict) or str(record.get("id")) != str(meeting_id):
             raise HTTPException(404, "Toplantı bulunamadı.")
+        found = _owner_report(record)
+        if found is None:
+            raise HTTPException(404, "Toplantı özeti henüz hazır değil.")
+        report, _metadata, _body = found
+        return report
+
+    def _owner_report(record: dict) -> "Optional[tuple[dict, dict, str]]":
+        """The completed report for one meeting row, read from its OWNER's workspace: the response
+        record, its frontmatter and its body — or None when no report bound to this row exists yet.
+        The path is derived from the row, and the frontmatter must bind back to the row and the
+        workspace it was read from before anything is returned."""
+        from shared.reports import ReportEditError, parse_report
+
+        meeting_id = str(record.get("id") or "").strip()
         owner = str(record.get("user_id") or "").strip()
         native = str(record.get("native_meeting_id") or "").strip()
-        if not owner or not re.fullmatch(r"[\w.@:+-]{1,200}", native):
-            raise HTTPException(404, "Toplantı özeti bulunamadı.")
+        if not meeting_id.isdigit() or not owner or not re.fullmatch(r"[\w.@:+-]{1,200}", native):
+            return None
         candidates = (f"kg/entities/meeting/{native}.run-{meeting_id}.md",
                       f"kg/entities/meeting/{native}.md")
         try:
@@ -1486,12 +1508,76 @@ def create_app(
                 if not content:
                     continue
                 try:
-                    metadata, _ = parse_report(content, meeting_id=str(meeting_id), workspace=mount.slug)
+                    metadata, body = parse_report(content, meeting_id=meeting_id, workspace=mount.slug)
                 except ReportEditError:
                     continue  # a report bound to another row or workspace is not this meeting's
-                return {"meeting_id": str(meeting_id), "workspace": mount.slug, "path": path,
-                        "revision": metadata["report_revision"], "content": content}
-        raise HTTPException(404, "Toplantı özeti henüz hazır değil.")
+                return ({"meeting_id": meeting_id, "workspace": mount.slug, "path": path,
+                         "revision": metadata["report_revision"], "content": content}, metadata, body)
+        return None
+
+    @app.get("/api/integrations/summaries")
+    def integration_summaries(request: Request, email: str = "", since: str = "", until: str = "",
+                              limit: int = 50):
+        """One account's completed meeting summaries, for a system integrating with this deployment.
+
+        The caller is a service, not a signed-in user: it presents the deployment's fixed
+        ``X-Summary-Api-Key`` (``VEXA_SUMMARY_API_KEY``) and names the account by ``email``. An
+        unset key disables the route (503) rather than opening it. ``since``/``until`` are ISO-8601
+        bounds on the meeting's start time (``[since, until)``); rows come newest first."""
+        configured = settings.summary_api_key.get_secret_value() if settings is not None else ""
+        if not configured:
+            raise HTTPException(503, "summaries integration is not configured (VEXA_SUMMARY_API_KEY)")
+        provided = request.headers.get("x-summary-api-key", "")
+        if not provided or not hmac.compare_digest(provided.encode(), configured.encode()):
+            raise HTTPException(401, "invalid or missing X-Summary-Api-Key")
+
+        email = email.strip()
+        if not email or "@" not in email or len(email) > 255:
+            raise HTTPException(422, "email query parameter is required")
+        if not 1 <= limit <= 200:
+            raise HTTPException(422, "limit must be between 1 and 200")
+        since_at = summaries_mod.parse_instant(since) if since else None
+        until_at = summaries_mod.parse_instant(until) if until else None
+        if (since and since_at is None) or (until and until_at is None):
+            raise HTTPException(422, "since/until must be ISO-8601 dates or datetimes")
+
+        try:
+            user = _user_by_email(email)
+        except summaries_mod.UpstreamError as e:
+            raise HTTPException(503, f"account lookup unavailable: {e}") from e
+        if not user or user.get("user_id") is None:
+            raise HTTPException(404, "no account with this email")
+        user_id = str(user["user_id"])
+
+        def read(meeting: dict) -> Optional[dict]:
+            found = _owner_report(meeting)
+            if found is None:
+                return None
+            report, metadata, body = found
+            data = meeting.get("data") if isinstance(meeting.get("data"), dict) else {}
+            return {
+                "meeting_id": report["meeting_id"],
+                "title": metadata.get("title") or data.get("title") or None,
+                "platform": meeting.get("platform"),
+                "native_meeting_id": meeting.get("native_meeting_id"),
+                "status": meeting.get("status"),
+                "start_time": meeting.get("start_time"),
+                "end_time": meeting.get("end_time"),
+                "shared": str(meeting.get("user_id")) != user_id,
+                "language": metadata.get("report_language"),
+                "revision": report["revision"],
+                "summary": summaries_mod.summary_text(body),
+                "content": body,
+            }
+
+        try:
+            rows = summaries_mod.collect_summaries(
+                user_id, meeting_page=_meeting_page, read_report=read,
+                since=since_at, until=until_at, limit=limit)
+        except summaries_mod.UpstreamError as e:
+            raise HTTPException(503, f"meeting list unavailable: {e}") from e
+        return {"user": {"user_id": user["user_id"], "email": user.get("email"), "name": user.get("name")},
+                "count": len(rows), "summaries": rows}
 
     @app.patch("/api/meeting/{meeting_id}/summary")
     def edit_meeting_summary(meeting_id: str, body: SummaryEditBody, request: Request):

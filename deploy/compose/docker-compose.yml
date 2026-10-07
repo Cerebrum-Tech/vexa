@@ -229,6 +229,9 @@ services:
       # (policy/members.json in the workspace git repo stays authoritative; this is the listing cache).
       - VEXA_ADMIN_API_URL=http://admin-api:8001
       - VEXA_INTERNAL_API_SECRET=${INTERNAL_API_SECRET:-vexa-internal-secret}
+      # The fixed key an integrating system presents (X-Summary-Api-Key) to read an account's meeting
+      # summaries at GET /integrations/summaries. Empty = that route is disabled (503).
+      - VEXA_SUMMARY_API_KEY=${SUMMARY_API_KEY:-}
       # Identity (P20): agent-api derives the subject from the gateway-injected X-User-Id. Until the terminal
       # routes through the gateway (Stage 4), it still reaches agent-api directly with no header, so this
       # single-user fallback keeps the dev stack working (shared subject). Remove it once the gateway fronts
